@@ -1,0 +1,15 @@
+{
+  "system": {
+    "code": "IoT",
+    "name": "IoTSharp"
+  },
+  "version": "1.0.0",
+  "resources": [
+    { "code": "IoT.Device", "name": "设备管理", "type": "Menu" },
+    { "code": "IoT.Device.Page", "name": "设备管理页面", "type": "Page", "parentCode": "IoT.Device" },
+    { "code": "IoT.Device.View", "name": "查看设备", "type": "Button", "parentCode": "IoT.Device.Page" },
+    { "code": "IoT.Device.Command", "name": "设备指令", "type": "Button", "parentCode": "IoT.Device.Page" },
+    { "code": "IoT.Customer.Admin", "name": "客户管理", "type": "Button", "parentCode": "IoT.Device.Page" },
+    { "code": "IoT.Tenant.Admin", "name": "租户管理", "type": "Button", "parentCode": "IoT.Device.Page" }
+  ]
+}

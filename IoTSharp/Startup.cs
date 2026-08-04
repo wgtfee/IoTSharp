@@ -15,6 +15,9 @@ using IoTSharp.McpTools;
 using IoTSharp.Services;
 using IoTSharp.Services.Coap;
 using IoTSharp.TaskActions;
+using IoTSharp.IndustrialSecurity;
+using Industrial.Security.Abstractions;
+using Industrial.Security.AspNetCore;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -60,6 +63,16 @@ namespace IoTSharp
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddHttpContextAccessor();
+            services.AddIndustrialSecurity(Configuration);
+            services.AddScoped<IoTSharpCurrentUser>();
+            services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<IoTSharpCurrentUser>());
+            services.AddScoped<IIdentityProvider, IoTSharpIdentityProvider>();
+            services.AddScoped<IShadowUserResolver, IoTSharpShadowUserResolver>();
+            services.AddScoped<ILocalPermissionSource, IoTSharpLocalPermissionSource>();
+            services.AddScoped<IPermissionCodeMapper, IoTSharpPermissionCodeMapper>();
+            services.AddScoped<IUserPermissionProvider, IoTSharpLocalPermissionProvider>();
+            services.AddScoped<IPermissionProvider, IoTSharpLocalPermissionProvider>();
             System.Text.Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             var settings = new AppSettings();
             Configuration.Bind(settings);
@@ -131,6 +144,8 @@ namespace IoTSharp
 
 
 
+            var centralizedAuthentication = Configuration.GetValue<string>("Security:Authentication:Mode")
+                ?.Equals("Centralized", StringComparison.OrdinalIgnoreCase) == true;
             services.AddAuthentication(option =>
             {
                 option.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -139,7 +154,13 @@ namespace IoTSharp
             }).AddJwtBearer(options =>
             {
                 options.SaveToken = true;
-                options.TokenValidationParameters = new TokenValidationParameters
+                if (centralizedAuthentication)
+                {
+                    options.Authority = Configuration["Security:Central:Authority"] ?? "http://localhost:5100";
+                    options.Audience = Configuration["Security:Central:Audience"] ?? "industrial-platform";
+                    options.RequireHttpsMetadata = options.Authority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+                }
+                else options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidateAudience = true,
@@ -151,7 +172,7 @@ namespace IoTSharp
                     ValidAudience = RequireSetting(settings.JwtAudience, nameof(AppSettings.JwtAudience)),
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(RequireSetting(settings.JwtKey, nameof(AppSettings.JwtKey)))),
                     //     ClockSkew=TimeSpan.Zero //JWT的缓冲时间默认5分钟，token实际过期时间为 appsettings.json 当中JwtExpireHours配置的时间（小时）加上这个时间。
-                }; ;
+                };
             });
 
             services.AddCors();
@@ -390,6 +411,7 @@ namespace IoTSharp
                 .AllowAnyHeader());
             app.UseAuthentication();
             app.UseAuthorization();
+            app.UseIndustrialSecurity();
             app.UseDefaultFiles();
             app.UseStaticFiles();
             app.UseResponseCompression();
@@ -414,6 +436,9 @@ namespace IoTSharp
                 });
                 endpoints.MapHealthChecksUI();
                 endpoints.MapControllers();
+                endpoints.MapIndustrialSecurityCacheInvalidation();
+                endpoints.MapIndustrialLocalUserManagementInfo();
+                endpoints.MapIndustrialEmergencyValidation();
                 endpoints.MapDefaultControllerRoute();
                 endpoints.MapRazorPages();
                 endpoints.MapMcp("/mcp/{api_key}");

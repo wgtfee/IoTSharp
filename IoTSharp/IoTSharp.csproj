@@ -45,7 +45,10 @@
 		<Configurations>Debug;Release;</Configurations>
 		<CompressionEnabled>false</CompressionEnabled>
 	</PropertyGroup>
-	<ItemGroup>
+  <ItemGroup>
+    <Content Update="appsettings.Shadow.json" CopyToOutputDirectory="PreserveNewest" />
+		<Content Update="appsettings.Centralized.json" CopyToOutputDirectory="PreserveNewest" />
+		<Content Update="permission-manifest.json" CopyToOutputDirectory="PreserveNewest" />
 		<InternalsVisibleTo Include="IoTSharp.Test" />
 		<InternalsVisibleTo Include="IoTSharp.Benchmarks" />
 	</ItemGroup>
@@ -57,6 +60,8 @@
 		<BuildServerSideRenderer>false</BuildServerSideRenderer>
 	</PropertyGroup>
 	<ItemGroup>
+		<ProjectReference Include="..\..\Industrial.Security\src\Industrial.Security.Abstractions\Industrial.Security.Abstractions.csproj" />
+		<ProjectReference Include="..\..\Industrial.Security\src\Industrial.Security.AspNetCore\Industrial.Security.AspNetCore.csproj" />
 
 		<PackageReference Include="DotNetDiag.HealthChecks.System" />
 		<PackageReference Include="DotNetDiag.HealthChecks.UI" />

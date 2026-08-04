@@ -34,6 +34,7 @@ using Dic = System.Collections.Generic.Dictionary<string, string>;
 using DicKV = System.Collections.Generic.KeyValuePair<string, string>;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using IoTSharp.Extensions.X509;
+using Industrial.Security.Abstractions;
 using AutoMapper;
 using MQTTnet;
 
@@ -111,6 +112,7 @@ namespace IoTSharp.Controllers
         /// <returns></returns>
         // GET: api/Devices/Customers
         [HttpGet("Customers")]
+        [Permission("IoT.Device.View")]
         [Authorize(Roles = nameof(UserRole.NormalUser))]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<Guid>), StatusCodes.Status404NotFound)]

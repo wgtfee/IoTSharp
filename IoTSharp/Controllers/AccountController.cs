@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System;
@@ -143,8 +144,11 @@ namespace IoTSharp.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesDefaultResponseType]
-        public async Task<ApiResult<LoginResult>> Login([FromBody] LoginDto model)
+        public async Task<ApiResult<LoginResult>> Login([FromBody] LoginDto model, [FromServices] IConfiguration configuration)
         {
+            if (string.Equals(configuration["Security:Authentication:Mode"], "Centralized", StringComparison.OrdinalIgnoreCase)
+                && !configuration.GetValue<bool>("Security:Central:AllowEmergencyLocalLogin"))
+                return new ApiResult<LoginResult>(ApiCode.LoginError, "中央认证模式已关闭普通本地登录。", new LoginResult { Code = ApiCode.LoginError, Succeeded = false });
             try
             {
                 var captchaResult = ConsumeCaptcha(model);
