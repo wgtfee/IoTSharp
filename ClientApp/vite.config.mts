@@ -45,7 +45,7 @@ const vendorChunkGroups: Array<[string, string[]]> = [
 	['grid-layout', ['/node_modules/vue-grid-layout/']],
 ];
 
-export default defineConfig(({ mode, command }: ConfigEnv) => {
+export default defineConfig(({ mode }: ConfigEnv) => {
 	const env = loadEnv(mode, process.cwd());
 	const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:5000';
 
@@ -89,7 +89,9 @@ export default defineConfig(({ mode, command }: ConfigEnv) => {
 		],
 		root: process.cwd(),
 		resolve: { alias },
-		base: command === 'serve' ? './' : env.VITE_PUBLIC_PATH,
+		// 平台模式统一从 YARP 的 /iot/** 访问；YARP 移除 /iot 前缀后再转发到 ClientApp/IoTSharp。
+		// 显式使用 /iot/ 可确保开发与生产生成的 JS、CSS、favicon、动态 chunk 地址都不会落到 Gateway 根路径。
+		base: env.VITE_PUBLIC_PATH || '/iot/',
 		optimizeDeps: {
 			exclude: ['vue-demi'],
 			entries: ['src/**/*.vue', 'src/**/*.ts'],
