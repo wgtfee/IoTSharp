@@ -1,7 +1,8 @@
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const normalizeApiPath = (url: string) => url.replace(/^\/api(?=\/)/, '');
 
 const getJson = async (url: string) => {
-	const response = await fetch(`${apiBaseURL}${url}`, {
+	const response = await fetch(`${apiBaseURL}${normalizeApiPath(url)}`, {
 		method: 'GET',
 		headers: { Accept: 'application/json' },
 	});

@@ -112,7 +112,16 @@ namespace Microsoft.Extensions.Hosting
 
             if (parentId > 0)
             {
-                return Process.GetProcessById(parentId);
+                try
+                {
+                    return Process.GetProcessById(parentId);
+                }
+                catch (ArgumentException)
+                {
+                    // The parent can exit between the snapshot and this lookup
+                    // during console/IDE launches. Treat that as no parent.
+                    return null;
+                }
             }
             return null;
         }

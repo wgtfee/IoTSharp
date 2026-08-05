@@ -5,6 +5,7 @@ import qs from 'qs';
 
 // 配置新建一个 axios 实例
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const normalizeApiPath = (url?: string) => url?.replace(/^\/api(?=\/)/, '') || url;
 
 const service: AxiosInstance = axios.create({
 	baseURL: apiBaseURL,
@@ -20,6 +21,7 @@ const service: AxiosInstance = axios.create({
 // 添加请求拦截器
 service.interceptors.request.use(
 	(config) => {
+		config.url = normalizeApiPath(config.url);
 		// 在发送请求之前做些什么 token
 		if (Session.get('token')) {
 			config.headers!['Authorization'] = `Bearer ${Session.get('token')}`;

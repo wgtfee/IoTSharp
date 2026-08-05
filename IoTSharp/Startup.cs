@@ -18,6 +18,8 @@ using IoTSharp.TaskActions;
 using IoTSharp.IndustrialSecurity;
 using Industrial.Security.Abstractions;
 using Industrial.Security.AspNetCore;
+using Industrial.Health;
+using IoTSharp.Health;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -401,7 +403,14 @@ namespace IoTSharp
                 });
             });
 
-            app.CheckApplicationDBMigrations();
+            // Existing installations can contain a schema from an older IoTSharp
+            // release. Allow operators to keep the service online while applying
+            // incompatible migrations separately (for example, an index on a
+            // legacy nvarchar(max) InstanceId column).
+            if (Configuration.GetValue("Database:AutoMigrate", true))
+            {
+                app.CheckApplicationDBMigrations();
+            }
             //添加定时任务创建表
 
             app.UseRouting();
@@ -428,7 +437,8 @@ namespace IoTSharp
 
             app.UseEndpoints(endpoints =>
             {
-                endpoints.MapMqtt("/mqtt");
+            endpoints.MapMqtt("/mqtt");
+                endpoints.MapV071Health("iotsharp");
                 // Standard platform health contract.  /health/live reports process
                 // liveness while /health/ready executes the configured readiness
                 // checks.  Keep /readyz for backward compatibility.

@@ -127,12 +127,13 @@ const apiBaseUrl = computed(() => {
 	const baseUrl = (import.meta.env.VITE_API_URL || window.location.origin || '').replace(/\/$/, '');
 	return baseUrl || window.location.origin;
 });
+const apiPath = (path: string) => path.replace(/^\/api(?=\/)/, '');
 const accessToken = computed(() => identityRef.value?.identityId || edgeRef.value?.accessToken || '');
 const runtimeType = computed(() => String(edgeRef.value?.runtimeType || runtimeTypeRef.value || 'gateway').toLowerCase());
 const runtimeTypeLabel = computed(() => 'Gateway');
-const registerUrl = computed(() => `${apiBaseUrl.value}/api/Edge/${accessToken.value || '{accessToken}'}/Register`);
-const capabilitiesUrl = computed(() => `${apiBaseUrl.value}/api/Edge/${accessToken.value || '{accessToken}'}/Capabilities`);
-const heartbeatUrl = computed(() => `${apiBaseUrl.value}/api/Edge/${accessToken.value || '{accessToken}'}/Heartbeat`);
+const registerUrl = computed(() => `${apiBaseUrl.value}${apiPath(`/api/Edge/${accessToken.value || '{accessToken}'}/Register`)}`);
+const capabilitiesUrl = computed(() => `${apiBaseUrl.value}${apiPath(`/api/Edge/${accessToken.value || '{accessToken}'}/Capabilities`)}`);
+const heartbeatUrl = computed(() => `${apiBaseUrl.value}${apiPath(`/api/Edge/${accessToken.value || '{accessToken}'}/Heartbeat`)}`);
 
 const registerPayloadText = computed(() =>
 	JSON.stringify(

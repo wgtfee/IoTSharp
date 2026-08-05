@@ -61,6 +61,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\..\Industrial.Security\src\Industrial.Security.Abstractions\Industrial.Security.Abstractions.csproj" />
+		<ProjectReference Include="..\..\Industrial.Health\src\Industrial.Health.Abstractions\Industrial.Health.Abstractions.csproj" />
 		<ProjectReference Include="..\..\Industrial.Security\src\Industrial.Security.AspNetCore\Industrial.Security.AspNetCore.csproj" />
 
 		<PackageReference Include="DotNetDiag.HealthChecks.System" />

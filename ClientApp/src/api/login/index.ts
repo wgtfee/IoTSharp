@@ -1,9 +1,10 @@
 import request from '/@/utils/request';
 
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const normalizeApiPath = (url: string) => url.replace(/^\/api(?=\/)/, '');
 
 const postJson = async (url: string, body: object) => {
-	const response = await fetch(`${apiBaseURL}${url}`, {
+	const response = await fetch(`${apiBaseURL}${normalizeApiPath(url)}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
