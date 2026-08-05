@@ -6,6 +6,11 @@ import qs from 'qs';
 // 配置新建一个 axios 实例
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const normalizeApiPath = (url?: string) => url?.replace(/^\/api(?=\/)/, '') || url;
+const appBaseURL = import.meta.env.BASE_URL || '/';
+
+const redirectToAppRoot = () => {
+	window.location.href = appBaseURL;
+};
 
 const service: AxiosInstance = axios.create({
 	baseURL: apiBaseURL,
@@ -43,7 +48,7 @@ service.interceptors.response.use(
 			// `token` 过期或者账号已在别处登录
 			if (res.code === 401 || res.code === 4001) {
 				Session.clear(); // 清除浏览器全部临时缓存
-				window.location.href = '/'; // 去登录页
+				redirectToAppRoot(); // 返回当前应用根路径；Gateway 模式下为 /iot/
 				ElMessageBox.alert('你已被登出，请重新登录', '提示', {})
 					.then(() => {})
 					.catch(() => {});
@@ -69,7 +74,7 @@ service.interceptors.response.use(
 		}  else {
 			if(error.response.status===401){
 				Session.clear();
-				window.location.href = '/'; // 去登录页
+				redirectToAppRoot(); // 返回当前应用根路径；Gateway 模式下为 /iot/
 			}
 			if (error.response.data) ElMessage.error(error.response.statusText);
 			else ElMessage.error(error.response.status);
