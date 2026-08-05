@@ -429,6 +429,19 @@ namespace IoTSharp
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapMqtt("/mqtt");
+                // Standard platform health contract.  /health/live reports process
+                // liveness while /health/ready executes the configured readiness
+                // checks.  Keep /readyz for backward compatibility.
+                endpoints.MapHealthChecks("/health/live", new HealthCheckOptions
+                {
+                    Predicate = _ => false,
+                    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+                });
+                endpoints.MapHealthChecks("/health/ready", new HealthCheckOptions
+                {
+                    Predicate = check => check.Tags.Contains("ready"),
+                    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+                });
                 endpoints.MapHealthChecks("/readyz", new HealthCheckOptions()
                 {
                     Predicate = check => check.Tags.Contains("ready"),
@@ -497,6 +510,7 @@ namespace IoTSharp
             return !path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/cap", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/healthz", StringComparison.OrdinalIgnoreCase)
+                   && !path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/readyz", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/mcp", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/mqtt", StringComparison.OrdinalIgnoreCase)
