@@ -8,33 +8,77 @@ using Industrial.Security.Abstractions;
 using IoTSharp.Contracts;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 
 namespace IoTSharp.IndustrialSecurity;
 
-public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor) : ICurrentUser
+public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor, IConfiguration configuration) : ICurrentUser
 {
     private ClaimsPrincipal Principal => httpContextAccessor.HttpContext?.User ?? new ClaimsPrincipal();
+    private bool CentralizedAuthentication => string.Equals(
+        configuration["Security:Authentication:Mode"],
+        "Centralized",
+        StringComparison.OrdinalIgnoreCase);
 
-    public string? UserId => Principal.FindFirstValue("local_user_id")
-        ?? Principal.FindFirstValue(ClaimTypes.NameIdentifier)
-        ?? Principal.FindFirstValue("sub")
-        ?? Principal.Identity?.Name;
-    public string? UserName => Principal.FindFirstValue(ClaimTypes.Name)
+    public IdentitySource Source
+    {
+        get
+        {
+            if (Enum.TryParse<IdentitySource>(Principal.FindFirstValue("identity_source"), true, out var source))
+                return source;
+
+            // IAM first versions may only expose standard OIDC claims. In centralized mode,
+            // an authenticated JwtBearer principal is therefore treated as a platform identity.
+            return CentralizedAuthentication ? IdentitySource.Platform : IdentitySource.Local;
+        }
+    }
+
+    public string? LocalUserId => Principal.FindFirstValue("local_user_id")
+        ?? (Source == IdentitySource.Local
+            ? Principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? Principal.Identity?.Name
+            : null);
+
+    public string? GlobalUserId => Principal.FindFirstValue("global_user_id")
+        ?? (Source == IdentitySource.Platform
+            ? Principal.FindFirstValue("sub") ?? Principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            : null);
+
+    public string? UserId => LocalUserId ?? GlobalUserId;
+
+    public string? UserName => Principal.FindFirstValue("preferred_username")
+        ?? Principal.FindFirstValue("username")
+        ?? Principal.FindFirstValue(ClaimTypes.Name)
+        ?? Principal.FindFirstValue("name")
         ?? Principal.Identity?.Name
         ?? UserId;
-    public string? LocalUserId => Principal.FindFirstValue("local_user_id") ?? (Source == IdentitySource.Local ? UserId : null);
+
     public string? TenantId => Principal.FindFirstValue(IoTSharpClaimTypes.Tenant)
         ?? Principal.FindFirstValue("tenant_id")
         ?? Principal.FindFirstValue("tenant");
-    public IdentitySource Source => Enum.TryParse<IdentitySource>(Principal.FindFirstValue("identity_source"), true, out var source) ? source : IdentitySource.Local;
-    public string? GlobalUserId => Principal.FindFirstValue("global_user_id") ?? (Source == IdentitySource.Platform ? Principal.FindFirstValue("sub") : null);
+
     public IReadOnlyCollection<string> Roles => Principal.Claims
-        .Where(c => c.Type == ClaimTypes.Role || string.Equals(c.Type, "role", StringComparison.OrdinalIgnoreCase))
+        .Where(c => c.Type == ClaimTypes.Role
+            || string.Equals(c.Type, "role", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(c.Type, "roles", StringComparison.OrdinalIgnoreCase))
         .Select(c => c.Value)
+        .Where(x => !string.IsNullOrWhiteSpace(x))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
-    public long PermissionVersion => long.TryParse(Principal.FindFirstValue("permission_version"), out var version) ? version : 0;
-    public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
+
+    public long PermissionVersion => long.TryParse(
+        Principal.FindFirstValue("permission_version") ?? Principal.FindFirstValue("PermissionVersion"),
+        out var version) ? version : 0;
+
+    public bool IsAuthenticated
+    {
+        get
+        {
+            if (Principal.Identity?.IsAuthenticated != true) return false;
+            return Source == IdentitySource.Platform
+                ? !string.IsNullOrWhiteSpace(GlobalUserId)
+                : !string.IsNullOrWhiteSpace(LocalUserId);
+        }
+    }
 }
 
 public sealed class IoTSharpIdentityProvider(IoTSharpCurrentUser currentUser) : IIdentityProvider
