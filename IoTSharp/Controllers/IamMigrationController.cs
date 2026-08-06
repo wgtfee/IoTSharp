@@ -1,10 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
+using System.Threading.Tasks;
 using Industrial.Security.Abstractions;
 using IoTSharp.Contracts;
 using IoTSharp.IndustrialSecurity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace IoTSharp.Controllers;
 
@@ -114,12 +119,6 @@ public sealed class IamMigrationController(UserManager<IdentityUser> users, ILog
         return Ok(result);
     }
 
-    /// <summary>
-    /// Returns deterministic IAM role templates derived from IoTSharp's existing local roles.
-    /// Temporary IoT.* aliases are included only because two legacy controller attributes still
-    /// emit those codes during Shadow. They are marked deprecated in the resource manifest and
-    /// must be removed at final Centralized cutover.
-    /// </summary>
     [HttpGet]
     public IActionResult RoleTemplates()
     {
