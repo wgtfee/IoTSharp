@@ -24,7 +24,7 @@ public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor
     {
         get
         {
-            if (Enum.TryParse<IdentitySource>(Principal.FindFirstValue("identity_source"), true, out var source))
+            if (Enum.TryParse<IdentitySource>(Principal.FindFirstValue(IndustrialClaimTypes.IdentitySource), true, out var source))
                 return source;
 
             // IAM first versions may only expose standard OIDC claims. In centralized mode,
@@ -33,12 +33,12 @@ public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor
         }
     }
 
-    public string? LocalUserId => Principal.FindFirstValue("local_user_id")
+    public string? LocalUserId => Principal.FindFirstValue(IndustrialClaimTypes.LocalUserId)
         ?? (Source == IdentitySource.Local
             ? Principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? Principal.Identity?.Name
             : null);
 
-    public string? GlobalUserId => Principal.FindFirstValue("global_user_id")
+    public string? GlobalUserId => Principal.FindFirstValue(IndustrialClaimTypes.GlobalUserId)
         ?? (Source == IdentitySource.Platform
             ? Principal.FindFirstValue("sub") ?? Principal.FindFirstValue(ClaimTypes.NameIdentifier)
             : null);
@@ -53,8 +53,8 @@ public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor
         ?? UserId;
 
     public string? TenantId => Principal.FindFirstValue(IoTSharpClaimTypes.Tenant)
-        ?? Principal.FindFirstValue("tenant_id")
-        ?? Principal.FindFirstValue("tenant");
+        ?? Principal.FindFirstValue(IndustrialClaimTypes.TenantId)
+        ?? Principal.FindFirstValue(IndustrialClaimTypes.LegacyTenant);
 
     public IReadOnlyCollection<string> Roles => Principal.Claims
         .Where(c => c.Type == ClaimTypes.Role
@@ -66,7 +66,7 @@ public sealed class IoTSharpCurrentUser(IHttpContextAccessor httpContextAccessor
         .ToArray();
 
     public long PermissionVersion => long.TryParse(
-        Principal.FindFirstValue("permission_version") ?? Principal.FindFirstValue("PermissionVersion"),
+        Principal.FindFirstValue(IndustrialClaimTypes.PermissionVersion) ?? Principal.FindFirstValue("PermissionVersion"),
         out var version) ? version : 0;
 
     public bool IsAuthenticated
@@ -88,7 +88,7 @@ public sealed class IoTSharpIdentityProvider(IoTSharpCurrentUser currentUser) : 
 
 /// <summary>
 /// Identity in IoTSharp is role-based. Explicit permission claims are honored first;
-/// role aliases provide a stable local contract without changing existing [Authorize] behavior.
+/// canonical iot.* permissions are translated to legacy IoT.* codes during migration.
 /// </summary>
 public sealed class IoTSharpLocalPermissionSource(IHttpContextAccessor httpContextAccessor) : ILocalPermissionSource
 {
@@ -98,7 +98,7 @@ public sealed class IoTSharpLocalPermissionSource(IHttpContextAccessor httpConte
         if (principal?.Identity?.IsAuthenticated != true)
             return Task.FromResult(false);
 
-        var actualUserId = principal.FindFirstValue("local_user_id")
+        var actualUserId = principal.FindFirstValue(IndustrialClaimTypes.LocalUserId)
             ?? principal.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? principal.FindFirstValue("sub")
             ?? principal.Identity?.Name;
@@ -109,18 +109,21 @@ public sealed class IoTSharpLocalPermissionSource(IHttpContextAccessor httpConte
         if (permissionCode == "*")
             return Task.FromResult(principal.IsInRole(nameof(UserRole.SystemAdmin)));
 
+        var mapped = IoTSharpPermissionCodeMapper.ToLocalCode(permissionCode);
         var claims = principal.Claims
             .Where(c => string.Equals(c.Type, "permission", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(c.Type, "permissions", StringComparison.OrdinalIgnoreCase))
             .SelectMany(c => c.Value.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries));
-        if (claims.Any(p => p == "*" || string.Equals(p, permissionCode, StringComparison.OrdinalIgnoreCase)))
+        if (claims.Any(p => p == "*"
+            || string.Equals(p, permissionCode, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(p, mapped, StringComparison.OrdinalIgnoreCase)))
             return Task.FromResult(true);
 
         foreach (var role in Enum.GetNames<UserRole>())
         {
             if (principal.IsInRole(role) &&
-                (string.Equals(permissionCode, $"role:{role}", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(permissionCode, $"iotsharp.role.{role}", StringComparison.OrdinalIgnoreCase)))
+                (string.Equals(mapped, $"role:{role}", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(mapped, $"iotsharp.role.{role}", StringComparison.OrdinalIgnoreCase)))
                 return Task.FromResult(true);
         }
 
@@ -130,7 +133,15 @@ public sealed class IoTSharpLocalPermissionSource(IHttpContextAccessor httpConte
 
 public sealed class IoTSharpPermissionCodeMapper : IPermissionCodeMapper
 {
-    private static readonly HashSet<string> KnownCodes = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> CanonicalToLocal = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["iot.device.view"] = "IoT.Device.View",
+        ["iot.device.command"] = "IoT.Device.Command",
+        ["iot.customer.admin"] = "IoT.Customer.Admin",
+        ["iot.tenant.admin"] = "IoT.Tenant.Admin"
+    };
+
+    private static readonly HashSet<string> LegacyCodes = new(StringComparer.OrdinalIgnoreCase)
     {
         "IoT.Device", "IoT.Device.Page", "IoT.Device.View", "IoT.Device.Command",
         "IoT.Customer.Admin", "IoT.Tenant.Admin",
@@ -140,9 +151,25 @@ public sealed class IoTSharpPermissionCodeMapper : IPermissionCodeMapper
     public PermissionMappingResult Map(string permissionCode)
     {
         var normalized = permissionCode?.Trim() ?? string.Empty;
-        if (normalized.StartsWith("iotsharp.role.", StringComparison.OrdinalIgnoreCase)) normalized = "role:" + normalized[14..];
-        var known = normalized == "*" || KnownCodes.Contains(normalized);
-        return new(permissionCode, known, known && normalized.Length > 0 ? new[] { normalized } : Array.Empty<string>(), known ? "IoT Role/Claim/Policy" : "Unknown permission");
+        var local = ToLocalCode(normalized);
+        var known = local == "*" || LegacyCodes.Contains(local);
+        return new(permissionCode ?? string.Empty, known, known && local.Length > 0 ? new[] { local } : Array.Empty<string>(), known ? "IOT canonical -> legacy IoT Role/Claim/Policy" : "Unknown permission");
+    }
+
+    internal static string ToLocalCode(string permissionCode)
+    {
+        var normalized = permissionCode?.Trim() ?? string.Empty;
+        if (CanonicalToLocal.TryGetValue(normalized, out var local)) return local;
+        if (normalized.StartsWith("iotsharp.role.", StringComparison.OrdinalIgnoreCase)) return "role:" + normalized[14..];
+        return normalized;
+    }
+
+    internal static string ToCanonicalCode(string permissionCode)
+    {
+        var normalized = permissionCode?.Trim() ?? string.Empty;
+        foreach (var pair in CanonicalToLocal)
+            if (string.Equals(pair.Value, normalized, StringComparison.OrdinalIgnoreCase)) return pair.Key;
+        return normalized;
     }
 }
 
@@ -157,7 +184,8 @@ public sealed class IoTSharpLocalPermissionProvider(IHttpContextAccessor httpCon
             permissions.UnionWith(principal.Claims
                 .Where(c => string.Equals(c.Type, "permission", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(c.Type, "permissions", StringComparison.OrdinalIgnoreCase))
-                .SelectMany(c => c.Value.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries)));
+                .SelectMany(c => c.Value.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                .Select(IoTSharpPermissionCodeMapper.ToCanonicalCode));
 
             foreach (var role in Enum.GetNames<UserRole>())
             {
@@ -176,11 +204,11 @@ public sealed class IoTSharpLocalPermissionProvider(IHttpContextAccessor httpCon
 /// <summary>将平台身份映射为无密码的 ASP.NET Identity Shadow User。</summary>
 public sealed class IoTSharpShadowUserResolver(UserManager<IdentityUser> users) : IShadowUserResolver
 {
-    private const string SystemCode = "IoT";
+    private const string SystemCode = IndustrialSystemCodes.Iot;
     public async Task<ShadowUserSnapshot?> ResolveAsync(string iamUserId, CancellationToken cancellationToken = default)
     {
         var user = await users.FindByNameAsync($"platform_{iamUserId}");
-        return user is null ? null : ToSnapshot(user);
+        return user is null ? null : ToSnapshot(user, iamUserId);
     }
     public async Task<ShadowUserSnapshot?> EnsureAsync(string iamUserId, string? userName, string? displayName, CancellationToken cancellationToken = default)
     {
@@ -192,12 +220,12 @@ public sealed class IoTSharpShadowUserResolver(UserManager<IdentityUser> users) 
             if (!result.Succeeded) throw new InvalidOperationException(string.Join("; ", result.Errors.Select(x => x.Description)));
             await users.AddClaimsAsync(user, new[]
             {
-                new Claim("global_user_id", iamUserId),
-                new Claim("identity_source", "Platform")
+                new Claim(IndustrialClaimTypes.GlobalUserId, iamUserId),
+                new Claim(IndustrialClaimTypes.IdentitySource, "Platform")
             });
         }
-        return ToSnapshot(user, userName, displayName);
+        return ToSnapshot(user, iamUserId, userName, displayName);
     }
-    private static ShadowUserSnapshot ToSnapshot(IdentityUser user, string? userName = null, string? displayName = null)
-        => new(user.Id, SystemCode, user.Id, user.Id, userName ?? user.UserName, displayName ?? user.UserName, user.Email, user.PhoneNumber, IdentitySource.Platform, user.LockoutEnd.HasValue && user.LockoutEnd > DateTimeOffset.UtcNow ? "Locked" : "Active", user.Id is not null ? DateTime.UtcNow : DateTime.UtcNow, DateTime.UtcNow);
+    private static ShadowUserSnapshot ToSnapshot(IdentityUser user, string iamUserId, string? userName = null, string? displayName = null)
+        => new(user.Id, SystemCode, user.Id, iamUserId, userName ?? user.UserName, displayName ?? user.UserName, user.Email, user.PhoneNumber, IdentitySource.Platform, user.LockoutEnd.HasValue && user.LockoutEnd > DateTimeOffset.UtcNow ? "Locked" : "Active", DateTime.UtcNow, DateTime.UtcNow);
 }
