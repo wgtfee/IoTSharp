@@ -1,5 +1,6 @@
 using IoTSharp.Contracts;
 using IoTSharp.IndustrialSecurity;
+using Xunit;
 
 namespace IoTSharp.Test.IndustrialSecurity;
 
