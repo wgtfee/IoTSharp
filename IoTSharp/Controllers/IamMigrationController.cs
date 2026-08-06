@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Industrial.Security.Abstractions;
 using IoTSharp.Contracts;
+using IoTSharp.IndustrialSecurity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -51,6 +52,7 @@ public sealed class IamMigrationController(UserManager<IdentityUser> users, ILog
                 return Conflict(new { error = string.Join("; ", result.Errors.Select(x => x.Description)) });
         }
 
+        var roles = await users.GetRolesAsync(localUser);
         logger.LogInformation(
             "IoTSharp IAM binding created. LocalUserId={LocalUserId}; IamUserId={IamUserId}",
             localUser.Id,
@@ -61,6 +63,7 @@ public sealed class IamMigrationController(UserManager<IdentityUser> users, ILog
             localUserId = localUser.Id,
             localUser.UserName,
             iamUserId,
+            roles,
             requireSystemAccess = true
         });
     }
@@ -103,10 +106,54 @@ public sealed class IamMigrationController(UserManager<IdentityUser> users, ILog
                 user.UserName,
                 user.Email,
                 iamUserId,
+                roles = await users.GetRolesAsync(user),
                 user.LockoutEnd
             });
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Returns deterministic IAM role templates derived from IoTSharp's existing local roles.
+    /// Temporary IoT.* aliases are included only because two legacy controller attributes still
+    /// emit those codes during Shadow. They are marked deprecated in the resource manifest and
+    /// must be removed at final Centralized cutover.
+    /// </summary>
+    [HttpGet]
+    public IActionResult RoleTemplates()
+    {
+        var roleNames = new[]
+        {
+            nameof(UserRole.NormalUser),
+            nameof(UserRole.CustomerAdmin),
+            nameof(UserRole.TenantAdmin),
+            nameof(UserRole.SystemAdmin)
+        };
+
+        var templates = roleNames.Select(roleName =>
+        {
+            var permissions = IoTSharpPermissionCodeMapper.PermissionsForRoles(new[] { roleName })
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (permissions.Contains("iot.device.view")) permissions.Add("IoT.Device.View");
+            if (permissions.Contains("iot.device.command")) permissions.Add("IoT.Device.Command");
+
+            return new
+            {
+                localRole = roleName,
+                suggestedIamRoleCode = $"IOT_ROLE_{roleName.ToUpperInvariant()}",
+                permissionCodes = permissions.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray(),
+                note = roleName == nameof(UserRole.SystemAdmin)
+                    ? "SystemAdmin uses wildcard; keep assignment restricted."
+                    : "Customer/Tenant/device data scope remains in IoTSharp and is not represented by these IAM permissions."
+            };
+        });
+
+        return Ok(new
+        {
+            systemCode = IndustrialSystemCodes.Iot,
+            shadowAliasesAreTemporary = true,
+            templates
+        });
     }
 }
