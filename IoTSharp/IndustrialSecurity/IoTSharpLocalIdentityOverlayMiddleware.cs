@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
+using System.Threading.Tasks;
 using Industrial.Security.Abstractions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -75,8 +79,6 @@ public sealed class IoTSharpLocalIdentityOverlayMiddleware(RequestDelegate next)
             ClaimTypes.Name,
             ClaimTypes.Role);
 
-        // ClaimsPrincipal.FindFirst scans identities in order. Put the local overlay
-        // first so existing Identity code keeps receiving the local IdentityUser.Id.
         var identities = new List<ClaimsIdentity> { overlayIdentity };
         identities.AddRange(context.User.Identities);
         context.User = new ClaimsPrincipal(identities);
