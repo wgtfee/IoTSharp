@@ -10,8 +10,9 @@ namespace IoTSharp.IndustrialSecurity;
 /// <summary>
 /// After Industrial.Security resolves local_user_id for a centralized IAM principal,
 /// re-hydrate the bound IoTSharp IdentityUser roles and Customer/Tenant claims into the
-/// current request. This keeps existing [Authorize(Roles=...)] and data-scope checks
-/// authoritative during Shadow migration without copying IoT business scope into IAM.
+/// current request. The local overlay is made the first identity so legacy
+/// UserManager.GetUserAsync(User) resolves the existing IoTSharp user id, while the
+/// original IAM identity remains attached and continues to own global_user_id.
 /// </summary>
 public sealed class IoTSharpLocalIdentityOverlayMiddleware(RequestDelegate next)
 {
@@ -58,22 +59,27 @@ public sealed class IoTSharpLocalIdentityOverlayMiddleware(RequestDelegate next)
         {
             new(ClaimTypes.NameIdentifier, localUser.Id),
             new(ClaimTypes.Name, localUser.UserName ?? localUser.Id),
+            new(IndustrialClaimTypes.LocalUserId, localUser.Id),
             new("iot_local_identity_overlay", "true")
         };
 
-        // Do not copy global_user_id/identity_source back from the local store; those
-        // remain owned by IAM. Customer/Tenant and any existing local permission claims
-        // are intentionally preserved because they are IoTSharp business scope.
         overlayClaims.AddRange(localClaims.Where(c =>
             !string.Equals(c.Type, IndustrialClaimTypes.GlobalUserId, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(c.Type, IndustrialClaimTypes.IdentitySource, StringComparison.OrdinalIgnoreCase)));
+            && !string.Equals(c.Type, IndustrialClaimTypes.IdentitySource, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(c.Type, ClaimTypes.NameIdentifier, StringComparison.OrdinalIgnoreCase)));
         overlayClaims.AddRange(localRoles.Select(role => new Claim(ClaimTypes.Role, role)));
 
-        context.User.AddIdentity(new ClaimsIdentity(
+        var overlayIdentity = new ClaimsIdentity(
             overlayClaims,
             "IoTSharp.LocalIdentityOverlay",
             ClaimTypes.Name,
-            ClaimTypes.Role));
+            ClaimTypes.Role);
+
+        // ClaimsPrincipal.FindFirst scans identities in order. Put the local overlay
+        // first so existing Identity code keeps receiving the local IdentityUser.Id.
+        var identities = new List<ClaimsIdentity> { overlayIdentity };
+        identities.AddRange(context.User.Identities);
+        context.User = new ClaimsPrincipal(identities);
 
         await next(context);
     }
