@@ -1,0 +1,67 @@
+name: develop-iam-validation
+
+on:
+  push:
+    branches: [ Develop ]
+  pull_request:
+    branches: [ Develop ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout IoTSharp
+        uses: actions/checkout@v4
+        with:
+          path: platform/IoTSharp
+
+      - name: Checkout Security.Abstractions
+        uses: actions/checkout@v4
+        with:
+          repository: wgtfee/Industrial.Security.Abstractions
+          ref: master
+          path: platform/Industrial.Security/src/Industrial.Security.Abstractions
+
+      - name: Checkout Security.AspNetCore
+        uses: actions/checkout@v4
+        with:
+          repository: wgtfee/Industrial.Security.AspNetCore
+          ref: master
+          path: platform/Industrial.Security/src/Industrial.Security.AspNetCore
+
+      - name: Checkout Health.Abstractions
+        uses: actions/checkout@v4
+        with:
+          repository: wgtfee/Industrial.Health.Abstractions
+          ref: master
+          path: platform/Industrial.Health/src/Industrial.Health.Abstractions
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: platform/IoTSharp/ClientApp/package.json
+
+      - name: Install IoT frontend dependencies
+        working-directory: platform/IoTSharp/ClientApp
+        run: npm install --no-audit --no-fund
+
+      - name: Build IoT frontend
+        working-directory: platform/IoTSharp/ClientApp
+        run: npm run build
+
+      - name: Restore IoT security tests
+        working-directory: platform/IoTSharp
+        run: dotnet restore IoTSharp.Test/IoTSharp.Test.csproj
+
+      - name: Run Industrial Security tests
+        working-directory: platform/IoTSharp
+        run: dotnet test IoTSharp.Test/IoTSharp.Test.csproj --configuration Debug --no-restore --filter FullyQualifiedName~IndustrialSecurity --verbosity normal
+
+      - name: Build IoT backend
+        working-directory: platform/IoTSharp
+        run: dotnet build IoTSharp/IoTSharp.csproj --configuration Debug --no-restore
