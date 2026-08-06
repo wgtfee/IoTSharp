@@ -23,7 +23,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "MySql": {
       "commandName": "Project",
@@ -32,7 +32,7 @@
         "ASPNETCORE_ENVIRONMENT": "MySql",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "Oracle": {
       "commandName": "Project",
@@ -41,7 +41,7 @@
         "ASPNETCORE_ENVIRONMENT": "Oracle",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "PostgreSql": {
       "commandName": "Project",
@@ -51,7 +51,7 @@
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
         "IOTSHARP_ACME": "true"
       },
-      "applicationUrl": "http://localhost:5000;https://localhost:5001"
+      "applicationUrl": "http://localhost:5002;https://localhost:5001"
     },
     "Production": {
       "commandName": "Project",
@@ -59,7 +59,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "TimescaleDB": {
       "commandName": "Project",
@@ -68,7 +68,7 @@
         "ASPNETCORE_ENVIRONMENT": "TimescaleDB",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "Sqlite": {
       "commandName": "Project",
@@ -78,7 +78,7 @@
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
         "Logging__EventLog__LogLevel__Default": "None"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "ClickHouse": {
       "commandName": "Project",
@@ -87,7 +87,7 @@
         "ASPNETCORE_ENVIRONMENT": "ClickHouse",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "InMemory": {
       "commandName": "Project",
@@ -96,7 +96,7 @@
         "ASPNETCORE_ENVIRONMENT": "InMemory",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "SQLServer": {
       "commandName": "Project",
@@ -105,7 +105,7 @@
         "ASPNETCORE_ENVIRONMENT": "SQLServer",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "Taos": {
       "commandName": "Project",
@@ -114,7 +114,7 @@
         "ASPNETCORE_ENVIRONMENT": "Taos",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "InfluxDB": {
       "commandName": "Project",
@@ -123,13 +123,12 @@
         "ASPNETCORE_ENVIRONMENT": "InfluxDB",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
       },
-      "applicationUrl": "http://localhost:5000"
+      "applicationUrl": "http://localhost:5002"
     },
     "Docker": {
       "commandName": "Docker",
       "launchBrowser": true,
       "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}"
-
     }
   }
 }
