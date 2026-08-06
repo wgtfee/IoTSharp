@@ -2,15 +2,18 @@
   "system": {
     "code": "IOT",
     "name": "IoTSharp",
-    "description": "IoT management permissions. Device/factory data scope remains inside IoTSharp."
+    "description": "IoT management capabilities. Customer/Tenant/device data scope remains inside IoTSharp."
   },
-  "version": "1.1.0",
+  "version": "1.2.0",
   "resources": [
     { "code": "iot", "name": "IOT", "type": "System", "sort": 0, "enabled": true },
     { "code": "iot.device", "name": "设备管理", "type": "Module", "parentCode": "iot", "sort": 100, "enabled": true },
     { "code": "iot.device.page", "name": "设备管理页面", "type": "Page", "parentCode": "iot.device", "sort": 110, "enabled": true },
     { "code": "iot.device.view", "name": "查看设备", "type": "Action", "parentCode": "iot.device.page", "sort": 111, "enabled": true },
-    { "code": "iot.device.command", "name": "设备指令", "type": "Action", "parentCode": "iot.device.page", "sort": 112, "enabled": true },
+    { "code": "iot.device.manage", "name": "新增修改删除设备", "type": "Action", "parentCode": "iot.device.page", "sort": 112, "enabled": true },
+    { "code": "iot.device.command", "name": "人工下发设备指令", "type": "Action", "parentCode": "iot.device.page", "sort": 113, "enabled": true },
+    { "code": "iot.telemetry", "name": "遥测数据", "type": "Module", "parentCode": "iot", "sort": 150, "enabled": true },
+    { "code": "iot.telemetry.view", "name": "查看遥测", "type": "Action", "parentCode": "iot.telemetry", "sort": 151, "enabled": true },
     { "code": "iot.customer.admin", "name": "客户管理", "type": "Action", "parentCode": "iot", "sort": 200, "enabled": true },
     { "code": "iot.tenant.admin", "name": "租户管理", "type": "Action", "parentCode": "iot", "sort": 300, "enabled": true }
   ]
