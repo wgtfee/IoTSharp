@@ -1,15 +1,35 @@
 import axios, { AxiosInstance } from 'axios';
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
 import { Session } from '/@/utils/storage';
+import {
+	beginOidcLogin,
+	canSilentlyRenewIamSession,
+	clearIamBrowserSession,
+	currentReturnUrl,
+	isCentralAuthentication,
+	isCentralTokenNearExpiry,
+} from '/@/security/oidc';
 import qs from 'qs';
 
-// 配置新建一个 axios 实例
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const normalizeApiPath = (url?: string) => url?.replace(/^\/api(?=\/)/, '') || url;
 const appBaseURL = import.meta.env.BASE_URL || '/';
+let oidcRenewalStarted = false;
 
 const redirectToAppRoot = () => {
 	window.location.href = appBaseURL;
+};
+
+const redirectForOidcRenewal = async () => {
+	if (!canSilentlyRenewIamSession()) {
+		clearIamBrowserSession();
+		Session.clear();
+		redirectToAppRoot();
+		return;
+	}
+	if (oidcRenewalStarted) return;
+	oidcRenewalStarted = true;
+	await beginOidcLogin(currentReturnUrl());
 };
 
 const service: AxiosInstance = axios.create({
@@ -23,67 +43,75 @@ const service: AxiosInstance = axios.create({
 	},
 });
 
-// 添加请求拦截器
 service.interceptors.request.use(
-	(config) => {
+	async (config) => {
 		config.url = normalizeApiPath(config.url);
-		// 在发送请求之前做些什么 token
-		if (Session.get('token')) {
-			config.headers!['Authorization'] = `Bearer ${Session.get('token')}`;
+		if (isCentralTokenNearExpiry()) {
+			await redirectForOidcRenewal();
+			return Promise.reject({ oidcRedirect: true });
 		}
+		if (Session.get('token')) config.headers!['Authorization'] = `Bearer ${Session.get('token')}`;
 		return config;
 	},
-	(error) => {
-		// 对请求错误做些什么
-		return Promise.reject(error);
-	}
+	(error) => Promise.reject(error)
 );
 
-// 添加响应拦截器
 service.interceptors.response.use(
 	(response) => {
-		// 对响应数据做点什么
 		const res = response.data;
 		if (res.code && res.code !== 10000) {
-			// `token` 过期或者账号已在别处登录
 			if (res.code === 401 || res.code === 4001) {
-				Session.clear(); // 清除浏览器全部临时缓存
-				redirectToAppRoot(); // 返回当前应用根路径；Gateway 模式下为 /iot/
-				ElMessageBox.alert('你已被登出，请重新登录', '提示', {})
-					.then(() => {})
-					.catch(() => {});
+				if (isCentralAuthentication() && canSilentlyRenewIamSession()) {
+					redirectForOidcRenewal().catch(() => {
+						clearIamBrowserSession();
+						Session.clear();
+						redirectToAppRoot();
+					});
+					return Promise.reject({ oidcRedirect: true });
+				}
+				clearIamBrowserSession();
+				Session.clear();
+				redirectToAppRoot();
+				ElMessageBox.alert('你已被登出，请重新登录', '提示', {}).catch(() => {});
+				return Promise.reject(res);
 			}
-			else {
-				ElNotification({
-					title: `错误代码: ${res.code}`,
-					type: 'error',
-					message: res.msg
-				})
-				return Promise.reject(service.interceptors.response);
-			}
-		} else {
-			return res;
+
+			ElNotification({
+				title: `错误代码: ${res.code}`,
+				type: 'error',
+				message: res.msg,
+			});
+			return Promise.reject(res);
 		}
+		return res;
 	},
 	(error) => {
-		// 对响应错误做点什么
-		if (error.message.indexOf('timeout') != -1) {
+		if (error?.oidcRedirect) return Promise.reject(error);
+		if (error.message?.includes('timeout')) {
 			ElMessage.error('网络超时');
-		} else if (error.message == 'Network Error') {
+		} else if (error.message === 'Network Error') {
 			ElMessage.error('网络连接错误');
-		}  else {
-			if(error.response.status===401){
+		} else {
+			const status = error.response?.status;
+			if (status === 401) {
+				if (isCentralAuthentication() && canSilentlyRenewIamSession()) {
+					redirectForOidcRenewal().catch(() => {
+						clearIamBrowserSession();
+						Session.clear();
+						redirectToAppRoot();
+					});
+					return Promise.reject({ oidcRedirect: true });
+				}
+				clearIamBrowserSession();
 				Session.clear();
-				redirectToAppRoot(); // 返回当前应用根路径；Gateway 模式下为 /iot/
+				redirectToAppRoot();
 			}
-			if (error.response.data) ElMessage.error(error.response.statusText);
-			else ElMessage.error(error.response.status);
-
-			console.log(error)
+			if (error.response?.data) ElMessage.error(error.response.statusText || '请求失败');
+			else if (status) ElMessage.error(String(status));
+			console.log(error);
 		}
 		return Promise.reject(error);
 	}
 );
 
-// 导出 axios 实例
 export default service;
