@@ -128,6 +128,28 @@ export function clearIamBrowserSession() {
 	Session.remove(ACCESS_EXPIRES_KEY);
 	Session.remove(SESSION_EXPIRES_KEY);
 	clearOidcTransientState();
+	void endIamServerSession();
+}
+
+export async function logoutIamSession() {
+	Session.remove('iam_auth_mode');
+	Session.remove(ACCESS_EXPIRES_KEY);
+	Session.remove(SESSION_EXPIRES_KEY);
+	clearOidcTransientState();
+	await endIamServerSession();
+}
+
+async function endIamServerSession() {
+	try {
+		await fetch(new URL('/account/logout', gatewayOrigin()), {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'X-Requested-With': 'XMLHttpRequest' },
+		});
+	} catch {
+		// Local browser credentials were already removed. IAM unavailability must not
+		// reopen the local session or block the logout flow.
+	}
 }
 
 function safeReturnUrl(value: string) {
