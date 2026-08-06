@@ -88,7 +88,6 @@ namespace IoTSharp
             var healthChecksUI = services.AddHealthChecksUI(setup =>
             {
                 setup.SetHeaderText("IoTSharp HealthChecks");
-                //Maximum history entries by endpoint
                 setup.MaximumHistoryEntriesPerEndpoint(50);
                 setup.AddIoTSharpHealthCheckEndpoint(hostOptions);
             });
@@ -107,15 +106,12 @@ namespace IoTSharp
                 case DataBaseType.MySql:
                     services.ConfigureMySql(GetConnectionString(settings, "IoTSharp"), settings.DbContextPoolSize, healthChecks, healthChecksUI);
                     break;
-
                 case DataBaseType.SqlServer:
                     services.ConfigureSqlServer(GetConnectionString(settings, "IoTSharp"), settings.DbContextPoolSize, healthChecks, healthChecksUI);
                     break;
-
                 case DataBaseType.Oracle:
                     services.ConfigureOracle(GetConnectionString(settings, "IoTSharp"), settings.DbContextPoolSize, healthChecks, healthChecksUI);
                     break;
-
                 case DataBaseType.Sqlite:
                     services.ConfigureSqlite(GetConnectionString(settings, "IoTSharp"), settings.DbContextPoolSize, healthChecks, healthChecksUI);
                     break;
@@ -141,10 +137,6 @@ namespace IoTSharp
                 .AddRoleManager<RoleManager<IdentityRole>>()
                 .AddDefaultTokenProviders()
                 .AddEntityFrameworkStores<ApplicationDbContext>();
-
-
-
-
 
             var centralizedAuthentication = Configuration.GetValue<string>("Security:Authentication:Mode")
                 ?.Equals("Centralized", StringComparison.OrdinalIgnoreCase) == true;
@@ -172,8 +164,7 @@ namespace IoTSharp
                     ValidateIssuerSigningKey = true,
                     ValidIssuer = RequireSetting(settings.JwtIssuer, nameof(AppSettings.JwtIssuer)),
                     ValidAudience = RequireSetting(settings.JwtAudience, nameof(AppSettings.JwtAudience)),
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(RequireSetting(settings.JwtKey, nameof(AppSettings.JwtKey)))),
-                    //     ClockSkew=TimeSpan.Zero //JWT的缓冲时间默认5分钟，token实际过期时间为 appsettings.json 当中JwtExpireHours配置的时间（小时）加上这个时间。
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(RequireSetting(settings.JwtKey, nameof(AppSettings.JwtKey))))
                 };
             });
 
@@ -203,11 +194,9 @@ namespace IoTSharp
                 q.DiscoverJobs();
             });
 
-            // ASP.NET Core hosting
             services.AddQuartzServer(options =>
             {
                 options.StartDelay = TimeSpan.FromSeconds(10);
-                // when shutting down we want jobs to complete gracefully
                 options.WaitForJobsToComplete = true;
             });
             services.AddResponseCompression();
@@ -234,11 +223,9 @@ namespace IoTSharp
                         }, "iotsharp");
                         healthChecks.AddRedis(settings.CachingUseRedisHosts, name: _hc_Caching);
                         break;
-
                     case CachingUseIn.LiteDB:
                         options.UseLiteDB(cfg => cfg.DBConfig = new EasyCaching.LiteDB.LiteDBDBOptions() { }, name: _hc_Caching);
                         break;
-
                     case CachingUseIn.SonnetDB:
                         options.UseSonnetDB(config =>
                         {
@@ -249,7 +236,6 @@ namespace IoTSharp
                             config.Namespace = settings.CachingUseSonnetDBNamespace;
                         }, _hc_Caching);
                         break;
-
                     case CachingUseIn.InMemory:
                     default:
                         options.UseInMemory(_hc_Caching);
@@ -292,17 +278,12 @@ namespace IoTSharp
                     var parsed = SonnetDbBlobStorage.ParseConnectionString(blobStorage);
                     return new SonnetDbBlobStorage(parsed.ConnectionString, parsed.Bucket);
                 }
-
                 if (string.IsNullOrWhiteSpace(blobStorage))
-                {
                     blobStorage = $"disk://path={Environment.GetFolderPath(Environment.SpecialFolder.UserProfile, Environment.SpecialFolderOption.Create)}/IoTSharp/";
-                }
-
                 return StorageFactory.Blobs.FromConnectionString(blobStorage);
             });
 
             services.AddRazorPages();
-
             services.AddScriptEngines(Configuration.GetSection("EngineSetting"));
             services.AddTransient<FlowRuleProcessor>();
             services.AddTransient<CustomeAlarmPullExcutor>();
@@ -337,49 +318,33 @@ namespace IoTSharp
                      serverOptions.Capabilities.Experimental.Add("API_KEY", api_key);
                      await Task.CompletedTask;
                  };
-
                  options.Stateless = true;
              })
              .WithPromptsFromAssembly()
              .WithResourcesFromAssembly()
-                .WithToolsFromAssembly();
+             .WithToolsFromAssembly();
         }
 
         private static string RequireSetting(string value, string name)
         {
             if (string.IsNullOrWhiteSpace(value))
-            {
                 throw new InvalidOperationException($"{name} 未配置。");
-            }
-
             return value;
         }
 
         private static string GetConnectionString(AppSettings settings, string name)
         {
             if (settings.ConnectionStrings == null)
-            {
                 return null;
-            }
-
             if (settings.ConnectionStrings.TryGetValue(name, out var connectionString))
-            {
                 return connectionString;
-            }
-
             return settings.ConnectionStrings
                 .FirstOrDefault(item => string.Equals(item.Key, name, StringComparison.OrdinalIgnoreCase))
                 .Value;
         }
 
-
-
-
-
-        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-
             if ((env.IsDevelopment() || !env.IsEnvironment("Production")) && !env.IsEnvironment("Test"))
             {
                 app.UseRin();
@@ -390,7 +355,6 @@ namespace IoTSharp
             else
             {
                 app.UseExceptionHandler("/Home/Error");
-                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
             }
 
@@ -403,15 +367,8 @@ namespace IoTSharp
                 });
             });
 
-            // Existing installations can contain a schema from an older IoTSharp
-            // release. Allow operators to keep the service online while applying
-            // incompatible migrations separately (for example, an index on a
-            // legacy nvarchar(max) InstanceId column).
             if (Configuration.GetValue("Database:AutoMigrate", true))
-            {
                 app.CheckApplicationDBMigrations();
-            }
-            //添加定时任务创建表
 
             app.UseRouting();
             app.UseCors(option => option
@@ -419,8 +376,12 @@ namespace IoTSharp
                 .AllowAnyMethod()
                 .AllowAnyHeader());
             app.UseAuthentication();
-            app.UseAuthorization();
+            // Industrial.Security must resolve local_user_id before ASP.NET role
+            // authorization runs. IoTSharp then overlays the bound user's existing
+            // roles and Customer/Tenant claims for the current request only.
             app.UseIndustrialSecurity();
+            app.UseMiddleware<IoTSharpLocalIdentityOverlayMiddleware>();
+            app.UseAuthorization();
             app.UseDefaultFiles();
             app.UseStaticFiles();
             app.UseResponseCompression();
@@ -437,11 +398,8 @@ namespace IoTSharp
 
             app.UseEndpoints(endpoints =>
             {
-            endpoints.MapMqtt("/mqtt");
+                endpoints.MapMqtt("/mqtt");
                 endpoints.MapV071Health("iotsharp");
-                // Standard platform health contract.  /health/live reports process
-                // liveness while /health/ready executes the configured readiness
-                // checks.  Keep /readyz for backward compatibility.
                 endpoints.MapHealthChecks("/health/live", new HealthCheckOptions
                 {
                     Predicate = _ => false,
@@ -469,8 +427,6 @@ namespace IoTSharp
 
             app.UseJdenticon(defaultStyle =>
             {
-                // Custom identicon style
-                // https://jdenticon.com/icon-designer.html?config=8644440010c4330a24461852
                 defaultStyle.Hues = new HueCollection { { 196, HueUnit.Degrees } };
                 defaultStyle.BackColor = Color.FromRgba(134, 68, 68, 0);
                 defaultStyle.ColorLightness = Jdenticon.Range.Create(0.36f, 0.70f);
@@ -486,10 +442,7 @@ namespace IoTSharp
             app.Use(async (context, next) =>
             {
                 if (ShouldServeSpaFallback(context.Request))
-                {
                     context.Request.Path = "/index.html";
-                }
-
                 await next();
             });
             app.UseStaticFiles(new StaticFileOptions
@@ -498,24 +451,15 @@ namespace IoTSharp
             });
         }
 
-        /// <summary>
-        /// 判断请求是否应回退到 SPA 入口页；平台 API、管理端点和静态资源不参与前端路由回退。
-        /// </summary>
-        /// <param name="request">当前 HTTP 请求。</param>
-        /// <returns>需要返回前端入口页时为 true。</returns>
         private static bool ShouldServeSpaFallback(HttpRequest request)
         {
             if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method))
-            {
                 return false;
-            }
 
             var path = request.Path;
             var pathValue = path.Value ?? string.Empty;
             if (Path.HasExtension(pathValue))
-            {
                 return false;
-            }
 
             return !path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/cap", StringComparison.OrdinalIgnoreCase)
@@ -527,6 +471,5 @@ namespace IoTSharp
                    && !path.StartsWithSegments("/swagger", StringComparison.OrdinalIgnoreCase)
                    && !path.StartsWithSegments("/healthchecks-ui", StringComparison.OrdinalIgnoreCase);
         }
-
     }
 }
