@@ -4,7 +4,7 @@
     "name": "IoTSharp",
     "description": "IoT management capabilities. Customer/Tenant/device data scope remains inside IoTSharp."
   },
-  "version": "1.2.0",
+  "version": "1.2.1-shadow",
   "resources": [
     { "code": "iot", "name": "IOT", "type": "System", "sort": 0, "enabled": true },
     { "code": "iot.device", "name": "设备管理", "type": "Module", "parentCode": "iot", "sort": 100, "enabled": true },
@@ -15,6 +15,9 @@
     { "code": "iot.telemetry", "name": "遥测数据", "type": "Module", "parentCode": "iot", "sort": 150, "enabled": true },
     { "code": "iot.telemetry.view", "name": "查看遥测", "type": "Action", "parentCode": "iot.telemetry", "sort": 151, "enabled": true },
     { "code": "iot.customer.admin", "name": "客户管理", "type": "Action", "parentCode": "iot", "sort": 200, "enabled": true },
-    { "code": "iot.tenant.admin", "name": "租户管理", "type": "Action", "parentCode": "iot", "sort": 300, "enabled": true }
+    { "code": "iot.tenant.admin", "name": "租户管理", "type": "Action", "parentCode": "iot", "sort": 300, "enabled": true },
+
+    { "code": "IoT.Device.View", "name": "[迁移别名] 查看设备", "type": "Action", "parentCode": "iot.device.page", "sort": 911, "enabled": true, "metadataJson": "{\"deprecated\":true,\"aliasFor\":\"iot.device.view\",\"removeAfter\":\"CentralizedCutover\"}" },
+    { "code": "IoT.Device.Command", "name": "[迁移别名] 人工下发设备指令", "type": "Action", "parentCode": "iot.device.page", "sort": 913, "enabled": true, "metadataJson": "{\"deprecated\":true,\"aliasFor\":\"iot.device.command\",\"removeAfter\":\"CentralizedCutover\"}" }
   ]
 }
