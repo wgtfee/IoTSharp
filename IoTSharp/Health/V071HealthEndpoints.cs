@@ -77,8 +77,21 @@ public static class V071HealthEndpoints
     private static DependencyCriticality Classify(string name)
     {
         var value = name.ToLowerInvariant();
-        if (value.Contains("sql") || value.Contains("database") || value.Contains("sonnet")) return DependencyCriticality.Critical;
-        if (value.Contains("redis") || value.Contains("cache")) return DependencyCriticality.Degradable;
+
+        // IoTSharp supports several primary stores. Most names naturally contain
+        // "sql", but Oracle and ClickHouse do not. Treat every supported primary
+        // database family as critical so YARP does not keep routing writes to a host
+        // whose core device/telemetry persistence is unavailable.
+        if (value.Contains("sql")
+            || value.Contains("database")
+            || value.Contains("sonnet")
+            || value.Contains("oracle")
+            || value.Contains("clickhouse"))
+            return DependencyCriticality.Critical;
+
+        if (value.Contains("redis") || value.Contains("cache"))
+            return DependencyCriticality.Degradable;
+
         return DependencyCriticality.Optional;
     }
 
