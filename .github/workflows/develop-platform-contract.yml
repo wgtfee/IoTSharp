@@ -38,8 +38,8 @@ jobs:
               assert marker in startup, f'Missing IoT security/health contract: {marker}'
 
           for marker in [
-              "const clientId = 'industrial-iot-web'",
-              "code_challenge_method: 'S256'",
+              "VITE_IAM_CLIENT_ID || 'industrial-iot-web'",
+              "url.searchParams.set('code_challenge_method', 'S256')",
               "'/connect/token'",
               "'/account/login'",
           ]:
