@@ -4,6 +4,7 @@ using IoTSharp.Data;
 using IoTSharp.Dtos;
 using IoTSharp.Extensions;
 using IoTSharp.Models;
+using Industrial.Security.Abstractions;
 using Jdenticon.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -596,9 +597,14 @@ namespace IoTSharp.Controllers
         /// <returns></returns>
         public async Task<ApiResult<PagedData<UserItemDto>>> List([FromQuery] UserQueryDto m)
         {
-            var mx = m.CustomerId.ToString();
-            //如果前端传参有 客户Id，则查询， 为空暂时查全部
-            var srcDb = _context.Users.Join<IdentityUser, Relationship, string, UserItemDto>(_context.Relationship.Include(p => p.Tenant).ThenInclude(p => p.Customers).Where(x => x.Customer.Id == m.CustomerId).AsEnumerable(),
+            // Relationship remains the source of local business users. IAM-bound users also
+            // carry Customer/Tenant claims and must remain visible even when no legacy
+            // Relationship row exists (the normal pre-provisioned Shadow User shape).
+            var relationshipQuery = m.CustomerId == Guid.Empty
+                ? _context.Relationship.Include(p => p.Tenant).ThenInclude(p => p.Customers).AsEnumerable()
+                : _context.Relationship.Include(p => p.Tenant).ThenInclude(p => p.Customers)
+                    .Where(x => x.Customer.Id == m.CustomerId).AsEnumerable();
+            var localUsers = _context.Users.Join<IdentityUser, Relationship, string, UserItemDto>(relationshipQuery,
                  t => t.Id, s => s.IdentityUser.Id, (t, s) => new UserItemDto
                  {
                      Id = t.Id,
@@ -610,44 +616,68 @@ namespace IoTSharp.Controllers
                      LockoutEnabled = t.LockoutEnabled,
                      LockoutEnd = t.LockoutEnd,
                      CustomerName = s.Customer.Name,
-                     TenantName = s.Tenant.Name
-                 });
+                     TenantName = s.Tenant.Name,
+                     UserSource = "Local"
+                 }).ToList();
 
+            var globalBindings = await _context.UserClaims.AsNoTracking()
+                .Where(c => c.ClaimType == IndustrialClaimTypes.GlobalUserId)
+                .ToListAsync();
+            var bindingsByUserId = globalBindings
+                .GroupBy(c => c.UserId)
+                .ToDictionary(g => g.Key, g => g.Select(c => c.ClaimValue).FirstOrDefault());
 
-            if (m.CustomerId != Guid.Empty)
+            foreach (var item in localUsers.Where(x => bindingsByUserId.ContainsKey(x.Id)))
             {
-                var data = await m.Query(srcDb, c => c.Id != "", c => c.UserName, c => new UserItemDto()
-                {
-                    Id = c.Id,
-                    UserName = c.UserName,
-                    Email = c.Email,
-                    PhoneNumber = c.PhoneNumber,
-                    AccessFailedCount = c.AccessFailedCount,
-                    LockoutEnabled = c.LockoutEnabled,
-                    LockoutEnd = c.LockoutEnd,
-                    CustomerName = c.CustomerName,
-                    TenantName = c.TenantName
-
-                });
-                return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK", data);
-
+                item.UserSource = "IAM";
+                item.IamUserId = bindingsByUserId[item.Id];
             }
-            else
+
+            var scopedCustomer = m.CustomerId == Guid.Empty
+                ? null
+                : await _context.Customer.AsNoTracking().Include(c => c.Tenant)
+                    .SingleOrDefaultAsync(c => c.Id == m.CustomerId);
+            var existingIds = localUsers.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var binding in globalBindings.Where(x => !existingIds.Contains(x.UserId)))
             {
-                var data = await m.Query(_context.Users, c => c.Id != "", c => c.UserName, c => new UserItemDto()
+                var user = await _userManager.FindByIdAsync(binding.UserId);
+                if (user is null) continue;
+
+                var claims = await _userManager.GetClaimsAsync(user);
+                var customerValue = claims.FirstOrDefault(c => c.Type == IoTSharpClaimTypes.Customer)?.Value;
+                if (m.CustomerId != Guid.Empty
+                    && !string.Equals(customerValue, m.CustomerId.ToString("D"), StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                localUsers.Add(new UserItemDto
                 {
-                    Id = c.Id,
-                    UserName = c.UserName,
-                    Email = c.Email,
-                    PhoneNumber = c.PhoneNumber,
-                    AccessFailedCount = c.AccessFailedCount,
-                    LockoutEnabled = c.LockoutEnabled,
-                    LockoutEnd = c.LockoutEnd,
-
+                    Id = user.Id,
+                    UserName = user.UserName,
+                    Email = user.Email,
+                    PhoneNumber = user.PhoneNumber,
+                    AccessFailedCount = user.AccessFailedCount,
+                    LockoutEnabled = user.LockoutEnabled,
+                    LockoutEnd = user.LockoutEnd,
+                    CustomerName = scopedCustomer?.Name,
+                    TenantName = scopedCustomer?.Tenant?.Name,
+                    UserSource = "IAM",
+                    IamUserId = binding.ClaimValue
                 });
-                return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK", data);
-
             }
+
+            IEnumerable<UserItemDto> filtered = localUsers;
+            if (!string.IsNullOrWhiteSpace(m.Name))
+                filtered = filtered.Where(x => x.UserName?.Contains(m.Name, StringComparison.OrdinalIgnoreCase) == true);
+
+            var ordered = filtered.OrderBy(x => x.UserName, StringComparer.OrdinalIgnoreCase).ToList();
+            var limit = Math.Max(1, m.Limit);
+            var rows = ordered.Skip(Math.Max(0, m.Offset) * limit).Take(limit).ToList();
+            return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK", new PagedData<UserItemDto>
+            {
+                total = ordered.Count,
+                rows = rows
+            });
         }
 
         /// <summary>

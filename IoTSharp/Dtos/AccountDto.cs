@@ -138,6 +138,14 @@ namespace IoTSharp.Dtos
         public string UserName { get; set; }
         public string CustomerName { get; set; }
         public string TenantName { get; set; }
+        /// <summary>
+        /// 账号来源：Local 或 IAM。
+        /// </summary>
+        public string UserSource { get; set; } = "Local";
+        /// <summary>
+        /// 绑定的平台 IAM 用户标识；本地账号为空。
+        /// </summary>
+        public string IamUserId { get; set; }
     }
 
     public class UserPassword

@@ -2,7 +2,7 @@ import { accountApi } from '/@/api/user';
 import _ from 'lodash-es';
 import { TableDataRow } from '../model/userListModel';
 import { ElMessage } from 'element-plus';
-import { compute } from '@fast-crud/fast-crud';
+import { compute, dict } from '@fast-crud/fast-crud';
 export const createUserListCrudOptions = function ({ expose }, customerId, overviewState?) {
     let records: any[] = [];
     const FsButton = {
@@ -149,11 +149,13 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                         icon: 'EditPen',
                         ...FsButton,
                         order: 1,
+                        show: compute((context) => context.row.userSource !== 'IAM'),
                     },
                     remove: {
                         icon: 'Delete',
                         ...FsButton,
                         order: 2,
+                        show: compute((context) => context.row.userSource !== 'IAM'),
                     }, //删除按钮
                 },
             },
@@ -179,6 +181,26 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                     editForm: {
                         show: false,
                     },
+                },
+                userSource: {
+                    title: '账号来源',
+                    type: 'dict-select',
+                    column: { width: 110 },
+                    dict: dict({
+                        data: [
+                            { value: 'Local', label: '本地' },
+                            { value: 'IAM', label: 'IAM' },
+                        ],
+                    }),
+                    addForm: { show: false },
+                    editForm: { show: false },
+                },
+                iamUserId: {
+                    title: 'IAM 用户标识',
+                    type: 'text',
+                    column: { width: 260, showOverflowTooltip: true },
+                    addForm: { show: false },
+                    editForm: { show: false },
                 },
                 //id: {
                 //	title: 'Id',
@@ -252,6 +274,7 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                         component: {
                             name: 'fs-dict-switch',
                             show: true,
+                            disabled: compute((context) => context.row.userSource === 'IAM'),
                             onChange: compute((context) => {
                                 return async () => {
                                     const { id: Id, lockoutEnabled } = context.row;

@@ -8,6 +8,8 @@ export interface TableDataRow {
 	phoneNumber?: string;
 	roles?: string[];
 	userName?: string;
+	userSource?: 'Local' | 'IAM';
+	iamUserId?: string;
 }
 
 export interface TableDataState {

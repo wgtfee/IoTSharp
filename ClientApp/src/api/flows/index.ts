@@ -82,7 +82,15 @@ export function ruleApi() {
 			return request({
 				url: '/api/rules/flowevents',
 				method: 'post',
-				data: data,
+				data: {
+					Offset: Number(data?.offset) || 0,
+					Limit: Number(data?.limit) || 10,
+					Name: data?.Name || '',
+					RuleId: normalizeOptionalValue(data?.RuleId),
+					Creator: normalizeOptionalValue(data?.Creator),
+					CreatorName: data?.CreatorName || '',
+					CreatTime: normalizeDateRange(data?.CreatTime),
+				},
 			});
 		},
 
@@ -108,4 +116,12 @@ export function ruleApi() {
 
 interface QueryParam extends IListQueryParam {
 	name?: string
+}
+
+function normalizeOptionalValue(value: unknown) {
+	return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function normalizeDateRange(value: unknown) {
+	return Array.isArray(value) && value.length === 2 ? value : undefined;
 }

@@ -67,6 +67,9 @@ namespace IoTSharp
         {
             services.AddHttpContextAccessor();
             services.AddIndustrialSecurity(Configuration);
+            // Generate the IAM permission manifest from the IotPermissionResource table
+            // (real catalog) instead of the static permission-manifest.json file.
+            services.AddHostedService<IotPermissionManifestHostedService>();
             services.AddScoped<IoTSharpCurrentUser>();
             services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<IoTSharpCurrentUser>());
             services.AddScoped<IIdentityProvider, IoTSharpIdentityProvider>();
@@ -152,7 +155,30 @@ namespace IoTSharp
                 {
                     options.Authority = Configuration["Security:Central:Authority"] ?? "http://localhost:5100";
                     options.Audience = Configuration["Security:Central:Audience"] ?? "industrial-platform";
-                    options.RequireHttpsMetadata = options.Authority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+                    options.RequireHttpsMetadata = false;
+                    // Load signing keys directly from the IAM jwks endpoint. Relying on
+                    // metadata discovery can yield zero SigningKeys (jwks_uri resolution
+                    // against an http authority), which makes every token fail IDX10500.
+                    try
+                    {
+                        var authority = options.Authority.TrimEnd('/');
+                        var retriever = new Microsoft.IdentityModel.Protocols.HttpDocumentRetriever { RequireHttps = false };
+                        var jwksDoc = retriever.GetDocumentAsync(authority + "/.well-known/jwks", System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+                        var signingKeys = new Microsoft.IdentityModel.Tokens.JsonWebKeySet(jwksDoc).Keys;
+                        options.TokenValidationParameters = new TokenValidationParameters
+                        {
+                            IssuerSigningKeys = signingKeys,
+                            ValidAudience = options.Audience,
+                            ValidateIssuer = false,
+                            ValidateLifetime = true,
+                            ClockSkew = TimeSpan.FromMinutes(1)
+                        };
+                        Console.WriteLine($"[JwtBearerMeta] Direct Jwks loaded. keys={signingKeys.Count}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[JwtBearerMeta] FAILED: {ex.GetType().Name}: {ex.Message}");
+                    }
                 }
                 else options.TokenValidationParameters = new TokenValidationParameters
                 {
@@ -267,8 +293,11 @@ namespace IoTSharp
                         break;
                 }
             });
-            services.AddCoapServer(Configuration.GetSection("CoapServer"));
-            services.AddIoTSharpCoapResources();
+            if (Configuration.GetValue("CoapServer:Enabled", false))
+            {
+                services.AddCoapServer(Configuration.GetSection("CoapServer"));
+                services.AddIoTSharpCoapResources();
+            }
             services.AddTransient(_ =>
             {
                 var blobStorage = GetConnectionString(settings, "BlobStorage");
@@ -386,7 +415,8 @@ namespace IoTSharp
             app.UseStaticFiles();
             app.UseResponseCompression();
             app.UseIotSharpMqttServer();
-            app.UseCoapServer();
+            if (Configuration.GetValue("CoapServer:Enabled", false))
+                app.UseCoapServer();
             app.UseSwaggerUi();
             app.UseHealthChecksUI();
             app.UseOpenApi();

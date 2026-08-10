@@ -21,32 +21,61 @@ export const router = createRouter({
 	routes: [...notFoundAndNoPower, ...staticRoutes],
 });
 
-export function formatFlatteningRoutes(arr: any) {
-	if (arr.length <= 0) return false;
-	for (let i = 0; i < arr.length; i++) {
-		if (arr[i].children) arr = arr.slice(0, i + 1).concat(arr[i].children, arr.slice(i + 1));
-	}
-	return arr;
+export function formatFlatteningRoutes(arr: any[]) {
+	if (!Array.isArray(arr) || arr.length === 0) return [];
+
+	const flattenedRoutes: any[] = [];
+	const appendRoutes = (routes: any[]) => {
+		routes.forEach((route) => {
+			flattenedRoutes.push(route);
+			if (Array.isArray(route.children) && route.children.length > 0) appendRoutes(route.children);
+		});
+	};
+
+	appendRoutes(arr);
+	return flattenedRoutes;
 }
 
-export function formatTwoStageRoutes(arr: any) {
-	if (arr.length <= 0) return false;
-	const newArr: any = [];
+export function formatTwoStageRoutes(arr: any[]) {
+	if (!Array.isArray(arr) || arr.length === 0) return [];
+
+	const [rootRoute, ...childRoutes] = arr;
+	const newArr: any = [
+		{
+			component: rootRoute.component,
+			name: rootRoute.name,
+			path: rootRoute.path,
+			redirect: rootRoute.redirect,
+			meta: rootRoute.meta,
+			children: [],
+		},
+	];
 	const cacheList: Array<string> = [];
-	arr.forEach((v: any, index: number) => {
-		if (index === 0) {
-			newArr.push({ component: v.component, name: v.name, path: v.path, redirect: v.redirect, meta: v.meta, children: [] });
-		} else {
-			if (v.path.indexOf('/:') > -1) {
-				v.meta['isDynamic'] = true;
-				v.meta['isDynamicPath'] = v.path;
-			}
-			newArr[0].children.push({ ...v });
-			if (newArr[0].meta.isKeepAlive && v.meta.isKeepAlive) {
-				cacheList.push(v.name);
-				const stores = useKeepALiveNames(pinia);
-				stores.setCacheKeepAlive(cacheList);
-			}
+	const routeNames = new Set<string>();
+	const routePaths = new Set<string>();
+
+	childRoutes.forEach((route: any) => {
+		// 后端菜单目录没有可渲染组件，只用于菜单分组，不能注册为页面路由。
+		if (!route.component && !route.redirect) return;
+
+		const routeName = route.name == null ? '' : String(route.name);
+		const routePath = route.path == null ? '' : String(route.path);
+		if ((routeName && routeNames.has(routeName)) || (routePath && routePaths.has(routePath))) return;
+		if (routeName) routeNames.add(routeName);
+		if (routePath) routePaths.add(routePath);
+
+		const { children: _children, ...flatRoute } = route;
+		flatRoute.meta = { ...(route.meta || {}) };
+		if (routePath.indexOf('/:') > -1) {
+			flatRoute.meta.isDynamic = true;
+			flatRoute.meta.isDynamicPath = routePath;
+		}
+		newArr[0].children.push(flatRoute);
+
+		if (newArr[0].meta?.isKeepAlive && flatRoute.meta.isKeepAlive && routeName) {
+			cacheList.push(routeName);
+			const stores = useKeepALiveNames(pinia);
+			stores.setCacheKeepAlive(cacheList);
 		}
 	});
 	return newArr;
