@@ -21,6 +21,7 @@ using Industrial.Security.AspNetCore;
 using Industrial.Health;
 using IoTSharp.Health;
 using IoTSharp.Services.DigitalTwin;
+using IoTSharp.Services.Mcp;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -68,12 +69,11 @@ namespace IoTSharp
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            var dataProtection = services.AddDataProtection().SetApplicationName("IoTSharp");
             if (Configuration.GetValue("Security:DataProtection:UseLocalKeys", false))
             {
                 var keyDirectory = Path.Combine(AppContext.BaseDirectory, "data-protection-keys");
-                services.AddDataProtection()
-                    .SetApplicationName("IoTSharp")
-                    .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+                dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
             }
 
             services.AddHttpContextAccessor();
@@ -234,6 +234,7 @@ namespace IoTSharp
             services.AddHttpClient<Img2ThreeJsGenerationClient>();
             services.AddHostedService<Img2ThreeJsGenerationWorker>();
             services.AddScoped<TwinRuntimeSnapshotService>();
+            services.AddScoped<DynamicMcpToolService>();
             services.AddIoTSharpMqttServer(settings.MqttBroker);
             services.AddMqttClient(settings.MqttClient);
             services.AddQuartz(q =>
@@ -357,7 +358,7 @@ namespace IoTSharp
                 });
             }
 
-            services.AddMcpServer()
+            services.AddMcpServer(options => options.ScopeRequests = true)
              .WithHttpTransport(options =>
              {
                  options.ConfigureSessionOptions += async (context, serverOptions, token) =>
@@ -373,7 +374,23 @@ namespace IoTSharp
              })
              .WithPromptsFromAssembly()
              .WithResourcesFromAssembly()
-             .WithToolsFromAssembly();
+             .WithToolsFromAssembly()
+             .WithListToolsHandler(async (request, cancellationToken) =>
+             {
+                 var service = request.Services.GetRequiredService<DynamicMcpToolService>();
+                 return await service.ListToolsAsync(DynamicMcpToolService.GetApiKey(request.Server), cancellationToken);
+             })
+             .WithCallToolHandler(async (request, cancellationToken) =>
+             {
+                 var service = request.Services.GetRequiredService<DynamicMcpToolService>();
+                 return await service.CallToolAsync(
+                     DynamicMcpToolService.GetApiKey(request.Server),
+                     request.Params.Name,
+                     request.Params.Arguments == null
+                         ? new Dictionary<string, System.Text.Json.JsonElement>()
+                         : new Dictionary<string, System.Text.Json.JsonElement>(request.Params.Arguments),
+                     cancellationToken);
+             });
         }
 
         private static string RequireSetting(string value, string name)

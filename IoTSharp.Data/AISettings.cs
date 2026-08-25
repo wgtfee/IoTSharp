@@ -17,5 +17,8 @@ namespace IoTSharp.Data
         public UserRole Role { get; set; } = UserRole.Anonymous;
 
         public bool Enable { get; set; } = true;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ICollection<McpToolDefinition> McpTools { get; set; } = new List<McpToolDefinition>();
     }
 }

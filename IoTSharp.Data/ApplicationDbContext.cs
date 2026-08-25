@@ -45,6 +45,8 @@ namespace IoTSharp.Data
             modelBuilder.ApplyConfiguration(new TwinModelGenerationJobConfiguration());
             modelBuilder.ApplyConfiguration(new TwinObjectBindingConfiguration());
             modelBuilder.ApplyConfiguration(new TwinRouteConfiguration());
+            modelBuilder.ApplyConfiguration(new McpToolDefinitionConfiguration());
+            modelBuilder.ApplyConfiguration(new McpToolInvocationLogConfiguration());
             ConfigureProviderSpecificMappings(modelBuilder);
             modelBuilder.Entity<AttributeLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
             modelBuilder.Entity<TelemetryLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
@@ -169,6 +171,8 @@ namespace IoTSharp.Data
         public DbSet<ProductCommand> ProductCommands { get; set; }
 
         public DbSet<AISettings> AISettings { get; set; }
+        public DbSet<McpToolDefinition> McpToolDefinitions { get; set; }
+        public DbSet<McpToolInvocationLog> McpToolInvocationLogs { get; set; }
 
         public DbSet<DigitalTwinScene> DigitalTwinScenes { get; set; }
         public DbSet<DigitalTwinSceneVersion> DigitalTwinSceneVersions { get; set; }
