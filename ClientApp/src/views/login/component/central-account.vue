@@ -6,42 +6,25 @@
 			<p>当前 IoTSharp 已进入 Shadow 身份阶段。IAM 负责登录，本地 IoTSharp 角色、Customer/Tenant 数据范围仍决定正式访问结果。</p>
 		</div>
 
-		<el-form size="large" @submit.prevent="signIn">
-			<el-form-item>
-				<el-input v-model="form.userName" autocomplete="username" placeholder="请输入 IAM 账号" @keyup.enter="signIn">
-					<template #prefix><el-icon><User /></el-icon></template>
-				</el-input>
-			</el-form-item>
-			<el-form-item>
-				<el-input v-model="form.password" type="password" show-password autocomplete="current-password" placeholder="请输入 IAM 密码" @keyup.enter="signIn">
-					<template #prefix><el-icon><Unlock /></el-icon></template>
-				</el-input>
-			</el-form-item>
-			<el-button type="primary" class="central-login__submit" native-type="submit" :loading="loading">IAM 统一登录</el-button>
-		</el-form>
+		<el-button type="primary" size="large" class="central-login__submit" :loading="loading" @click="signIn">
+			前往认证中心
+		</el-button>
+		<p class="central-login__notice">账号和密码只在认证中心页面输入，IoTSharp 不接收统一身份凭据。</p>
 	</div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { Unlock, User } from '@element-plus/icons-vue';
-import { beginOidcLogin, establishIamSession } from '/@/security/oidc';
+import { beginOidcLogin } from '/@/security/oidc';
 
 const route = useRoute();
 const loading = ref(false);
-const form = reactive({ userName: '', password: '' });
 
 const signIn = async () => {
-	if (!form.userName || !form.password) {
-		ElMessage.warning('请输入 IAM 账号和密码。');
-		return;
-	}
-
 	loading.value = true;
 	try {
-		await establishIamSession(form.userName, form.password);
 		const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
 		await beginOidcLogin(redirect);
 	} catch (error: any) {
@@ -69,4 +52,5 @@ const signIn = async () => {
 .central-login__eyebrow { color: #2563eb; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
 .central-login__title { margin-top: 6px; color: #123b6d; font-size: 18px; font-weight: 700; }
 .central-login__submit { width: 100%; }
+.central-login__notice { margin: 0; color: #64748b; font-size: 12px; line-height: 1.7; text-align: center; }
 </style>

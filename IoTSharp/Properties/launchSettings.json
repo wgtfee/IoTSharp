@@ -21,9 +21,14 @@
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
+        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+        "Security__Authentication__Mode": "Local",
+        "Security__Authorization__Mode": "Local",
+        "Security__LocalUserManagementMode": "Enabled",
+        "Security__ResourceSync__Enabled": "false",
+        "Security__DataProtection__UseLocalKeys": "true"
       },
-      "applicationUrl": "http://localhost:5002"
+      "applicationUrl": "http://localhost:5202"
     },
     "MySql": {
       "commandName": "Project",
@@ -103,9 +108,14 @@
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "SQLServer",
-        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy"
+        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+        "Security__Authentication__Mode": "Local",
+        "Security__Authorization__Mode": "Local",
+        "Security__LocalUserManagementMode": "Enabled",
+        "Security__ResourceSync__Enabled": "false",
+        "Security__DataProtection__UseLocalKeys": "true"
       },
-      "applicationUrl": "http://localhost:5002"
+      "applicationUrl": "http://localhost:5202"
     },
     "Taos": {
       "commandName": "Project",

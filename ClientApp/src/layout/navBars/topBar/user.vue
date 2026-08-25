@@ -93,6 +93,7 @@ import { useThemeConfig } from '/@/stores/themeConfig';
 import other from '/@/utils/other';
 import mittBus from '/@/utils/mitt';
 import { Session, Local } from '/@/utils/storage';
+import { isCentralAuthentication, logoutIamSession } from '/@/security/oidc';
 
 // 引入组件
 const UserNews = defineAsyncComponent(() => import('/@/layout/navBars/topBar/userNews.vue'));
@@ -171,6 +172,7 @@ const onHandleCommandClick = (path: string) => {
 			},
 		})
 			.then(async () => {
+				if (isCentralAuthentication()) await logoutIamSession();
 				// 清除缓存/token等
 				Session.clear();
 				// 使用 reload 时，不需要调用 resetRoute() 重置路由

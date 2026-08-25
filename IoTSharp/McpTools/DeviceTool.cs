@@ -49,8 +49,15 @@ namespace IoTSharp.McpTools
 
         private IQueryable<Device> QueryByApiKey(McpServer _server)
         {
-            IQueryable<Device> query = null;
-            var _API_KEY = _server.ServerOptions.Capabilities!.Experimental["API_KEY"].ToString();
+            IQueryable<Device> query;
+            if (_server.ServerOptions.Capabilities?.Experimental == null
+                || !_server.ServerOptions.Capabilities.Experimental.TryGetValue("API_KEY", out var apiKeyValue)
+                || string.IsNullOrWhiteSpace(apiKeyValue?.ToString()))
+            {
+                throw new UnauthorizedAccessException("API_KEY is not available");
+            }
+
+            var _API_KEY = apiKeyValue.ToString();
             var ais = _context.AISettings.FirstOrDefault(a => a.MCP_API_KEY == _API_KEY);
             if (ais == null || !ais.Enable)
             {
@@ -63,13 +70,13 @@ namespace IoTSharp.McpTools
                 {
                     var qc = from c in _context.Customer.Include(c1 => c1.AISettings) where c.AISettings.Id == ais.Id select c;
                     var customer = qc.FirstOrDefault();
-                    query = from c in _context.Device.Include(c => c.Customer) where c.Customer == customer select c;
+                    query = from c in _context.Device.Include(c => c.Customer) where c.Customer == customer && !c.Deleted select c;
                 }
                 else if (ais.Role == UserRole.TenantAdmin)
                 {
                     var qt = from t in _context.Tenant.Include(t1 => t1.AISettings) where t.AISettings.Id == ais.Id select t;
                     var tenant = qt.FirstOrDefault();
-                    query = from c in _context.Device.Include(c => c.Tenant) where c.Tenant == tenant select c;
+                    query = from c in _context.Device.Include(c => c.Tenant) where c.Tenant == tenant && !c.Deleted select c;
                 }
                 else
                 {
@@ -92,8 +99,7 @@ namespace IoTSharp.McpTools
             var f = from c in query where c.Name == deviceName select c;
             var devid = f.FirstOrDefault()?.Id;
             var al = from a in _context.AttributeLatest where devid == a.DeviceId && (a.KeyName == Constants._Active) select a;
-            var result = (bool)(al.FirstOrDefault()?.Value_Boolean);
-            return result;
+            return al.FirstOrDefault()?.Value_Boolean;
         }
 
         /// <summary>
@@ -128,7 +134,7 @@ namespace IoTSharp.McpTools
             [Description("name of attribute")] string attributeName, McpServer _server)
         {
             var query = QueryByApiKey(_server);
-            var f = from c in _context.Device where c.Name == deviceName select c;
+            var f = from c in query where c.Name == deviceName select c;
             var devid = f.FirstOrDefault()?.Id;
             var al = from a in _context.AttributeLatest where devid == a.DeviceId && a.KeyName == attributeName select a;// new KeyValuePair<string,object>( a.KeyName,a.ToObject());
             return al.FirstOrDefault()?.ToObject();

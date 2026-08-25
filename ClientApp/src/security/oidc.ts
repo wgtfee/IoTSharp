@@ -7,14 +7,14 @@ const ACCESS_EXPIRES_KEY = 'industrial.iot.oidc.access-expires-at';
 const SESSION_EXPIRES_KEY = 'industrial.iot.iam.session-expires-at';
 const IAM_SESSION_SAFETY_MS = 7.5 * 60 * 60 * 1000;
 
-function gatewayOrigin() {
-	const configured = import.meta.env.VITE_IAM_AUTHORITY;
-	if (configured) return configured.replace(/\/$/, '');
-	return window.location.port === '27915' ? 'http://localhost:5202' : window.location.origin;
+function authorityOrigin() {
+	const configured = import.meta.env.VITE_IAM_AUTHORITY || Session.get('iam_authority');
+	if (!configured) throw new Error('未配置认证中心地址。');
+	return String(configured).replace(/\/$/, '');
 }
 
 function redirectUri() {
-	return import.meta.env.VITE_IAM_REDIRECT_URI || `${gatewayOrigin()}/iot/`;
+	return import.meta.env.VITE_IAM_REDIRECT_URI || new URL(import.meta.env.BASE_URL || '/iot/', window.location.origin).toString();
 }
 
 function base64Url(bytes: Uint8Array) {
@@ -40,7 +40,7 @@ export function hasOidcCallback() {
 }
 
 export async function establishIamSession(userName: string, password: string, tenant?: string) {
-	const response = await fetch(new URL('/account/login', gatewayOrigin()), {
+	const response = await fetch(new URL('/account/login', authorityOrigin()), {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
@@ -61,7 +61,7 @@ export async function beginOidcLogin(returnUrl = '/dashboard') {
 	Session.set(VERIFIER_KEY, verifier);
 	Session.set(RETURN_URL_KEY, returnUrl || '/dashboard');
 
-	const url = new URL('/connect/authorize', gatewayOrigin());
+	const url = new URL('/connect/authorize', authorityOrigin());
 	url.searchParams.set('client_id', import.meta.env.VITE_IAM_CLIENT_ID || 'industrial-iot-web');
 	url.searchParams.set('response_type', 'code');
 	url.searchParams.set('redirect_uri', redirectUri());
@@ -141,7 +141,7 @@ export async function logoutIamSession() {
 
 async function endIamServerSession() {
 	try {
-		await fetch(new URL('/account/logout', gatewayOrigin()), {
+		await fetch(new URL('/account/logout', authorityOrigin()), {
 			method: 'POST',
 			credentials: 'include',
 			headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -163,7 +163,7 @@ function clearOidcTransientState() {
 }
 
 async function exchangeToken(values: Record<string, string>) {
-	const response = await fetch(new URL('/connect/token', gatewayOrigin()), {
+	const response = await fetch(new URL('/connect/token', authorityOrigin()), {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

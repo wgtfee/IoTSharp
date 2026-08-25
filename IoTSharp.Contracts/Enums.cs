@@ -260,7 +260,10 @@ namespace IoTSharp.Contracts
         ReleasePackage,
         ReleasePlan,
         ReleaseTask,
-        ReleaseReceipt
+        ReleaseReceipt,
+        DigitalTwinScene,
+        TwinModelResource,
+        TwinModelGenerationJob
 
     }
     [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]

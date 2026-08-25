@@ -18,6 +18,8 @@ const sidebars = {
         'architecture/edge-query-v1',
         'architecture/edge-contracts-v1',
         'architecture/semantic-core-convergence',
+        'architecture/digital-twin-development-plan',
+        'architecture/digital-twin-implementation-guide',
       ],
     },
     {

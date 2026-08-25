@@ -11,6 +11,7 @@ import { staticRoutes, notFoundAndNoPower } from '/@/router/route';
 import { initFrontEndControlRoutes } from '/@/router/frontEnd';
 import { initBackEndControlRoutes } from '/@/router/backEnd';
 import { clearIamBrowserSession, completeOidcLogin, hasOidcCallback } from '/@/security/oidc';
+import { loadSecurityProfile } from '/@/security/security-profile';
 
 const storesThemeConfig = useThemeConfig(pinia);
 const { themeConfig } = storeToRefs(storesThemeConfig);
@@ -98,6 +99,37 @@ router.beforeEach(async (to, from, next) => {
 			clearIamBrowserSession();
 			NProgress.done();
 			return next('/login?iam_callback=failed');
+		}
+	}
+
+	let securityProfile;
+	try {
+		securityProfile = await loadSecurityProfile();
+	} catch (error) {
+		console.error('IoT authentication mode detection failed', error);
+		if (to.path !== '/' && to.path !== '/login') {
+			NProgress.done();
+			return next('/login?security_profile=unavailable');
+		}
+	}
+
+	if (securityProfile) {
+		if (to.path === '/signup' && (securityProfile.centralMode || securityProfile.localUserManagementMode !== 'Enabled')) {
+			NProgress.done();
+			return next('/login');
+		}
+		if (to.path === '/installer' && (securityProfile.centralMode || securityProfile.localUserManagementMode === 'Hidden')) {
+			NProgress.done();
+			return next('/login');
+		}
+
+		const activeMode = Session.get('iam_auth_mode');
+		if (Session.get('token') && !activeMode && securityProfile.authenticationMode === 'Local') {
+			Session.set('iam_auth_mode', 'Local');
+		} else if (Session.get('token') && activeMode !== securityProfile.authenticationMode) {
+			Session.remove('token');
+			if (activeMode === 'Centralized') clearIamBrowserSession();
+			else Session.remove('iam_auth_mode');
 		}
 	}
 

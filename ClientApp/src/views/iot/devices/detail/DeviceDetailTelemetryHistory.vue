@@ -74,7 +74,6 @@ import { EChartsOption } from "echarts";
 import * as echarts from "echarts";
 import _ from 'lodash-es';
 import { telemetryHistoryChartOptions } from "/@/views/iot/devices/detail/telemetryHistoryChartOptions";
-import { createDeviceRulesCrudOptions } from "/@/views/iot/devices/detail/deviceRulesCrudOptions";
 const formatColumnDataTime = (row, column, cellValue, index) => {
   return formatToDateTime(cellValue)
 }
@@ -144,7 +143,6 @@ const getData = async () => {
   const params = {...queryForm}
   if (params.datetimeRange[0]) params.begin = params.datetimeRange[0]
   if (params.datetimeRange[1]) params.end = params.datetimeRange[1]
-  console.log(`%cgetData@DeviceDetailTelemetryHistory:148`, 'color:black;font-size:16px;background:yellow;font-weight: bold;', params.keys)
   params.keys = params.keys.join(',')
   params.every = '0.' + params.every + ':000';
   loading.value = true
@@ -191,7 +189,6 @@ const state = reactive({
 })
 const getTelemetryKeys = async (deviceId) => {
   const res = await deviceApi().getDeviceLatestTelemetry(deviceId);
-  console.log(`%c-getTelemetryKeys@DeviceDetailTelemetryHistory:193`, 'color:white;font-size:16px;background:blue;font-weight: bold;',res)
   state.telemetryKeys = res.data.filter((x) => typeof x.value === 'number').map((c) => c.keyName);
 }
 watch(() => props.deviceId, async () => {

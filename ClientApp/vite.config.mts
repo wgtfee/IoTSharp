@@ -88,7 +88,7 @@ export default defineConfig(({ mode }: ConfigEnv) => {
 			}),
 		],
 		root: process.cwd(),
-		resolve: { alias },
+		resolve: { alias, dedupe: ['three'] },
 		// 平台模式统一从 YARP 的 /iot/** 访问；YARP 移除 /iot 前缀后再转发到 ClientApp/IoTSharp。
 		// 显式使用 /iot/ 可确保开发与生产生成的 JS、CSS、favicon、动态 chunk 地址都不会落到 Gateway 根路径。
 		base: env.VITE_PUBLIC_PATH || '/iot/',
@@ -102,6 +102,11 @@ export default defineConfig(({ mode }: ConfigEnv) => {
 			open: JSON.parse(env.VITE_OPEN),
 			hmr: true,
 			proxy: {
+				'/mcp': createBackendProxy(apiProxyTarget),
+				'/api/iot': {
+					...createBackendProxy(apiProxyTarget),
+					rewrite: (requestPath) => requestPath.replace(/^\/api\/iot/, '/api'),
+				},
 				'/api': createBackendProxy(apiProxyTarget),
 				'/healthz': createBackendProxy(apiProxyTarget),
 				'/gitee': {

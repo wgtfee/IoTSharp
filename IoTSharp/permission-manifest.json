@@ -14,6 +14,9 @@
     { "code": "iot.device.command", "name": "人工下发设备指令", "type": "Action", "parentCode": "iot.device.page", "sort": 113, "enabled": true },
     { "code": "iot.telemetry", "name": "遥测数据", "type": "Module", "parentCode": "iot", "sort": 150, "enabled": true },
     { "code": "iot.telemetry.view", "name": "查看遥测", "type": "Action", "parentCode": "iot.telemetry", "sort": 151, "enabled": true },
+    { "code": "iot.ai", "name": "AI 功能", "type": "Module", "parentCode": "iot", "sort": 170, "enabled": true },
+    { "code": "iot.ai.view", "name": "查看 AI 功能", "type": "Action", "parentCode": "iot.ai", "sort": 171, "enabled": true },
+    { "code": "iot.mcp.manage", "name": "管理 MCP 接入", "type": "Action", "parentCode": "iot.ai", "sort": 172, "enabled": true },
     { "code": "iot.customer.admin", "name": "客户管理", "type": "Action", "parentCode": "iot", "sort": 200, "enabled": true },
     { "code": "iot.tenant.admin", "name": "租户管理", "type": "Action", "parentCode": "iot", "sort": 300, "enabled": true }
   ]

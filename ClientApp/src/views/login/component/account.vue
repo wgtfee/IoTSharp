@@ -325,6 +325,7 @@ const submitSignIn = async (captchaMove: number) => {
 
 		if (code === CAPTCHA_SUCCESS_CODE && token) {
 			Session.set('token', token);
+			Session.set('iam_auth_mode', 'Local');
 			Cookies.set('userName', ruleForm.userName);
 			dialogVisible.value = false;
 

@@ -156,6 +156,13 @@ export function deviceApi() {
 				data: params,
 			});
 		},
+		addDeviceTelemetry: (deviceId: string, params: any) => {
+			return request({
+				url: '/api/devices/' + deviceId + '/telemetry/manual',
+				method: 'post',
+				data: params,
+			});
+		},
 		downloadCertificates: (deviceId: string) => {
 			return request({
 				url: '/api/devices/' + deviceId + '/downloadCertificates',

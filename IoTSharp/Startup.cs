@@ -20,6 +20,7 @@ using Industrial.Security.Abstractions;
 using Industrial.Security.AspNetCore;
 using Industrial.Health;
 using IoTSharp.Health;
+using IoTSharp.Services.DigitalTwin;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -27,6 +28,7 @@ using LettuceEncrypt.Dns.Ali;
 using MaiKeBing.HostedService.ZeroMQ;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -38,6 +40,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using MQTTnet.AspNetCore;
 using Quartz;
@@ -65,11 +68,22 @@ namespace IoTSharp
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            if (Configuration.GetValue("Security:DataProtection:UseLocalKeys", false))
+            {
+                var keyDirectory = Path.Combine(AppContext.BaseDirectory, "data-protection-keys");
+                services.AddDataProtection()
+                    .SetApplicationName("IoTSharp")
+                    .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+            }
+
             services.AddHttpContextAccessor();
             services.AddIndustrialSecurity(Configuration);
             // Generate the IAM permission manifest from the IotPermissionResource table
             // (real catalog) instead of the static permission-manifest.json file.
-            services.AddHostedService<IotPermissionManifestHostedService>();
+            if (Configuration.GetValue("Security:ResourceSync:Enabled", false))
+            {
+                services.AddHostedService<IotPermissionManifestHostedService>();
+            }
             services.AddScoped<IoTSharpCurrentUser>();
             services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<IoTSharpCurrentUser>());
             services.AddScoped<IIdentityProvider, IoTSharpIdentityProvider>();
@@ -213,6 +227,13 @@ namespace IoTSharp
             });
 
             services.AddTransient<ApplicationDBInitializer>();
+            services.AddScoped<DigitalTwinSceneService>();
+            services.AddScoped<TwinModelResourceService>();
+            services.Configure<TwinModelGenerationOptions>(Configuration.GetSection("DigitalTwin:ModelGeneration"));
+            services.AddScoped<TwinModelGenerationService>();
+            services.AddHttpClient<Img2ThreeJsGenerationClient>();
+            services.AddHostedService<Img2ThreeJsGenerationWorker>();
+            services.AddScoped<TwinRuntimeSnapshotService>();
             services.AddIoTSharpMqttServer(settings.MqttBroker);
             services.AddMqttClient(settings.MqttClient);
             services.AddQuartz(q =>
@@ -343,8 +364,9 @@ namespace IoTSharp
                  {
                      var api_key = context.Request.RouteValues["api_key"]?.ToString()?.ToLower() ?? "none";
                      serverOptions.InitializationTimeout = TimeSpan.FromSeconds(600);
-                     serverOptions.Capabilities!.Experimental = new Dictionary<string, object>();
-                     serverOptions.Capabilities.Experimental.Add("API_KEY", api_key);
+                     serverOptions.Capabilities ??= new ServerCapabilities();
+                     serverOptions.Capabilities.Experimental ??= new Dictionary<string, object>();
+                     serverOptions.Capabilities.Experimental["API_KEY"] = api_key;
                      await Task.CompletedTask;
                  };
                  options.Stateless = true;

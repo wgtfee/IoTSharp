@@ -38,6 +38,36 @@ export const dynamicRoutes: Array<RouteRecordRaw> = [
 					icon: 'iconfont icon-shouye',
 				},
 			},
+			{
+				path: '/iot/digital-twin/model-generator',
+				name: 'digitaltwinmodelgenerator',
+				component: () => import('/@/views/iot/digital-twin/model-generator.vue'),
+				meta: {
+					title: '模型生成',
+					isLink: '',
+					isHide: false,
+					isKeepAlive: false,
+					isAffix: false,
+					isIframe: false,
+					roles: ['admin', 'common'],
+					icon: 'iconfont icon-shuju',
+				},
+			},
+			{
+				path: '/iot/digital-twin/workbench',
+				name: 'digitaltwinworkbench',
+				component: () => import('/@/views/iot/digital-twin/workbench.vue'),
+				meta: {
+					title: '三维场景',
+					isLink: '',
+					isHide: false,
+					isKeepAlive: false,
+					isAffix: false,
+					isIframe: false,
+					roles: ['admin', 'common'],
+					icon: 'iconfont icon-shuju',
+				},
+			},
 		],
 	},
 ];
@@ -103,6 +133,33 @@ export const frontEndRoutes: Array<RouteRecordRaw> = [
 		component: () => import('/@/views/iot/devices/gatewaydesigner.vue'),
 		meta: {
 			title: 'message.router.home',
+			isHide: true,
+		},
+	},
+	{
+		path: '/iot/devices/telemetry',
+		name: 'telemetry',
+		component: () => import('/@/views/iot/devices/telemetry.vue'),
+		meta: {
+			title: '遥测数据',
+			isHide: true,
+		},
+	},
+	{
+		path: '/iot/ai/workbench',
+		name: 'aiworkbench',
+		component: () => import('/@/views/iot/ai/workbench.vue'),
+		meta: {
+			title: 'AI 功能',
+			isHide: true,
+		},
+	},
+	{
+		path: '/iot/ai/mcp',
+		name: 'mcpservice',
+		component: () => import('/@/views/iot/ai/mcp.vue'),
+		meta: {
+			title: 'MCP 服务',
 			isHide: true,
 		},
 	},

@@ -72,7 +72,7 @@ namespace IoTSharp.Controllers
                 _user_menu.Add(
                 new()
                 {
-                    text = "数字孪生",
+                    text = "设备管理",
                     i18n = "",
                     vi18n = "iot.devicemnt",
                     routename = "devicemnt",
@@ -81,6 +81,7 @@ namespace IoTSharp.Controllers
                     children = new MenuItem[]
                         {
                             new() { text = "设备管理", i18n = "", vi18n="iot.devicelist", routename="devicelist", link = "/iot/devices/devicelist" , vpath="/iot/devices/devicelist",},
+                            new() { text = "遥测数据", i18n = "", vi18n="iot.telemetry", routename="telemetry", link = "/iot/devices/telemetry" , vpath="/iot/devices/telemetry",},
                             new() { text = "Edge 管理", i18n = "", vi18n="iot.edgelist", routename="edgelist", link = "/iot/devices/edgelist" , vpath="/iot/devices/edgelist",},
                             new() { text = "Edge 任务", i18n = "", vi18n="iot.edgetasks", routename="edgetasks", link = "/iot/devices/edgetasks" , vpath="/iot/devices/edgetasks",},
                             new() { text = "设备告警", i18n = "", vi18n="iot.alarmlist", routename="alarmlist", link = "/iot/alarms/alarmlist", vpath = "/iot/alarms/alarmlist", },
@@ -88,6 +89,37 @@ namespace IoTSharp.Controllers
                             new() { text = "规则链审计", i18n = "", vi18n="iot.flowevents", routename="flowevents", link = "/iot/rules/flowevents", vpath = "/iot/rules/flowevents",  },
                         }
                 });
+                _user_menu.Add(new()
+                {
+                    text = "数字孪生",
+                    i18n = "",
+                    vi18n = "iot.digitaltwin",
+                    routename = "digitaltwin",
+                    vpath = "/iot/digital-twin",
+                    icon = "anticon-apartment",
+                    children = new MenuItem[]
+                    {
+                        new() { text = "模型生成", i18n = "", vi18n="iot.digitaltwin.modelgenerator", routename="digitaltwinmodelgenerator", link = "/iot/digital-twin/model-generator", vpath = "/iot/digital-twin/model-generator", },
+                        new() { text = "三维场景", i18n = "", vi18n="iot.digitaltwin.workbench", routename="digitaltwinworkbench", link = "/iot/digital-twin/workbench", vpath = "/iot/digital-twin/workbench", },
+                    }
+                });
+                if (User.IsInRole(nameof(UserRole.CustomerAdmin)) || User.IsInRole(nameof(UserRole.TenantAdmin)))
+                {
+                    _user_menu.Add(new()
+                    {
+                        text = "AI 与 MCP",
+                        i18n = "",
+                        vi18n = "iot.ai",
+                        routename = "aicenter",
+                        vpath = "/iot/ai",
+                        icon = "anticon-robot",
+                        children = new MenuItem[]
+                        {
+                            new() { text = "AI 功能", i18n = "", vi18n="iot.ai.workbench", routename="aiworkbench", link = "/iot/ai/workbench", vpath = "/iot/ai/workbench", },
+                            new() { text = "MCP 服务", i18n = "", vi18n="iot.mcp", routename="mcpservice", link = "/iot/ai/mcp", vpath = "/iot/ai/mcp", },
+                        }
+                    });
+                }
                 _user_menu.Add(new()
                 {
                     text = "产品管理",

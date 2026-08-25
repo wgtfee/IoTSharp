@@ -219,7 +219,12 @@ namespace IoTSharp.Controllers
 
         private async Task<ModelRefreshToken> CreateToken(string name)
         {
-            var appUser = _userManager.Users.SingleOrDefault(r => r.Email == name);
+            var appUser = await _userManager.FindByNameAsync(name)
+                ?? await _userManager.FindByEmailAsync(name);
+            if (appUser == null)
+            {
+                throw new InvalidOperationException($"本地用户 {name} 不存在。");
+            }
             var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(RequireJwtSetting(_settings.JwtKey, nameof(AppSettings.JwtKey))));
             var signinCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256Signature);
             var claims = new List<Claim>

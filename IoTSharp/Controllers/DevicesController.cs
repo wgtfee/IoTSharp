@@ -25,9 +25,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Globalization;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml;
 using Dic = System.Collections.Generic.Dictionary<string, string>;
@@ -798,6 +800,114 @@ namespace IoTSharp.Controllers
                 return new ApiResult<List<TelemetryDataDto>>(ApiCode.Success, "Ok",
                          await _storage.LoadTelemetryAsync(deviceId, queryDto.keys, queryDto.begin, queryDto.end, queryDto.every, queryDto.aggregate));
             }
+        }
+
+        /// <summary>
+        /// 管理端手工上报设备遥测数据。数据仍通过事件总线写入时序存储并触发规则链。
+        /// </summary>
+        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [Permission("IoT.Device.Command")]
+        [HttpPost("{deviceId:guid}/Telemetry/Manual")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
+        [ProducesDefaultResponseType]
+        public async Task<ApiResult<bool>> CreateTelemetry(Guid deviceId, TelemetryCreateDto dto)
+        {
+            if (!await CanAccessDeviceAsync(deviceId))
+            {
+                return new ApiResult<bool>(ApiCode.ExceptionDeviceIdentity, "Device's Identity not found", false);
+            }
+
+            if (dto?.Values == null || dto.Values.Count == 0 || dto.Values.Count > 100)
+            {
+                return new ApiResult<bool>(ApiCode.InValidData, "请至少填写 1 项且最多填写 100 项遥测数据。", false);
+            }
+
+            var duplicateKey = dto.Values
+                .Select(item => item.KeyName?.Trim())
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .GroupBy(key => key, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1)?.Key;
+            if (!string.IsNullOrWhiteSpace(duplicateKey))
+            {
+                return new ApiResult<bool>(ApiCode.InValidData, $"遥测键 {duplicateKey} 重复。", false);
+            }
+
+            var values = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in dto.Values)
+            {
+                var keyName = item.KeyName?.Trim();
+                if (string.IsNullOrWhiteSpace(keyName) || keyName.Length > 128)
+                {
+                    return new ApiResult<bool>(ApiCode.InValidData, "遥测键不能为空且不能超过 128 个字符。", false);
+                }
+
+                try
+                {
+                    values.Add(keyName, ConvertTelemetryValue(item));
+                }
+                catch (Exception ex) when (ex is FormatException || ex is InvalidOperationException || ex is OverflowException || ex is JsonException)
+                {
+                    return new ApiResult<bool>(ApiCode.InValidData, $"遥测键 {keyName} 的值无效：{ex.Message}", false);
+                }
+            }
+
+            var timestamp = dto.Timestamp?.UtcDateTime ?? DateTime.UtcNow;
+            if (timestamp > DateTime.UtcNow.AddMinutes(5))
+            {
+                return new ApiResult<bool>(ApiCode.InValidData, "采集时间不能超过服务器当前时间 5 分钟。", false);
+            }
+
+            await _queue.PublishTelemetryData(new PlayloadData
+            {
+                DeviceId = deviceId,
+                ts = timestamp,
+                MsgBody = values,
+                DataSide = DataSide.ClientSide,
+                DataCatalog = DataCatalog.TelemetryData
+            });
+
+            return new ApiResult<bool>(ApiCode.Success, "遥测数据已进入处理队列。", true);
+        }
+
+        private static object ConvertTelemetryValue(TelemetryValueCreateDto item)
+        {
+            if (item.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            {
+                throw new FormatException("值不能为空");
+            }
+
+            var text = item.Value.ValueKind == JsonValueKind.String
+                ? item.Value.GetString()
+                : item.Value.GetRawText();
+
+            return item.DataType switch
+            {
+                DataType.Boolean => item.Value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? item.Value.GetBoolean()
+                    : bool.TryParse(text, out var boolValue)
+                        ? boolValue
+                        : throw new FormatException("请输入 true 或 false"),
+                DataType.Long => item.Value.ValueKind == JsonValueKind.Number && item.Value.TryGetInt64(out var longValue)
+                    ? longValue
+                    : long.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture),
+                DataType.Double => ParseFiniteDouble(text),
+                DataType.String => text ?? string.Empty,
+                DataType.DateTime => DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime(),
+                DataType.Json => JsonObjectSerializer.DeserializeUntyped(item.Value.GetRawText())
+                    ?? throw new FormatException("JSON 不能为空"),
+                _ => throw new FormatException($"暂不支持手工写入 {item.DataType} 类型")
+            };
+        }
+
+        private static double ParseFiniteDouble(string text)
+        {
+            var value = double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                throw new FormatException("请输入有限数值");
+            }
+            return value;
         }
 
         /// <summary>

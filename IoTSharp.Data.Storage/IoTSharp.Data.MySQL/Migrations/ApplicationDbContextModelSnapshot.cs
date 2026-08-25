@@ -1195,6 +1195,138 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.ToTable("DeviceRules");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinScene", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<string>("DraftPayload")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("PublishedVersionId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RootAssetId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("SceneKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("PublishedVersionId");
+
+                    b.HasIndex("RootAssetId", "Status", "Deleted");
+
+                    b.HasIndex("TenantId", "CustomerId", "SceneKey", "Deleted")
+                        .IsUnique();
+
+                    b.ToTable("DigitalTwinScenes");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinSceneVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Manifest")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ManifestHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("SchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ValidationReport")
+                        .HasColumnType("longtext");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("SceneId", "Version")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "CustomerId", "CreatedAt");
+
+                    b.ToTable("DigitalTwinSceneVersions");
+                });
+
             modelBuilder.Entity("IoTSharp.Data.DynamicFormFieldInfo", b =>
                 {
                     b.Property<long>("FieldId")
@@ -3020,6 +3152,431 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.ToTable("Tenant");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.TwinModelGenerationJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("AnimationReady")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("CommercialUseAllowed")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<string>("JobKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("LicenseType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<int>("Progress")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("ProviderJobId")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("ProviderMetadata")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("QualityProfile")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("ReferenceImageContentType")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("ReferenceImageName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("ReferenceImagePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<long>("ReferenceImageSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ResultModelResourceId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Stage")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ResultModelResourceId");
+
+                    b.HasIndex("TenantId", "CustomerId", "JobKey", "Deleted")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "CustomerId", "Status", "CreatedAt", "Deleted");
+
+                    b.ToTable("TwinModelGenerationJobs");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinModelResource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("LicenseMetadata")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("ModelMetadata")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("NodeIndex")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("PreviewResourcePath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<string>("ProcessingStatus")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ResourceKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("RuntimeFormat")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("StoragePath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("TenantId", "CustomerId", "ProcessingStatus", "Deleted");
+
+                    b.HasIndex("TenantId", "CustomerId", "ResourceKey", "Deleted")
+                        .IsUnique();
+
+                    b.ToTable("TwinModelResources");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinObjectBinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("AssetId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("BindingKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<Guid?>("ModelResourceId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("NodePath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<string>("ObjectId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("SceneVersionId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("SemanticId")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("SourceKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int>("StaleAfterMs")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("TargetPath")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("TransformConfig")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("TransformKind")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("SceneVersionId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("AssetId", "SceneId", "Deleted");
+
+                    b.HasIndex("ModelResourceId", "SceneId", "Deleted");
+
+                    b.HasIndex("SceneId", "SceneVersionId", "BindingKey", "Deleted")
+                        .IsUnique();
+
+                    b.HasIndex("DeviceId", "SourceKind", "SourceKey", "Enabled", "Deleted");
+
+                    b.ToTable("TwinObjectBindings");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinRoute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("GraphPayload")
+                        .HasColumnType("longtext");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RouteKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("RouteType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("SceneVersionId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("SceneVersionId");
+
+                    b.HasIndex("SceneId", "SceneVersionId", "RouteKey", "Deleted")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "CustomerId", "Enabled", "Deleted");
+
+                    b.ToTable("TwinRoutes");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -3516,6 +4073,63 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.Navigation("FlowRule");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinScene", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinSceneVersion", "PublishedVersion")
+                        .WithMany()
+                        .HasForeignKey("PublishedVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Asset", "RootAsset")
+                        .WithMany()
+                        .HasForeignKey("RootAssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("PublishedVersion");
+
+                    b.Navigation("RootAsset");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinSceneVersion", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinScene", "Scene")
+                        .WithMany("Versions")
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Scene");
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("IoTSharp.Data.DynamicFormFieldInfo", b =>
                 {
                     b.HasOne("IoTSharp.Data.Customer", "Customer")
@@ -3970,6 +4584,139 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.Navigation("AISettings");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.TwinModelGenerationJob", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.TwinModelResource", "ResultModelResource")
+                        .WithMany()
+                        .HasForeignKey("ResultModelResourceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("ResultModelResource");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinModelResource", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinObjectBinding", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Device", "Device")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.TwinModelResource", "ModelResource")
+                        .WithMany("Bindings")
+                        .HasForeignKey("ModelResourceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinScene", "Scene")
+                        .WithMany("Bindings")
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinSceneVersion", "SceneVersion")
+                        .WithMany("Bindings")
+                        .HasForeignKey("SceneVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Device");
+
+                    b.Navigation("ModelResource");
+
+                    b.Navigation("Scene");
+
+                    b.Navigation("SceneVersion");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinRoute", b =>
+                {
+                    b.HasOne("IoTSharp.Data.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinScene", "Scene")
+                        .WithMany("Routes")
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("IoTSharp.Data.DigitalTwinSceneVersion", "SceneVersion")
+                        .WithMany("Routes")
+                        .HasForeignKey("SceneVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IoTSharp.Data.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Scene");
+
+                    b.Navigation("SceneVersion");
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -4073,6 +4820,22 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.Navigation("DeviceModelCommands");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinScene", b =>
+                {
+                    b.Navigation("Bindings");
+
+                    b.Navigation("Routes");
+
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.DigitalTwinSceneVersion", b =>
+                {
+                    b.Navigation("Bindings");
+
+                    b.Navigation("Routes");
+                });
+
             modelBuilder.Entity("IoTSharp.Data.EdgeTask", b =>
                 {
                     b.Navigation("Receipts");
@@ -4106,6 +4869,11 @@ namespace IoTSharp.Data.MySql.Migrations
                     b.Navigation("Customers");
 
                     b.Navigation("Devices");
+                });
+
+            modelBuilder.Entity("IoTSharp.Data.TwinModelResource", b =>
+                {
+                    b.Navigation("Bindings");
                 });
 
             modelBuilder.Entity("IoTSharp.Data.Gateway", b =>

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iotsharp.net/contracts/digital-twin-scene.v1.schema.json",
+  "title": "IoTSharp Digital Twin Scene v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "sceneId", "name", "rootAssetId", "world", "resources", "objects", "bindings", "routes", "runtime"],
+  "properties": {
+    "schemaVersion": { "const": "iotsharp-twin-scene/v1" },
+    "sceneId": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "description": { "type": "string", "maxLength": 2048 },
+    "rootAssetId": { "type": "string", "format": "uuid" },
+    "world": {
+      "type": "object",
+      "required": ["unit", "upAxis", "background"],
+      "properties": {
+        "unit": { "const": "meter" },
+        "upAxis": { "const": "Y" },
+        "background": { "type": "string" }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["resourceId"],
+        "properties": { "resourceId": { "type": "string", "format": "uuid" } }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["objectId", "name", "kind", "transform"],
+        "properties": {
+          "objectId": { "type": "string", "minLength": 1 },
+          "resourceId": { "type": "string", "format": "uuid" },
+          "assetId": { "type": "string", "format": "uuid" },
+          "transform": {
+            "type": "object",
+            "required": ["position", "rotation", "scale"]
+          }
+        }
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["bindingId", "objectId", "source", "target", "transform"],
+        "properties": {
+          "bindingId": { "type": "string", "minLength": 1 },
+          "objectId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["routeId", "name", "type", "defaultSpeed", "points"],
+        "properties": {
+          "routeId": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "type": { "const": "conveyor" },
+          "defaultSpeed": { "type": "number", "exclusiveMinimum": 0 },
+          "startPointId": { "type": "string", "minLength": 1 },
+          "points": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["pointId", "name", "position"],
+              "properties": {
+                "pointId": { "type": "string", "minLength": 1 },
+                "kind": { "enum": ["waypoint", "junction", "station", "diverter", "merger", "buffer", "processStation", "sensor"] },
+                "actuatorBindingId": { "type": "string", "minLength": 1 },
+                "sensorBindingId": { "type": "string", "minLength": 1 },
+                "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } }
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["edgeId", "fromPointId", "toPointId", "bidirectional", "enabled"],
+              "properties": {
+                "edgeId": { "type": "string", "minLength": 1 },
+                "fromPointId": { "type": "string", "minLength": 1 },
+                "toPointId": { "type": "string", "minLength": 1 },
+                "bidirectional": { "type": "boolean" },
+                "enabled": { "type": "boolean" },
+                "blocked": { "type": "boolean" },
+                "priority": { "type": "integer" },
+                "speedLimit": { "type": "number", "exclusiveMinimum": 0 },
+                "capacity": { "type": "integer", "minimum": 1 },
+                "conveyorObjectId": { "type": "string", "minLength": 1 },
+                "occupancyBindingId": { "type": "string", "minLength": 1 },
+                "blockedBindingId": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "junctionDecisions": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+          "routingMode": { "enum": ["manual", "automatic"] },
+          "decisionRules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ruleId", "junctionPointId", "edgeId", "source", "operator"],
+              "properties": {
+                "ruleId": { "type": "string", "minLength": 1 },
+                "name": { "type": "string" },
+                "junctionPointId": { "type": "string", "minLength": 1 },
+                "edgeId": { "type": "string", "minLength": 1 },
+                "source": { "enum": ["payload", "binding"] },
+                "payloadKey": { "type": "string", "minLength": 1 },
+                "bindingId": { "type": "string", "minLength": 1 },
+                "operator": { "enum": ["equals", "notEquals", "greaterThan", "greaterThanOrEqual", "lessThan", "lessThanOrEqual", "contains", "truthy", "falsy"] },
+                "matchValue": {},
+                "priority": { "type": "integer" },
+                "enabled": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "runtime": { "type": "object" }
+  }
+}

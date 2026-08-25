@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace IoTSharp.Dtos
@@ -37,5 +38,35 @@ namespace IoTSharp.Dtos
         /// 数据截面计算方式， 
         /// </summary>
         public Aggregate aggregate { get; set; } = Aggregate.None;
+    }
+
+    /// <summary>
+    /// 管理端手工上报一组设备遥测数据。
+    /// </summary>
+    public class TelemetryCreateDto
+    {
+        /// <summary>
+        /// 设备侧采集时间；为空时使用服务器当前时间。
+        /// </summary>
+        public DateTimeOffset? Timestamp { get; set; }
+
+        /// <summary>
+        /// 本次上报的遥测键值，最多 100 项。
+        /// </summary>
+        [Required, MinLength(1), MaxLength(100)]
+        public List<TelemetryValueCreateDto> Values { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 单个手工遥测键值。
+    /// </summary>
+    public class TelemetryValueCreateDto
+    {
+        [Required, StringLength(128, MinimumLength = 1)]
+        public string KeyName { get; set; } = string.Empty;
+
+        public IoTSharp.Contracts.DataType DataType { get; set; } = IoTSharp.Contracts.DataType.String;
+
+        public JsonElement Value { get; set; }
     }
 }

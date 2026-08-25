@@ -192,7 +192,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPost("{id}/ai")]
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [Authorize(Roles = nameof(UserRole.TenantAdmin))]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
@@ -215,7 +215,11 @@ namespace IoTSharp.Controllers
                         d.AISettings = dx;
                     }
                     d.AISettings.Enable = dto.Enable;
-                    d.AISettings.MCP_API_KEY = Guid.NewGuid().ToString();
+                    d.AISettings.Role = UserRole.TenantAdmin;
+                    if (string.IsNullOrWhiteSpace(d.AISettings.MCP_API_KEY) || dto.RegenerateApiKey)
+                    {
+                        d.AISettings.MCP_API_KEY = Guid.NewGuid().ToString("D");
+                    }
                     d.AISettings.Name = dto.Name;
                     int ret = await _context.SaveChangesAsync();
                     var dtor = new AISettingsDto() { Enable = d.AISettings.Enable, MCP_API_KEY = d.AISettings.MCP_API_KEY, Name = d.AISettings.Name };
@@ -239,7 +243,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("{id}/ai")]
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [Authorize(Roles = nameof(UserRole.TenantAdmin))]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]

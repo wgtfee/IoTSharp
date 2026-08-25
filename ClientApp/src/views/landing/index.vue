@@ -6,9 +6,9 @@
 			</RouterLink>
 
 			<div class="landing-header__actions">
-				<RouterLink class="landing-header__link" to="/installer">初始化</RouterLink>
-				<RouterLink class="landing-header__button landing-header__button--plain" to="/signup">注册</RouterLink>
-				<RouterLink class="landing-header__button" to="/login">登录</RouterLink>
+				<RouterLink v-if="showInstaller" class="landing-header__link" to="/installer">初始化</RouterLink>
+				<RouterLink v-if="canCreateLocalUsers" class="landing-header__button landing-header__button--plain" to="/signup">注册</RouterLink>
+				<RouterLink class="landing-header__button" to="/login">{{ loginButtonText }}</RouterLink>
 			</div>
 		</header>
 
@@ -17,11 +17,11 @@
 				<div class="landing-entry__main">
 					<div class="landing-entry__eyebrow">IoTSharp 控制台</div>
 					<h1>{{ pageTitle }}</h1>
-					<p>选择入口继续操作。未初始化的实例请先完成安装向导。</p>
+					<p>{{ entryDescription }}</p>
 
 					<div class="landing-entry__actions">
-						<RouterLink class="landing-entry__primary" to="/login">登录控制台</RouterLink>
-						<RouterLink class="landing-entry__secondary" to="/installer">系统初始化</RouterLink>
+						<RouterLink class="landing-entry__primary" to="/login">{{ loginButtonText }}</RouterLink>
+						<RouterLink v-if="showInstaller" class="landing-entry__secondary" to="/installer">系统初始化</RouterLink>
 					</div>
 				</div>
 
@@ -59,10 +59,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import AppLogo from '/@/components/AppLogo.vue';
+import { loadSecurityProfile, type SecurityProfile } from '/@/security/security-profile';
 import { useAppInfo } from '/@/stores/appInfo';
 import { useThemeConfig } from '/@/stores/themeConfig';
 
@@ -71,36 +72,52 @@ const storesThemeConfig = useThemeConfig();
 const { themeConfig } = storeToRefs(storesThemeConfig);
 
 const pageTitle = computed(() => themeConfig.value.globalTitle || 'IoTSharp');
+const securityProfile = ref<SecurityProfile | null>(null);
+const securityUnavailable = ref(false);
 const isInstalled = computed(() => Boolean(storesAppInfo.appInfo.installed));
 const statusText = computed(() => (isInstalled.value ? '已初始化' : '待初始化'));
 const versionText = computed(() => storesAppInfo.appInfo.version || '--');
+const centralMode = computed(() => securityProfile.value?.centralMode === true);
+const canCreateLocalUsers = computed(() => !centralMode.value && securityProfile.value?.localUserManagementMode === 'Enabled');
+const showInstaller = computed(() => Boolean(securityProfile.value) && !isInstalled.value && !centralMode.value && securityProfile.value?.localUserManagementMode !== 'Hidden');
+const authenticationText = computed(() => {
+	if (securityUnavailable.value) return '配置不可用';
+	if (!securityProfile.value) return '检测中';
+	return centralMode.value ? '认证中心' : '本地认证';
+});
+const loginButtonText = computed(() => centralMode.value ? '统一身份登录' : '登录控制台');
+const entryDescription = computed(() => {
+	if (securityUnavailable.value) return '后端认证配置暂时不可用，请恢复连接后重试。';
+	if (centralMode.value) return '当前实例已接入统一认证中心，登录时将跳转到 Industrial IAM。';
+	return isInstalled.value ? '当前实例使用本地认证，请使用 IoTSharp 账号登录。' : '当前实例使用本地认证，请先完成安装向导。';
+});
 
 const statusItems = computed(() => [
 	{ label: '版本', value: versionText.value },
-	{ label: '认证入口', value: '账号登录' },
+	{ label: '认证入口', value: authenticationText.value },
 	{ label: '初始化', value: statusText.value },
 ]);
 
-const actionCards = [
-	{
+const actionCards = computed(() => {
+	const cards = [{
 		label: '01',
-		title: '登录',
-		description: '使用已有账号进入控制台。',
+		title: centralMode.value ? '统一身份登录' : '登录',
+		description: centralMode.value ? '前往 Industrial IAM 完成身份验证。' : '使用本地账号进入控制台。',
 		to: '/login',
-	},
-	{
-		label: '02',
-		title: '注册',
-		description: '创建租户和管理员账号。',
-		to: '/signup',
-	},
-	{
-		label: '03',
-		title: '初始化',
-		description: '首次部署时创建系统管理员。',
-		to: '/installer',
-	},
-];
+	}];
+	if (canCreateLocalUsers.value) cards.push({ label: '02', title: '注册', description: '创建本地租户和管理员账号。', to: '/signup' });
+	if (showInstaller.value) cards.push({ label: '03', title: '初始化', description: '首次部署时创建系统管理员。', to: '/installer' });
+	return cards;
+});
+
+onMounted(async () => {
+	try {
+		securityProfile.value = await loadSecurityProfile();
+	} catch (error) {
+		securityUnavailable.value = true;
+		console.warn('Unable to load Industrial Security profile.', error);
+	}
+});
 </script>
 
 <style scoped lang="scss">

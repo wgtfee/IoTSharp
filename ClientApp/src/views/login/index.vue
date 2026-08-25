@@ -17,7 +17,7 @@
 				<div class="auth-panel__header">
 					<div class="auth-panel__eyebrow">Sign In</div>
 					<h2>登录到 {{ pageTitle }}</h2>
-					<p>{{ centralLogin ? '通过 Industrial IAM 登录；IoTSharp 本地角色与数据范围继续负责业务授权。' : '输入账号和密码，完成验证码后进入控制台。' }}</p>
+					<p>{{ panelDescription }}</p>
 				</div>
 
 				<div class="auth-panel__highlights">
@@ -28,11 +28,20 @@
 					</div>
 				</div>
 
-				<CentralAccount v-if="centralLogin" />
-				<Account v-else />
+				<CentralAccount v-if="securityState === 'central'" />
+				<Account v-else-if="securityState === 'local'" />
+				<div v-else-if="securityState === 'loading'" class="auth-mode-state">
+					<div class="auth-mode-state__title">正在读取认证配置</div>
+					<p>正在确认当前实例使用本地认证还是统一认证中心。</p>
+				</div>
+				<div v-else class="auth-mode-state auth-mode-state--error">
+					<div class="auth-mode-state__title">认证配置不可用</div>
+					<p>{{ securityError }}</p>
+					<el-button type="primary" plain @click="detectSecurityMode">重新检测</el-button>
+				</div>
 
 				<div class="auth-panel__footer">
-					<div>{{ centralLogin ? '统一身份已启用；Shadow 阶段不改变 IoT 本地业务授权。' : '建议首次登录后立即修改默认密码。' }}</div>
+					<div>{{ footerDescription }}</div>
 					<div>{{ currentYear }} {{ pageTitle }}</div>
 				</div>
 			</section>
@@ -45,61 +54,92 @@ import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useThemeConfig } from '/@/stores/themeConfig';
 import { NextLoading } from '/@/utils/loading';
-import request from '/@/utils/request';
+import { loadSecurityProfile } from '/@/security/security-profile';
 import Account from '/@/views/login/component/account.vue';
 import CentralAccount from '/@/views/login/component/central-account.vue';
 import AuthShowcase from '/@/views/login/component/AuthShowcase.vue';
 
 const storesThemeConfig = useThemeConfig();
 const { themeConfig } = storeToRefs(storesThemeConfig);
-const centralLogin = ref(false);
+const securityState = ref<'loading' | 'local' | 'central' | 'error'>('loading');
+const securityError = ref('无法确认认证模式。为避免误开放本地登录，当前入口已关闭。');
+const centralLogin = computed(() => securityState.value === 'central');
 
 const pageTitle = computed(() => themeConfig.value.globalTitle || 'IoTSharp');
 const currentYear = new Date().getFullYear();
+const panelDescription = computed(() => {
+	if (securityState.value === 'central') return '通过 Industrial IAM 登录；IoTSharp 本地角色与数据范围继续负责业务授权。';
+	if (securityState.value === 'local') return '当前实例使用本地认证。输入账号和密码，完成验证码后进入控制台。';
+	if (securityState.value === 'error') return '无法读取后端认证配置，本地登录不会自动降级开放。';
+	return '正在确认当前实例的认证方式。';
+});
+const footerDescription = computed(() => {
+	if (securityState.value === 'central') return '统一身份已启用；Shadow 阶段不改变 IoT 本地业务授权。';
+	if (securityState.value === 'local') return '本地认证已启用；建议首次登录后立即修改默认密码。';
+	return '认证模式必须由后端配置明确确认。';
+});
 const showcaseDescription = computed(() => centralLogin.value
 	? 'Industrial IAM 统一登录入口；本地 IoTSharp 角色、Customer/Tenant 与设备范围继续保留。'
-	: '用于管理员、租户和运维人员进入 IoTSharp 控制台。');
+	: securityState.value === 'local'
+		? '当前实例使用 IoTSharp 本地账号认证。'
+		: '正在读取后端安全配置，以选择正确的认证入口。');
 
-const showcasePrimaryCard = computed(() => ({
-	label: '当前入口',
-	value: centralLogin.value ? 'Industrial IAM' : '控制台',
-	title: centralLogin.value ? '统一身份登录' : '账号登录',
-	description: centralLogin.value ? 'IAM 验证身份，IoTSharp 继续执行本地业务授权。' : '认证成功后按账号权限进入对应工作区。',
-}));
+const showcasePrimaryCard = computed(() => {
+	if (securityState.value === 'central') return {
+		label: '当前入口', value: 'Industrial IAM', title: '统一身份登录', description: 'IAM 验证身份，IoTSharp 继续执行本地业务授权。',
+	};
+	if (securityState.value === 'local') return {
+		label: '当前入口', value: 'Local', title: '本地账号登录', description: 'IoTSharp 本地验证账号，并按业务权限进入工作区。',
+	};
+	return {
+		label: '认证模式', value: securityState.value === 'error' ? 'Unavailable' : 'Detecting', title: '等待后端确认', description: '认证模式未确认前不会显示任何登录表单。',
+	};
+});
 
-const showcaseMetrics = computed(() => centralLogin.value ? [
+const showcaseMetrics = computed(() => securityState.value === 'central' ? [
 	{ label: '身份来源', value: 'IAM', description: '平台账号统一认证。', tone: 'primary' as const },
 	{ label: '授权阶段', value: 'Shadow', description: '本地授权仍为正式结果。', tone: 'accent' as const },
 	{ label: '数据范围', value: 'IoTSharp', description: 'Customer/Tenant/设备范围留在业务域。', tone: 'success' as const },
-] : [
+] : securityState.value === 'local' ? [
 	{ label: '账号类型', value: '管理员', description: '支持管理员和授权用户登录。', tone: 'primary' as const },
 	{ label: '校验方式', value: '验证码', description: '提交前需要完成一次交互校验。', tone: 'accent' as const },
 	{ label: '登录结果', value: '按权限进入', description: '菜单和数据范围由当前账号权限决定。', tone: 'success' as const },
+]: [
+	{ label: '配置来源', value: 'Backend', description: '以后端安全配置为准。', tone: 'primary' as const },
+	{ label: '本地入口', value: 'Closed', description: '检测失败不会降级开放。', tone: 'accent' as const },
+	{ label: '下一步', value: 'Retry', description: '恢复连接后重新检测。', tone: 'success' as const },
 ]);
 
-const showcaseTags = computed(() => centralLogin.value ? ['IAM', 'PKCE', 'Shadow', '数据范围'] : ['认证', '权限', '审计', '工作区']);
-const panelHighlights = computed(() => centralLogin.value ? [
+const showcaseTags = computed(() => securityState.value === 'central' ? ['IAM', 'PKCE', 'Shadow', '数据范围'] : securityState.value === 'local' ? ['Local', '验证码', '权限', '工作区'] : ['模式检测', 'Fail Closed']);
+const panelHighlights = computed(() => securityState.value === 'central' ? [
 	{ label: '登录方式', value: 'IAM账号', hint: '通过平台统一身份验证。' },
 	{ label: '业务角色', value: '本地映射', hint: '显式绑定已有 IdentityUser。' },
 	{ label: '权限结果', value: 'Local优先', hint: '中央结果只做 Shadow 对比。' },
-] : [
+] : securityState.value === 'local' ? [
 	{ label: '登录方式', value: '账号密码', hint: '使用已分配的控制台账号。' },
 	{ label: '安全校验', value: '滑块拼图', hint: '提交前完成验证码校验。' },
 	{ label: '进入后', value: '控制台', hint: '按权限加载菜单和数据。' },
+]: [
+	{ label: '认证模式', value: '检测中', hint: '读取后端安全配置。' },
+	{ label: '本地入口', value: '未开放', hint: '不会自动降级。' },
+	{ label: '处理方式', value: '明确选择', hint: 'Local 或 Centralized。' },
 ]);
 
-onMounted(async () => {
+const detectSecurityMode = async () => {
+	securityState.value = 'loading';
 	try {
-		const security: any = await request({ url: '/api/security/local-user-management', method: 'get' });
-		centralLogin.value = security?.centralMode === true;
+		const security = await loadSecurityProfile(true);
+		securityState.value = security.centralMode ? 'central' : 'local';
 	} catch (error) {
-		// Migration safety: failure to inspect platform mode never removes the proven local login path.
-		centralLogin.value = false;
-		console.warn('Unable to detect Industrial Security mode; keeping IoTSharp Local login.', error);
+		securityState.value = 'error';
+		securityError.value = error instanceof Error ? error.message : '无法确认认证模式。';
+		console.warn('Unable to detect Industrial Security mode; login remains closed.', error);
 	} finally {
 		NextLoading.done();
 	}
-});
+};
+
+onMounted(detectSecurityMode);
 </script>
 
 <style scoped lang="scss">
@@ -205,6 +245,22 @@ onMounted(async () => {
 	color: #64748b;
 	font-size: 12px;
 }
+
+.auth-mode-state {
+	padding: 24px;
+	border: 1px solid rgba(37, 99, 235, 0.16);
+	border-radius: 20px;
+	background: rgba(239, 246, 255, 0.72);
+	color: #5f7289;
+}
+
+.auth-mode-state--error {
+	border-color: rgba(220, 38, 38, 0.18);
+	background: rgba(254, 242, 242, 0.82);
+}
+
+.auth-mode-state__title { color: #123b6d; font-size: 16px; font-weight: 700; }
+.auth-mode-state p { margin: 10px 0 16px; font-size: 13px; line-height: 1.75; }
 
 @media (max-width: 1080px) {
 	.auth-shell { grid-template-columns: 1fr; max-width: 720px; }

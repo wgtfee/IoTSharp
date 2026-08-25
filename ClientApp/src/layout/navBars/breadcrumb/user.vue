@@ -92,6 +92,7 @@ import { useUserInfo } from '/@/stores/userInfo';
 import { useThemeConfig } from '/@/stores/themeConfig';
 import other from '/@/utils/other';
 import { Session, Local } from '/@/utils/storage';
+import { isCentralAuthentication, logoutIamSession } from '/@/security/oidc';
 import UserNews from '/@/layout/navBars/breadcrumb/userNews.vue';
 import Search from '/@/layout/navBars/breadcrumb/search.vue';
 
@@ -161,7 +162,8 @@ export default defineComponent({
 						}
 					},
 				})
-					.then(() => {
+					.then(async () => {
+						if (isCentralAuthentication()) await logoutIamSession();
 						Session.clear();
 						window.location.reload();
 					})

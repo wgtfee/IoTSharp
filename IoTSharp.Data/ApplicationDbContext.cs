@@ -39,6 +39,12 @@ namespace IoTSharp.Data
             modelBuilder.ApplyConfiguration(new CollectionTransformTemplateConfiguration());
             modelBuilder.ApplyConfiguration(new CollectionSamplingPolicyConfiguration());
             modelBuilder.ApplyConfiguration(new CollectionMappingPolicyConfiguration());
+            modelBuilder.ApplyConfiguration(new DigitalTwinSceneConfiguration());
+            modelBuilder.ApplyConfiguration(new DigitalTwinSceneVersionConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinModelResourceConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinModelGenerationJobConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinObjectBindingConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinRouteConfiguration());
             ConfigureProviderSpecificMappings(modelBuilder);
             modelBuilder.Entity<AttributeLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
             modelBuilder.Entity<TelemetryLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
@@ -66,10 +72,14 @@ namespace IoTSharp.Data
         /// <param name="modelBuilder">EF 模型构建器。</param>
         private void ConfigureProviderSpecificMappings(ModelBuilder modelBuilder)
         {
-            if (Database.ProviderName?.Contains("Oracle", StringComparison.OrdinalIgnoreCase) != true)
+            if (Database.ProviderName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true)
             {
+                modelBuilder.Entity<TwinModelGenerationJob>().Property(c => c.Prompt).HasColumnType("longtext");
+                modelBuilder.Entity<TwinModelGenerationJob>().Property(c => c.ProviderMetadata).HasColumnType("longtext");
                 return;
             }
+
+            if (Database.ProviderName?.Contains("Oracle", StringComparison.OrdinalIgnoreCase) != true) return;
 
             modelBuilder.Entity<CollectionConfigurationVersion>().Property(c => c.Payload).HasColumnType("NCLOB");
             modelBuilder.Entity<CollectionConfigurationVersion>().Property(c => c.SourceMetadata).HasColumnType("NCLOB");
@@ -78,6 +88,16 @@ namespace IoTSharp.Data
             modelBuilder.Entity<ReleaseReceipt>().Property(c => c.Result).HasColumnType("NCLOB");
             modelBuilder.Entity<ReleaseReceipt>().Property(c => c.Metadata).HasColumnType("NCLOB");
             modelBuilder.Entity<ReleaseReceipt>().Property(c => c.Payload).HasColumnType("NCLOB");
+            modelBuilder.Entity<DigitalTwinScene>().Property(c => c.DraftPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<DigitalTwinSceneVersion>().Property(c => c.Manifest).HasColumnType("NCLOB");
+            modelBuilder.Entity<DigitalTwinSceneVersion>().Property(c => c.ValidationReport).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinModelResource>().Property(c => c.NodeIndex).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinModelResource>().Property(c => c.ModelMetadata).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinModelResource>().Property(c => c.LicenseMetadata).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinModelGenerationJob>().Property(c => c.Prompt).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinModelGenerationJob>().Property(c => c.ProviderMetadata).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinObjectBinding>().Property(c => c.TransformConfig).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinRoute>().Property(c => c.GraphPayload).HasColumnType("NCLOB");
         }
 
         public DbSet<Tenant> Tenant { get; set; }
@@ -149,6 +169,13 @@ namespace IoTSharp.Data
         public DbSet<ProductCommand> ProductCommands { get; set; }
 
         public DbSet<AISettings> AISettings { get; set; }
+
+        public DbSet<DigitalTwinScene> DigitalTwinScenes { get; set; }
+        public DbSet<DigitalTwinSceneVersion> DigitalTwinSceneVersions { get; set; }
+        public DbSet<TwinModelResource> TwinModelResources { get; set; }
+        public DbSet<TwinModelGenerationJob> TwinModelGenerationJobs { get; set; }
+        public DbSet<TwinObjectBinding> TwinObjectBindings { get; set; }
+        public DbSet<TwinRoute> TwinRoutes { get; set; }
     }
 
 }
