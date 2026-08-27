@@ -4,7 +4,6 @@ import { TwinMaterialFlowRuntime, type TwinFlowWaitingReason } from '/@/digital-
 
 type SilkSide = 'A' | 'B';
 type PalletStage = 'source-queue' | 'loading' | 'to-gantry-a' | 'to-gantry-b' | 'gantry-a' | 'gantry-b' | 'returning';
-
 type WoodStage = 'stacking' | 'covering' | 'labeling' | 'wrapping' | 'inbound' | 'stored';
 
 interface PlasticPalletRuntime {
@@ -17,6 +16,7 @@ interface PlasticPalletRuntime {
 	silkCakeId?: string;
 	loadSlot?: number;
 	gantrySlot?: number;
+	returnFrom?: 'A' | 'B';
 	waitingReason?: TwinFlowWaitingReason;
 }
 
@@ -38,7 +38,7 @@ interface SilkCartSlotRuntime {
 }
 
 interface RobotTaskRuntime {
-	state: 'idle' | 'picking' | 'placing' | 'returning';
+	state: 'idle' | 'picking';
 	progress: number;
 	side: SilkSide;
 	row: number;
@@ -49,7 +49,7 @@ interface RobotTaskRuntime {
 }
 
 interface GantryTaskRuntime {
-	state: 'idle' | 'picking' | 'placing' | 'returning';
+	state: 'idle' | 'picking';
 	progress: number;
 	palletIds: string[];
 	silkCakeIds: string[];
@@ -82,9 +82,11 @@ interface LineSnapshot {
 		sourceQueue: number;
 	};
 	silkCart: {
+		cartId: string;
 		activeSide: SilkSide;
 		currentRow: number;
 		remaining: number;
+		capacity: number;
 		state: string;
 	};
 	robot: {
@@ -101,6 +103,7 @@ interface LineSnapshot {
 		layer: number;
 		maxLayers: number;
 		silkCakeCount: number;
+		maxSilkCakeCount: number;
 		stage?: WoodStage;
 	};
 	postProcess: {
@@ -154,20 +157,19 @@ const lerpPose = (object: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3
 /**
  * 丝饼产线程序化数字孪生。
  *
- * 业务规则：
- * - 丝车 A/B 两面，每面 3 行 × 6 列；A 面抓完再旋转 180° 抓 B 面。
- * - 上料机器人使用 1×6 夹具，只有凑齐 6 个空塑料托盘时才一次抓取一整行。
- * - 塑料托盘仍通过 TwinMaterialFlowRuntime 的 Section Capacity / Reserved / Waiting 控制流转。
- * - 桁架下方两条塑料托盘辊道各 3 位，第三条为木托盘辊道；2×3 夹具一次抓 6 个丝饼。
- * - 木托盘 2×3/层，共 8 层 = 48 个丝饼，之后依次盖板、贴标、缠膜、立库入库。
- * - 被桁架抓空的塑料托盘进入回流，再次组成 6 个空托盘等待批次。
+ * - 丝车 A/B 两面，每面 3 行 × 6 列；A 面三行抓完后旋转 180° 再抓 B 面。
+ * - 上料机器人使用 1×6 夹具，只有凑齐 6 个空塑料托盘时才一次抓一整行。
+ * - 塑料托盘通过 TwinMaterialFlowRuntime 的 Section Capacity / Reserved / Waiting 控制流转。
+ * - 桁架下方两条塑料托盘辊道各 3 位，第三条木托盘辊道；2×3 夹具一次抓 6 个丝饼。
+ * - 木托盘每层 2×3，共 8 层 = 48 个丝饼；之后盖板、贴标、缠膜、立体库入库。
+ * - 桁架抓空后的塑料托盘回流，再组成下一组 6 个空托盘。
  */
 export class ProceduralPackagingLine {
 	readonly group = new THREE.Group();
 
 	private route: TwinRouteDefinition;
 	private readonly palletCount: number;
-	private readonly flowRuntime: TwinMaterialFlowRuntime;
+	private flowRuntime: TwinMaterialFlowRuntime;
 	private readonly pallets = new Map<string, PlasticPalletRuntime>();
 	private readonly cakes = new Map<string, SilkCakeRuntime>();
 	private readonly cartSlots: SilkCartSlotRuntime[] = [];
@@ -180,7 +182,6 @@ export class ProceduralPackagingLine {
 
 	private running = false;
 	private speed = 1.35;
-	private elapsedSeconds = 0;
 	private silkSequence = 0;
 	private cartSequence = 0;
 	private woodSequence = 0;
@@ -234,6 +235,7 @@ export class ProceduralPackagingLine {
 
 	constructor(route: TwinRouteDefinition, palletCount = 50) {
 		this.route = structuredClone(route);
+		this.applySilkLineSectionCapacities(this.route);
 		this.palletCount = Math.min(200, Math.max(6, Math.floor(palletCount)));
 		this.speed = route.defaultSpeed;
 		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
@@ -264,13 +266,15 @@ export class ProceduralPackagingLine {
 
 	setRoute(route: TwinRouteDefinition) {
 		this.route = structuredClone(route);
+		this.applySilkLineSectionCapacities(this.route);
 		this.speed = route.defaultSpeed;
-		this.flowRuntime.setRoute(route);
+		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
+		this.reset();
 	}
 
 	reset() {
 		this.running = false;
-		this.elapsedSeconds = 0;
+		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
 		this.currentSide = 'A';
 		this.currentRow = 0;
 		this.cartState = 'ready-a';
@@ -289,9 +293,11 @@ export class ProceduralPackagingLine {
 			delete pallet.silkCakeId;
 			delete pallet.loadSlot;
 			delete pallet.gantrySlot;
+			delete pallet.returnFrom;
 			delete pallet.waitingReason;
 			pallet.cakeAnchor.clear();
 			this.sourceQueue.push(pallet.palletId);
+			this.flowRuntime.entities.ensure(pallet.palletId);
 		}
 		for (const queueItem of this.woodProcessQueue.splice(0)) this.group.remove(queueItem.root);
 		for (const stored of this.storedWoodPallets.splice(0)) this.group.remove(stored.root);
@@ -305,7 +311,6 @@ export class ProceduralPackagingLine {
 
 	updateFixed(deltaSeconds: number) {
 		if (!this.running || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
-		this.elapsedSeconds += deltaSeconds;
 		this.updateSilkCart(deltaSeconds);
 		this.updateRobot(deltaSeconds);
 		this.updatePlasticPalletFlow(deltaSeconds);
@@ -330,9 +335,11 @@ export class ProceduralPackagingLine {
 				sourceQueue: this.sourceQueue.length,
 			},
 			silkCart: {
+				cartId: this.currentCartId,
 				activeSide: this.currentSide,
 				currentRow: this.currentRow + 1,
-				remaining: this.cartSlots.filter((slot) => Boolean(slot.silkCakeId)).length,
+				remaining: Math.min(SILK_PER_CART, this.cartSlots.filter((slot) => Boolean(slot.silkCakeId)).length),
+				capacity: SILK_PER_CART,
 				state: this.cartState,
 			},
 			robot: { state: this.robotTask.state, batchSize: this.robotTask.silkCakeIds.length },
@@ -345,7 +352,8 @@ export class ProceduralPackagingLine {
 				id: this.activeWoodPallet?.woodenPalletId,
 				layer: this.activeWoodPallet?.layer ?? 0,
 				maxLayers: WOOD_MAX_LAYERS,
-				silkCakeCount: this.activeWoodPallet?.silkCakeIds.length ?? 0,
+				silkCakeCount: Math.min(SILK_PER_WOOD_PALLET, this.activeWoodPallet?.silkCakeIds.length ?? 0),
+				maxSilkCakeCount: SILK_PER_WOOD_PALLET,
 				stage: this.activeWoodPallet?.stage,
 			},
 			postProcess: {
@@ -359,6 +367,20 @@ export class ProceduralPackagingLine {
 		};
 	}
 
+	private applySilkLineSectionCapacities(route: TwinRouteDefinition) {
+		const capacities: Record<string, number> = {
+			'pack-edge-scan': 6,
+			'pack-edge-load': 6,
+			'pack-edge-left-pack': 3,
+			'pack-edge-right-pack': 3,
+			'pack-edge-return-main': Math.max(6, Math.min(24, this.palletCount || 24)),
+		};
+		for (const edge of route.edges || []) {
+			if (capacities[edge.edgeId] !== undefined) edge.capacity = capacities[edge.edgeId];
+			if (!edge.occupancyMode) edge.occupancyMode = 'simulation';
+		}
+	}
+
 	private resolveSectionIds(edges: TwinRouteEdgeDefinition[]) {
 		const byId = (id: string) => edges.find((edge) => edge.edgeId === id)?.edgeId;
 		return {
@@ -366,7 +388,7 @@ export class ProceduralPackagingLine {
 			transit: byId('pack-edge-load') || edges[1]?.edgeId || edges[0]?.edgeId,
 			laneA: byId('pack-edge-left-pack') || edges[2]?.edgeId || edges[0]?.edgeId,
 			laneB: byId('pack-edge-right-pack') || edges[3]?.edgeId || edges[0]?.edgeId,
-			returning: byId('pack-edge-return-main') || edges.at(-1)?.edgeId || edges[0]?.edgeId,
+			returning: byId('pack-edge-return-main') || edges[edges.length - 1]?.edgeId || edges[0]?.edgeId,
 		};
 	}
 
@@ -410,7 +432,6 @@ export class ProceduralPackagingLine {
 		root.name = palletId;
 		root.userData.entityType = 'plastic-pallet';
 		root.userData.entityId = palletId;
-
 		const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.74, 0.12, 32), this.plasticMaterial);
 		base.position.y = 0.06;
 		root.add(base);
@@ -423,12 +444,10 @@ export class ProceduralPackagingLine {
 		outer.position.y = 0.135;
 		root.add(outer);
 		for (let index = 0; index < 12; index += 1) {
-			const rib = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.055), this.plasticDarkMaterial);
-			rib.position.y = 0.145;
-			rib.position.x = 0.3;
-			rib.rotation.y = index * Math.PI / 6;
 			const holder = new THREE.Group();
 			holder.rotation.y = index * Math.PI / 6;
+			const rib = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.055), this.plasticDarkMaterial);
+			rib.position.set(0.3, 0.145, 0);
 			holder.add(rib);
 			root.add(holder);
 		}
@@ -448,17 +467,15 @@ export class ProceduralPackagingLine {
 		root.userData.entityType = 'silk-cake';
 		root.userData.entityId = id;
 		const body = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.42, 40, 1, false), this.silkMaterial);
-		body.rotation.z = Math.PI / 2;
 		root.add(body);
 		const edgeA = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.025, 8, 40), this.silkEdgeMaterial);
-		edgeA.rotation.y = Math.PI / 2;
-		edgeA.position.x = -0.215;
+		edgeA.rotation.x = Math.PI / 2;
+		edgeA.position.y = -0.215;
 		root.add(edgeA);
 		const edgeB = edgeA.clone();
-		edgeB.position.x = 0.215;
+		edgeB.position.y = 0.215;
 		root.add(edgeB);
 		const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.46, 24), this.plasticDarkMaterial);
-		hole.rotation.z = Math.PI / 2;
 		root.add(hole);
 		const runtime: SilkCakeRuntime = { silkCakeId: id, root, state: 'on-cart', side, row, column };
 		this.cakes.set(id, runtime);
@@ -475,7 +492,6 @@ export class ProceduralPackagingLine {
 		const discMesh = new THREE.Mesh(new THREE.CylinderGeometry(2.08, 2.08, 0.18, 40), this.safetyMaterial);
 		discMesh.position.y = 0.44;
 		this.rotaryDisc.add(discMesh);
-		this.rotaryDisc.position.y = 0;
 		cell.add(this.rotaryDisc);
 		this.silkCartRoot.name = '丝车';
 		this.silkCartRoot.position.y = 0.55;
@@ -539,6 +555,7 @@ export class ProceduralPackagingLine {
 			const cake = this.createSilkCake(silkCakeId, slot.side, slot.row, slot.column);
 			slot.silkCakeId = silkCakeId;
 			slot.anchor.add(cake.root);
+			cake.root.rotation.x = Math.PI / 2;
 		}
 		this.currentSide = 'A';
 		this.currentRow = 0;
@@ -782,7 +799,6 @@ export class ProceduralPackagingLine {
 	}
 
 	private buildFloorLabels() {
-		// 用颜色块区分工艺区，避免程序化场景在没有字体资源时依赖 CanvasTexture。
 		const zones: Array<[string, number, THREE.Vector3, THREE.Vector3]> = [
 			['机器人上料区', 0x0ea5e9, new THREE.Vector3(-6, 0.015, -7.4), new THREE.Vector3(12, 0.02, 7.5)],
 			['桁架码垛区', 0xf59e0b, new THREE.Vector3(10, 0.015, -4.3), new THREE.Vector3(9, 0.02, 11.5)],
@@ -828,14 +844,13 @@ export class ProceduralPackagingLine {
 		if (pallets.some((item) => item.loaded)) return;
 		const rowSlots = this.cartSlots.filter((slot) => slot.side === this.currentSide && slot.row === this.currentRow && Boolean(slot.silkCakeId));
 		if (rowSlots.length !== SILK_COLUMNS) return;
-		const silkCakeIds = rowSlots.map((slot) => slot.silkCakeId!);
 		this.robotTask = {
 			state: 'picking',
 			progress: 0,
 			side: this.currentSide,
 			row: this.currentRow,
 			palletIds,
-			silkCakeIds,
+			silkCakeIds: rowSlots.map((slot) => slot.silkCakeId!),
 			attachedAtPick: false,
 			attachedAtPlace: false,
 		};
@@ -855,7 +870,6 @@ export class ProceduralPackagingLine {
 		this.robotShoulder.rotation.z = -0.25 + Math.sin(p * Math.PI) * 0.55;
 		this.robotElbow.rotation.z = 0.45 + Math.sin(p * Math.PI) * 0.75;
 		this.robotWrist.rotation.y = (this.robotTask.side === 'A' ? -1 : 1) * Math.sin(p * Math.PI) * 0.4;
-
 		if (!this.robotTask.attachedAtPick && p >= 0.2) {
 			this.robotTask.attachedAtPick = true;
 			for (const silkCakeId of this.robotTask.silkCakeIds) {
@@ -866,7 +880,6 @@ export class ProceduralPackagingLine {
 			}
 			for (const slot of this.cartSlots.filter((slot) => this.robotTask.silkCakeIds.includes(slot.silkCakeId || ''))) delete slot.silkCakeId;
 		}
-
 		if (!this.robotTask.attachedAtPlace && p >= 0.72) {
 			this.robotTask.attachedAtPlace = true;
 			for (let index = 0; index < ROBOT_BATCH; index += 1) {
@@ -881,10 +894,7 @@ export class ProceduralPackagingLine {
 				pallet.silkCakeId = cake.silkCakeId;
 			}
 		}
-
-		if (p >= 1) {
-			this.finishRobotBatch();
-		}
+		if (p >= 1) this.finishRobotBatch();
 	}
 
 	private finishRobotBatch() {
@@ -896,7 +906,6 @@ export class ProceduralPackagingLine {
 			if (!this.transferPallet(pallet, this.sectionIds.transit)) continue;
 			pallet.stage = targetLane;
 			pallet.progress = 0;
-			delete pallet.loadSlot;
 			this.loadingSlots[index] = undefined;
 		}
 		this.currentRow += 1;
@@ -956,9 +965,9 @@ export class ProceduralPackagingLine {
 				pallet.gantrySlot = freeIndex;
 				pallet.stage = pallet.stage === 'to-gantry-a' ? 'gantry-a' : 'gantry-b';
 				pallet.progress = 1;
+				delete pallet.loadSlot;
 				delete pallet.waitingReason;
 			}
-
 			if (pallet.stage === 'returning') {
 				pallet.progress = clamp01(pallet.progress + deltaSeconds * transitSpeed * 0.75);
 				if (pallet.progress < 1) continue;
@@ -972,6 +981,7 @@ export class ProceduralPackagingLine {
 				pallet.loadSlot = freeLoadSlot;
 				pallet.progress = 1;
 				delete pallet.gantrySlot;
+				delete pallet.returnFrom;
 			}
 		}
 	}
@@ -1004,7 +1014,7 @@ export class ProceduralPackagingLine {
 		const p = this.gantryTask.progress;
 		if (p < 0.45) {
 			this.gantryCarriage.position.x = 10;
-			this.gantryCarriage.position.z = THREE.MathUtils.lerp(-5.9, -5.9, p / 0.45);
+			this.gantryCarriage.position.z = -5.9;
 			this.gantryLift.position.y = -Math.sin((p / 0.45) * Math.PI) * 0.75;
 		} else {
 			const local = (p - 0.45) / 0.55;
@@ -1036,7 +1046,7 @@ export class ProceduralPackagingLine {
 			wood.stackAnchor.attach(cake.root);
 			const row = Math.floor(index / 3);
 			const column = index % 3;
-			cake.root.position.set(-1.55 + column * 1.55, 0.48 + layer * 0.48, -0.68 + row * 1.36);
+			cake.root.position.set(-1.55 + column * 1.55, 0.36 + layer * 0.46, -0.68 + row * 1.36);
 			cake.root.rotation.set(0, 0, 0);
 			cake.state = 'on-wood-pallet';
 			wood.silkCakeIds.push(silkCakeId);
@@ -1051,10 +1061,12 @@ export class ProceduralPackagingLine {
 			pallet.loaded = false;
 			delete pallet.silkCakeId;
 			pallet.cakeAnchor.clear();
-			const lane = pallet.stage === 'gantry-a' ? this.gantryLaneA : this.gantryLaneB;
+			const fromLane: 'A' | 'B' = pallet.stage === 'gantry-a' ? 'A' : 'B';
+			const lane = fromLane === 'A' ? this.gantryLaneA : this.gantryLaneB;
 			const index = lane.indexOf(palletId);
 			if (index >= 0) lane[index] = undefined;
 			if (this.transferPallet(pallet, this.sectionIds.returning)) {
+				pallet.returnFrom = fromLane;
 				pallet.stage = 'returning';
 				pallet.progress = 0;
 			}
@@ -1130,7 +1142,7 @@ export class ProceduralPackagingLine {
 		if (wood.root.getObjectByName('TopCover')) return;
 		const cover = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.12, 2.35), this.coverMaterial);
 		cover.name = 'TopCover';
-		cover.position.y = 0.45 + WOOD_MAX_LAYERS * 0.48;
+		cover.position.y = 0.45 + WOOD_MAX_LAYERS * 0.46;
 		wood.root.add(cover);
 	}
 
@@ -1153,7 +1165,7 @@ export class ProceduralPackagingLine {
 		for (const pallet of this.pallets.values()) {
 			if (pallet.stage === 'source-queue') {
 				const queueIndex = this.sourceQueue.indexOf(pallet.palletId);
-				pallet.root.position.set(-14 - Math.floor(queueIndex / 8) * 1.0, 0.94, -5.8 + (queueIndex % 8) * 0.26);
+				pallet.root.position.set(-14 - Math.floor(Math.max(0, queueIndex) / 8) * 1.0, 0.94, -5.8 + (Math.max(0, queueIndex) % 8) * 0.26);
 				continue;
 			}
 			if (pallet.stage === 'to-gantry-a' || pallet.stage === 'to-gantry-b') {
@@ -1165,9 +1177,8 @@ export class ProceduralPackagingLine {
 			if (pallet.stage === 'gantry-a' && pallet.gantrySlot !== undefined) pallet.root.position.copy(GANTRY_LANE_A_POSITIONS[pallet.gantrySlot]);
 			if (pallet.stage === 'gantry-b' && pallet.gantrySlot !== undefined) pallet.root.position.copy(GANTRY_LANE_B_POSITIONS[pallet.gantrySlot]);
 			if (pallet.stage === 'returning') {
-				const start = pallet.gantrySlot !== undefined && pallet.gantrySlot < 3
-					? (pallet.root.position.z < -6 ? GANTRY_LANE_A_POSITIONS[pallet.gantrySlot] : GANTRY_LANE_B_POSITIONS[pallet.gantrySlot])
-					: GANTRY_LANE_B_POSITIONS[2];
+				const slot = pallet.gantrySlot ?? 2;
+				const start = pallet.returnFrom === 'A' ? GANTRY_LANE_A_POSITIONS[slot] : GANTRY_LANE_B_POSITIONS[slot];
 				const p = pallet.progress;
 				if (p < 0.28) lerpPose(pallet.root, start, RETURN_CORNER_EAST, p / 0.28);
 				else if (p < 0.76) lerpPose(pallet.root, RETURN_CORNER_EAST, RETURN_CORNER_WEST, (p - 0.28) / 0.48);
