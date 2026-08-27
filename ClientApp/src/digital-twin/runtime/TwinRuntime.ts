@@ -6,6 +6,8 @@ import type { TwinDataUpdate } from '/@/api/digital-twin';
 import { BindingEngine } from '/@/digital-twin/bindings/BindingEngine';
 import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
+import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
+import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
 
 export interface TwinSelectionInfo {
 	name: string;
@@ -72,6 +74,8 @@ export class TwinRuntime {
 	private readonly bindingEngine: BindingEngine;
 	private route: TwinRouteDefinition;
 	private routeEngine: RouteEngine;
+	private readonly materialFlowRuntime: TwinMaterialFlowRuntime;
+	private packagingLine?: ProceduralPackagingLine;
 	private routeLine?: any;
 	private ground?: any;
 	private selectionHelper?: any;
@@ -92,6 +96,7 @@ export class TwinRuntime {
 		this.manifest = structuredClone(manifest);
 		this.route = normalizeTwinRoute(structuredClone(manifest.routes[0]));
 		this.routeEngine = new RouteEngine(this.route, this.movingObject);
+		this.materialFlowRuntime = new TwinMaterialFlowRuntime(this.route);
 		this.bindingEngine = new BindingEngine(
 			this.manifest,
 			(objectId) => this.objectIndex.get(objectId),
@@ -101,7 +106,8 @@ export class TwinRuntime {
 		);
 
 		this.scene.background = new THREE.Color(manifest.world.background);
-		this.camera.position.set(11, 9, 13);
+		const isPackagingLine = manifest.objects.some((item) => item.procedural?.preset === 'packaging-line');
+		this.camera.position.set(...(isPackagingLine ? [29, 24, 34] as const : [11, 9, 13] as const));
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1;
@@ -113,7 +119,7 @@ export class TwinRuntime {
 
 		this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
 		this.orbitControls.enableDamping = true;
-		this.orbitControls.target.set(0, 0.8, 0);
+		this.orbitControls.target.set(...(isPackagingLine ? [3, 1.2, -2] as const : [0, 0.8, 0] as const));
 		this.orbitControls.maxPolarAngle = Math.PI * 0.49;
 		this.orbitControls.minDistance = 2;
 		this.orbitControls.maxDistance = 80;
@@ -150,16 +156,19 @@ export class TwinRuntime {
 
 	setRunning(running: boolean) {
 		this.routeEngine.setRunning(running);
+		this.packagingLine?.setRunning(running);
 	}
 
 	setSpeed(speed: number) {
 		this.route.defaultSpeed = speed;
 		this.routeEngine.setSpeed(speed);
+		this.packagingLine?.setSpeed(speed);
 		this.emitRouteChange();
 	}
 
 	resetRoute() {
 		this.routeEngine.reset();
+		this.packagingLine?.reset();
 	}
 
 	correctRouteDistance(distanceMeters: number) {
@@ -190,6 +199,7 @@ export class TwinRuntime {
 
 	setRoute(route: TwinRouteDefinition) {
 		this.route = normalizeTwinRoute(structuredClone(route));
+		this.materialFlowRuntime.setRoute(this.route);
 		this.applyRouteChange();
 	}
 
@@ -200,6 +210,7 @@ export class TwinRuntime {
 			edgeOccupancy: { ...(context.edgeOccupancy || {}) },
 			staleBindingIds: [...(context.staleBindingIds || this.routingContext.staleBindingIds || [])],
 		};
+		this.materialFlowRuntime.applyRoutingContext(this.routingContext);
 		this.routeEngine.setRoutingContext(this.routingContext);
 		this.rebuildRouteLines();
 	}
@@ -266,6 +277,14 @@ export class TwinRuntime {
 
 	getRoute(): TwinRouteDefinition {
 		return structuredClone(this.route);
+	}
+
+	getMaterialFlowSnapshot() {
+		return {
+			sections: this.materialFlowRuntime.sections.getSnapshots(),
+			entities: this.materialFlowRuntime.entities.getAll(),
+			packagingLine: this.packagingLine?.getSnapshot(),
+		};
 	}
 
 	async loadLocalGlb(file: File): Promise<TwinModelSummary> {
@@ -348,6 +367,7 @@ export class TwinRuntime {
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
 			this.routeEngine.updateFixed(this.fixedStep);
+			this.packagingLine?.updateFixed(this.fixedStep);
 			this.bindingEngine.tick(this.fixedStep);
 			this.accumulator -= this.fixedStep;
 		}
@@ -382,14 +402,15 @@ export class TwinRuntime {
 		directional.shadow.mapSize.set(2048, 2048);
 		this.scene.add(directional);
 
+		const environmentSize = this.manifest.objects.some((item) => item.procedural?.preset === 'packaging-line') ? 60 : 40;
 		if (showGrid) {
-			const grid = new THREE.GridHelper(40, 40, 0x1d4ed8, 0x1f3a55);
+			const grid = new THREE.GridHelper(environmentSize, environmentSize, 0x1d4ed8, 0x1f3a55);
 			grid.userData[helperFlag] = true;
 			this.scene.add(grid);
 		}
 
 		const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x081525, roughness: 0.92, metalness: 0.02, transparent: true, opacity: 0.88 });
-		this.ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), groundMaterial);
+		this.ground = new THREE.Mesh(new THREE.PlaneGeometry(environmentSize, environmentSize), groundMaterial);
 		this.ground.name = '路线绘制平面';
 		this.ground.rotation.x = -Math.PI / 2;
 		this.ground.position.y = -0.02;
@@ -399,15 +420,24 @@ export class TwinRuntime {
 	}
 
 	private createProceduralConveyor() {
+		const packagingDefinition = this.manifest.objects.find((item) => item.kind === 'procedural' && item.procedural?.preset === 'packaging-line');
+		if (packagingDefinition) {
+			this.packagingLine = new ProceduralPackagingLine(this.route, packagingDefinition.procedural?.palletCount ?? 50);
+			this.packagingLine.group.userData.twinObjectId = packagingDefinition.objectId;
+			this.applyTransform(this.packagingLine.group, packagingDefinition);
+			this.objectIndex.set(packagingDefinition.objectId, this.packagingLine.group);
+			this.scene.add(this.packagingLine.group);
+			return;
+		}
+
 		const group = new THREE.Group();
 		group.name = 'Phase 0 程序化输送线';
 		const definition = this.manifest.objects.find((item) => item.objectId === 'phase0-procedural-conveyor')
-			?? this.manifest.objects.find((item) => item.kind === 'procedural' && item.objectId !== 'phase0-moving-package');
-		if (definition) {
-			group.userData.twinObjectId = definition.objectId;
-			this.objectIndex.set(definition.objectId, group);
-			this.applyTransform(group, definition);
-		}
+			?? this.manifest.objects.find((item) => item.kind === 'procedural' && item.procedural?.preset === 'basic-conveyor');
+		if (!definition) return;
+		group.userData.twinObjectId = definition.objectId;
+		this.objectIndex.set(definition.objectId, group);
+		this.applyTransform(group, definition);
 		const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.65 });
 		const beltMaterial = new THREE.MeshStandardMaterial({ color: 0x162337, roughness: 0.82, metalness: 0.12 });
 		const accentMaterial = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.38, metalness: 0.45 });
@@ -447,13 +477,12 @@ export class TwinRuntime {
 	}
 
 	private createMovingObject() {
+		if (this.packagingLine) return;
 		this.movingObject.name = '路线测试物料';
-		const definition = this.manifest.objects.find((item) => item.objectId === 'phase0-moving-package' || item.objectId === 'moving-package')
-			?? this.manifest.objects.find((item) => item.kind === 'procedural' && item.objectId !== 'phase0-procedural-conveyor' && item.objectId !== 'baseline-conveyor');
-		if (definition) {
-			this.movingObject.userData.twinObjectId = definition.objectId;
-			this.objectIndex.set(definition.objectId, this.movingObject);
-		}
+		const definition = this.manifest.objects.find((item) => item.objectId === 'phase0-moving-package' || item.objectId === 'moving-package');
+		if (!definition) return;
+		this.movingObject.userData.twinObjectId = definition.objectId;
+		this.objectIndex.set(definition.objectId, this.movingObject);
 		const body = new THREE.Mesh(
 			new THREE.BoxGeometry(0.72, 0.48, 0.54),
 			new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x3b2400, roughness: 0.5, metalness: 0.12 })
@@ -543,7 +572,9 @@ export class TwinRuntime {
 	}
 
 	private applyRouteChange() {
+		this.materialFlowRuntime.setRoute(this.route);
 		this.routeEngine.setRoute(this.route);
+		this.packagingLine?.setRoute(this.route);
 		this.rebuildRouteVisuals();
 		this.emitRouteChange();
 	}
@@ -563,6 +594,7 @@ export class TwinRuntime {
 			staleBindingIds.delete(bindingId);
 		}
 		this.routingContext = { ...this.routingContext, bindingValues, staleBindingIds: [...staleBindingIds] };
+		this.materialFlowRuntime.applyRoutingContext(this.routingContext);
 		this.routeEngine.setRoutingContext(this.routingContext);
 		this.rebuildRouteLines();
 	}
@@ -574,6 +606,7 @@ export class TwinRuntime {
 		const position: TwinVector3 = [object.position.x, object.position.y, object.position.z];
 		this.route.points[this.selectedRoutePointIndex].position = position;
 		this.routeEngine.setRoute(this.route);
+		this.packagingLine?.setRoute(this.route);
 		this.rebuildRouteLines();
 		this.emitRouteChange();
 	}

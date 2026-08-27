@@ -70,6 +70,10 @@ export class ThreeJsEditorAdapter {
 		return this.runtime.getRoute();
 	}
 
+	getMaterialFlowSnapshot() {
+		return this.runtime.getMaterialFlowSnapshot();
+	}
+
 	loadLocalGlb(file: File) {
 		return this.runtime.loadLocalGlb(file);
 	}

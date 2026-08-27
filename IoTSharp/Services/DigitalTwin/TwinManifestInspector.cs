@@ -164,6 +164,25 @@ internal static class TwinManifestInspector
                 result.Diagnostics.Add(Error("twin.object.resource.unlisted", "对象引用的模型必须同时出现在 resources 列表中。", $"{path}.resourceId"));
             }
 
+            if (kind?.Equals("procedural", StringComparison.OrdinalIgnoreCase) == true &&
+                sceneObject.TryGetProperty("procedural", out var procedural) &&
+                procedural.ValueKind == JsonValueKind.Object)
+            {
+                var preset = GetString(procedural, "preset");
+                if (preset is not ("basic-conveyor" or "packaging-line"))
+                {
+                    result.Diagnostics.Add(Error("twin.object.procedural.preset.invalid", "程序化对象预设不受支持。", $"{path}.procedural.preset"));
+                }
+                else if (preset == "packaging-line")
+                {
+                    var palletCount = GetInt(procedural, "palletCount", 0);
+                    if (palletCount is < 1 or > 200)
+                    {
+                        result.Diagnostics.Add(Error("twin.object.procedural.pallet-count.invalid", "包装线托盘数量必须是 1 到 200 的整数。", $"{path}.procedural.palletCount"));
+                    }
+                }
+            }
+
             ValidateTransform(sceneObject, path, result.Diagnostics);
             result.Bindings.Add(new TwinBindingDraft
             {
@@ -323,6 +342,18 @@ internal static class TwinManifestInspector
                         {
                             result.Diagnostics.Add(Error("twin.route.point.kind.invalid", $"路线节点类型 {pointKind} 不受支持。", $"{path}.points[{pointIndex}].kind"));
                         }
+						if (TryGetNonEmptyString(point, "decisionMode", out var decisionMode) &&
+							!decisionMode.Equals("plc", StringComparison.OrdinalIgnoreCase) &&
+							!decisionMode.Equals("simulation", StringComparison.OrdinalIgnoreCase) &&
+							!decisionMode.Equals("manual", StringComparison.OrdinalIgnoreCase))
+						{
+							result.Diagnostics.Add(Error("twin.route.point.decision-mode.invalid", "岔口决策模式只能是 plc、simulation 或 manual。", $"{path}.points[{pointIndex}].decisionMode"));
+						}
+						if (point.TryGetProperty("decisionTimeoutSeconds", out var decisionTimeout) &&
+							(!decisionTimeout.TryGetDouble(out var decisionTimeoutValue) || !double.IsFinite(decisionTimeoutValue) || decisionTimeoutValue <= 0))
+						{
+							result.Diagnostics.Add(Error("twin.route.point.decision-timeout.invalid", "岔口决策超时必须大于 0 秒。", $"{path}.points[{pointIndex}].decisionTimeoutSeconds"));
+						}
                         foreach (var bindingProperty in new[] { "actuatorBindingId", "sensorBindingId" })
                         {
                             if (TryGetNonEmptyString(point, bindingProperty, out var bindingId) && !routeBindingKeys.Contains(bindingId))
@@ -385,7 +416,26 @@ internal static class TwinManifestInspector
                         {
                             result.Diagnostics.Add(Error("twin.route.edge.capacity.invalid", "输送段容量必须是大于 0 的整数。", $"{edgePath}.capacity"));
                         }
-                        foreach (var bindingProperty in new[] { "occupancyBindingId", "blockedBindingId" })
+						var occupancyMode = GetString(edge, "occupancyMode");
+						if (occupancyMode != null &&
+							!occupancyMode.Equals("calculated", StringComparison.OrdinalIgnoreCase) &&
+							!occupancyMode.Equals("simulation", StringComparison.OrdinalIgnoreCase) &&
+							!occupancyMode.Equals("live", StringComparison.OrdinalIgnoreCase))
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.occupancy-mode.invalid", "输送段占用模式只能是 calculated、simulation 或 live。", $"{edgePath}.occupancyMode"));
+						}
+						if (edge.TryGetProperty("reservationTimeoutSeconds", out var reservationTimeout) &&
+							(!reservationTimeout.TryGetDouble(out var reservationTimeoutValue) || !double.IsFinite(reservationTimeoutValue) || reservationTimeoutValue <= 0))
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.reservation-timeout.invalid", "输送段预占租约必须大于 0 秒。", $"{edgePath}.reservationTimeoutSeconds"));
+						}
+						if (occupancyMode?.Equals("live", StringComparison.OrdinalIgnoreCase) == true &&
+							!TryGetNonEmptyString(edge, "occupancyBindingId", out _) &&
+							!TryGetNonEmptyString(edge, "fullBindingId", out _))
+						{
+							result.Diagnostics.Add(Warning("twin.route.edge.live-binding.missing", "Live 占用模式至少应配置占用数量或满位信号。", edgePath));
+						}
+						foreach (var bindingProperty in new[] { "occupancyBindingId", "fullBindingId", "blockedBindingId" })
                         {
                             if (TryGetNonEmptyString(edge, bindingProperty, out var bindingId) && !routeBindingKeys.Contains(bindingId))
                             {
@@ -635,6 +685,14 @@ internal static class TwinManifestInspector
     private static TwinValidationDiagnosticDto Error(string code, string message, string? path = null) => new()
     {
         Severity = "error",
+        Code = code,
+        Message = message,
+        Path = path
+    };
+
+    private static TwinValidationDiagnosticDto Warning(string code, string message, string? path = null) => new()
+    {
+        Severity = "warning",
         Code = code,
         Message = message,
         Path = path

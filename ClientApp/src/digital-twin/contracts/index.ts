@@ -55,11 +55,17 @@ export interface TwinSceneObjectDefinition {
 	kind: 'procedural' | 'model';
 	resourceId?: string;
 	assetId?: string;
+	procedural?: {
+		preset: 'basic-conveyor' | 'packaging-line';
+		palletCount?: number;
+	};
 	transform: TwinTransform;
 }
 
 export type TwinRoutePointKind = 'waypoint' | 'junction' | 'station' | 'diverter' | 'merger' | 'buffer' | 'processStation' | 'sensor';
 export type TwinRouteRuleOperator = 'equals' | 'notEquals' | 'greaterThan' | 'greaterThanOrEqual' | 'lessThan' | 'lessThanOrEqual' | 'contains' | 'truthy' | 'falsy';
+export type TwinSectionOccupancyMode = 'calculated' | 'simulation' | 'live';
+export type TwinJunctionDecisionMode = 'plc' | 'simulation' | 'manual';
 
 export interface TwinRoutePointDefinition {
 	pointId: string;
@@ -67,6 +73,10 @@ export interface TwinRoutePointDefinition {
 	position: TwinVector3;
 	kind?: TwinRoutePointKind;
 	stopDurationSeconds?: number;
+	/** PLC、离线规则或人工决定出口；旧场景按路线 routingMode 自动推导。 */
+	decisionMode?: TwinJunctionDecisionMode;
+	/** 等待 PLC 路由值的最长时间，仅用于告警和诊断，不允许超时后擅自改道。 */
+	decisionTimeoutSeconds?: number;
 	actuatorBindingId?: string;
 	sensorBindingId?: string;
 }
@@ -82,8 +92,13 @@ export interface TwinRouteEdgeDefinition {
 	priority?: number;
 	speedLimit?: number;
 	capacity?: number;
+	/** calculated/simulation 由运行时计数，live 以 PLC/IoT 信号为权威值。 */
+	occupancyMode?: TwinSectionOccupancyMode;
+	/** 预占租约，防止多个物料同时看到最后一个空位。 */
+	reservationTimeoutSeconds?: number;
 	conveyorObjectId?: string;
 	occupancyBindingId?: string;
+	fullBindingId?: string;
 	blockedBindingId?: string;
 }
 
@@ -97,6 +112,8 @@ export interface TwinRouteDecisionRule {
 	bindingId?: string;
 	operator: TwinRouteRuleOperator;
 	matchValue?: string | number | boolean;
+	/** 选中该出口后，分流机构到位信号必须等于此值才能放行。 */
+	expectedActuatorValue?: string | number | boolean;
 	priority: number;
 	enabled: boolean;
 }
@@ -202,6 +219,7 @@ export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 			objectId: 'phase0-procedural-conveyor',
 			name: '程序化输送线',
 			kind: 'procedural',
+			procedural: { preset: 'basic-conveyor' },
 			transform: defaultTransform(),
 		},
 		{
@@ -257,6 +275,88 @@ export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 	},
 });
 
+/**
+ * 可直接保存到 IoTSharp 场景库的包装线模板。
+ * 路网把 50 个托盘所需的公共缓存段、双包装支线、汇流段和回流段一并建模，
+ * 程序化对象则负责在运行时生成输送机、桁架、机器人、旋转台和托盘实体。
+ */
+export const createPackagingLineTwinSceneManifest = (): TwinSceneManifest => ({
+	schemaVersion: twinSceneSchemaVersion,
+	sceneId: createId('scene'),
+	name: '50托盘智能包装线',
+	description: '程序化生成双路分叉包装线、桁架、两台机器人、两座旋转台及 50 个循环运行托盘。',
+	rootAssetId: null,
+	world: {
+		unit: 'meter',
+		upAxis: 'Y',
+		background: '#07111f',
+	},
+	resources: [],
+	objects: [
+		{
+			objectId: 'packaging-line-procedural',
+			name: '程序化智能包装线',
+			kind: 'procedural',
+			procedural: { preset: 'packaging-line', palletCount: 50 },
+			transform: defaultTransform(),
+		},
+	],
+	bindings: [],
+	routes: [
+		{
+			routeId: 'packaging-line-main',
+			name: '包装线双路循环',
+			type: 'conveyor',
+			curveKind: 'line',
+			defaultSpeed: 1.35,
+			loop: true,
+			orientToPath: true,
+			points: [
+				{ pointId: 'pack-entry', name: '托盘入口', position: [-14, 0.92, -6], kind: 'station' },
+				{ pointId: 'pack-scan', name: '扫码检测', position: [-9, 0.92, -6], kind: 'sensor' },
+				{ pointId: 'pack-load', name: '装箱工位', position: [-3, 0.92, -6], kind: 'processStation', stopDurationSeconds: 0.3 },
+				{ pointId: 'pack-diverter', name: '包装分流岔口', position: [3, 0.92, -6], kind: 'diverter', decisionMode: 'simulation', decisionTimeoutSeconds: 10 },
+				{ pointId: 'pack-left-turntable', name: '左线旋转台', position: [8, 0.92, -10], kind: 'processStation' },
+				{ pointId: 'pack-left-robot', name: '左线机器人包装位', position: [15, 0.92, -10], kind: 'processStation', stopDurationSeconds: 0.25 },
+				{ pointId: 'pack-right-turntable', name: '右线旋转台', position: [8, 0.92, -2], kind: 'processStation' },
+				{ pointId: 'pack-right-robot', name: '右线机器人包装位', position: [15, 0.92, -2], kind: 'processStation', stopDurationSeconds: 0.25 },
+				{ pointId: 'pack-merger', name: '包装汇流岔口', position: [21, 0.92, -6], kind: 'merger' },
+				{ pointId: 'pack-return-east', name: '回流东缓存', position: [21, 0.92, 7], kind: 'buffer' },
+				{ pointId: 'pack-return-west', name: '回流西缓存', position: [-14, 0.92, 7], kind: 'buffer' },
+			],
+			edges: [
+				{ edgeId: 'pack-edge-entry', fromPointId: 'pack-entry', toPointId: 'pack-scan', name: '入口缓存段', bidirectional: false, enabled: true, priority: 0, capacity: 8, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-scan', fromPointId: 'pack-scan', toPointId: 'pack-load', name: '扫码装箱段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-load', fromPointId: 'pack-load', toPointId: 'pack-diverter', name: '分流前缓存段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-left-turn', fromPointId: 'pack-diverter', toPointId: 'pack-left-turntable', name: '左支线入口', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-left-pack', fromPointId: 'pack-left-turntable', toPointId: 'pack-left-robot', name: '左包装工位段', bidirectional: false, enabled: true, priority: 10, capacity: 7, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-left-merge', fromPointId: 'pack-left-robot', toPointId: 'pack-merger', name: '左线汇流段', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-right-turn', fromPointId: 'pack-diverter', toPointId: 'pack-right-turntable', name: '右支线入口', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-right-pack', fromPointId: 'pack-right-turntable', toPointId: 'pack-right-robot', name: '右包装工位段', bidirectional: false, enabled: true, priority: 0, capacity: 7, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-right-merge', fromPointId: 'pack-right-robot', toPointId: 'pack-merger', name: '右线汇流段', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-return-east', fromPointId: 'pack-merger', toPointId: 'pack-return-east', name: '成品输出缓存', bidirectional: false, enabled: true, priority: 0, capacity: 7, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-return-main', fromPointId: 'pack-return-east', toPointId: 'pack-return-west', name: '托盘回流主段', bidirectional: false, enabled: true, priority: 0, capacity: 14, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'pack-edge-return-entry', fromPointId: 'pack-return-west', toPointId: 'pack-entry', name: '托盘回流入口', bidirectional: false, enabled: true, priority: 0, capacity: 8, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+			],
+			startPointId: 'pack-entry',
+			junctionDecisions: { 'pack-diverter': 'pack-edge-left-turn' },
+			routingMode: 'automatic',
+			decisionRules: [
+				{ ruleId: 'pack-rule-sku-b', name: 'SKU-B 进入右包装线', junctionPointId: 'pack-diverter', edgeId: 'pack-edge-right-turn', source: 'payload', payloadKey: 'sku', operator: 'equals', matchValue: 'B', priority: 100, enabled: true },
+			],
+		},
+	],
+	runtime: {
+		dataMode: 'simulation',
+		maxPixelRatio: 2,
+		showGrid: true,
+	},
+	editorExtension: {
+		source: 'threejs-editor',
+		payloadVersion: 2,
+	},
+});
+
 const isFiniteVector = (value: unknown): value is TwinVector3 =>
 	Array.isArray(value) && value.length === 3 && value.every((component) => typeof component === 'number' && Number.isFinite(component));
 
@@ -264,6 +364,9 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 	const diagnostics: TwinValidationDiagnostic[] = [];
 	const allowedPointKinds: TwinRoutePointKind[] = ['waypoint', 'junction', 'station', 'diverter', 'merger', 'buffer', 'processStation', 'sensor'];
 	const allowedRuleOperators: TwinRouteRuleOperator[] = ['equals', 'notEquals', 'greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual', 'contains', 'truthy', 'falsy'];
+	const allowedOccupancyModes: TwinSectionOccupancyMode[] = ['calculated', 'simulation', 'live'];
+	const allowedDecisionModes: TwinJunctionDecisionMode[] = ['plc', 'simulation', 'manual'];
+	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line'];
 	if (manifest.schemaVersion !== twinSceneSchemaVersion) {
 		diagnostics.push({ severity: 'error', code: 'twin.schema.unsupported', message: `不支持的场景合同版本：${manifest.schemaVersion}` });
 	}
@@ -282,6 +385,12 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		objectIds.add(sceneObject.objectId);
 		if (sceneObject.kind === 'model' && !sceneObject.resourceId) {
 			diagnostics.push({ severity: 'error', code: 'twin.object.resource.required', message: '模型对象必须选择资源库模型。', path: `objects[${objectIndex}].resourceId` });
+		}
+		if (sceneObject.procedural && !allowedProceduralPresets.includes(sceneObject.procedural.preset)) {
+			diagnostics.push({ severity: 'error', code: 'twin.object.procedural.preset.invalid', message: '程序化对象预设不受支持。', path: `objects[${objectIndex}].procedural.preset` });
+		}
+		if (sceneObject.procedural?.preset === 'packaging-line' && (!Number.isInteger(sceneObject.procedural.palletCount) || (sceneObject.procedural.palletCount || 0) < 1 || (sceneObject.procedural.palletCount || 0) > 200)) {
+			diagnostics.push({ severity: 'error', code: 'twin.object.procedural.pallet-count.invalid', message: '包装线托盘数量必须是 1 到 200 的整数。', path: `objects[${objectIndex}].procedural.palletCount` });
 		}
 	}
 
@@ -320,6 +429,8 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 				diagnostics.push({ severity: 'error', code: 'twin.route.point.position.invalid', message: '路线控制点坐标必须是三个有限数值。', path: `routes[${routeIndex}].points[${pointIndex}].position` });
 			}
 			if (point.kind && !allowedPointKinds.includes(point.kind)) diagnostics.push({ severity: 'error', code: 'twin.route.point.kind.invalid', message: '路线节点类型不受支持。', path: `routes[${routeIndex}].points[${pointIndex}].kind` });
+			if (point.decisionMode && !allowedDecisionModes.includes(point.decisionMode)) diagnostics.push({ severity: 'error', code: 'twin.route.point.decision-mode.invalid', message: '岔口决策模式只能是 plc、simulation 或 manual。', path: `routes[${routeIndex}].points[${pointIndex}].decisionMode` });
+			if (point.decisionTimeoutSeconds !== undefined && (!Number.isFinite(point.decisionTimeoutSeconds) || point.decisionTimeoutSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.point.decision-timeout.invalid', message: '岔口决策超时必须大于 0 秒。', path: `routes[${routeIndex}].points[${pointIndex}].decisionTimeoutSeconds` });
 		}
 		if (route.startPointId && !pointIds.has(route.startPointId)) {
 			diagnostics.push({ severity: 'error', code: 'twin.route.start.invalid', message: '路线起点不存在。', path: `routes[${routeIndex}].startPointId` });
@@ -344,7 +455,10 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (edge.capacity !== undefined && (!Number.isInteger(edge.capacity) || edge.capacity <= 0)) {
 				diagnostics.push({ severity: 'error', code: 'twin.route.edge.capacity.invalid', message: '输送段容量必须是大于 0 的整数。', path: `routes[${routeIndex}].edges[${index}].capacity` });
 			}
-			for (const [property, bindingId] of [['occupancyBindingId', edge.occupancyBindingId], ['blockedBindingId', edge.blockedBindingId]] as const) {
+			if (edge.occupancyMode && !allowedOccupancyModes.includes(edge.occupancyMode)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.occupancy-mode.invalid', message: '输送段占用模式只能是 calculated、simulation 或 live。', path: `routes[${routeIndex}].edges[${index}].occupancyMode` });
+			if (edge.reservationTimeoutSeconds !== undefined && (!Number.isFinite(edge.reservationTimeoutSeconds) || edge.reservationTimeoutSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.reservation-timeout.invalid', message: '输送段预占租约必须大于 0 秒。', path: `routes[${routeIndex}].edges[${index}].reservationTimeoutSeconds` });
+			if (edge.occupancyMode === 'live' && !edge.occupancyBindingId && !edge.fullBindingId) diagnostics.push({ severity: 'warning', code: 'twin.route.edge.live-binding.missing', message: 'Live 占用模式至少应配置占用数量或满位信号。', path: `routes[${routeIndex}].edges[${index}]` });
+			for (const [property, bindingId] of [['occupancyBindingId', edge.occupancyBindingId], ['fullBindingId', edge.fullBindingId], ['blockedBindingId', edge.blockedBindingId]] as const) {
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.binding.invalid', message: '输送段必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].edges[${index}].${property}` });
 			}
 			if (edge.conveyorObjectId && !objectIds.has(edge.conveyorObjectId)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.object.invalid', message: '输送段引用的场景对象不存在。', path: `routes[${routeIndex}].edges[${index}].conveyorObjectId` });
@@ -415,6 +529,8 @@ export const createRouteEdge = (fromPointId: string, toPointId: string, index: n
 	enabled: true,
 	priority: 0,
 	capacity: 1,
+	occupancyMode: 'calculated',
+	reservationTimeoutSeconds: 30,
 });
 
 export const createRouteDecisionRule = (junctionPointId: string, edgeId: string, index: number): TwinRouteDecisionRule => ({
@@ -432,10 +548,29 @@ export const createRouteDecisionRule = (junctionPointId: string, edgeId: string,
 
 /** 将旧版顺序控制点路线升级为路线图，保证已入库场景继续可编辑、可运行。 */
 export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinition => {
-	const points = (route.points || []).map((point) => ({ ...point, kind: point.kind || 'waypoint' }));
+	const points = (route.points || []).map((point) => {
+		const isJunction = ['junction', 'diverter', 'merger'].includes(point.kind || '');
+		const inferredDecisionMode: TwinJunctionDecisionMode = route.routingMode === 'automatic'
+			? (route.decisionRules || []).some((rule) => rule.junctionPointId === point.pointId && rule.source === 'binding') ? 'plc' : 'simulation'
+			: 'manual';
+		return {
+			...point,
+			kind: point.kind || 'waypoint',
+			decisionMode: isJunction ? point.decisionMode || inferredDecisionMode : point.decisionMode,
+			decisionTimeoutSeconds: isJunction ? point.decisionTimeoutSeconds ?? 10 : point.decisionTimeoutSeconds,
+		};
+	});
 	const configuredEdges = Array.isArray(route.edges) ? route.edges : [];
 	const edges = configuredEdges.length > 0
-		? configuredEdges.map((edge) => ({ ...edge, bidirectional: edge.bidirectional === true, enabled: edge.enabled !== false, priority: edge.priority ?? 0, capacity: edge.capacity ?? 1 }))
+		? configuredEdges.map((edge) => ({
+			...edge,
+			bidirectional: edge.bidirectional === true,
+			enabled: edge.enabled !== false,
+			priority: edge.priority ?? 0,
+			capacity: edge.capacity ?? 1,
+			occupancyMode: edge.occupancyMode || (edge.occupancyBindingId || edge.fullBindingId ? 'live' : 'calculated'),
+			reservationTimeoutSeconds: edge.reservationTimeoutSeconds ?? 30,
+		}))
 		: points.slice(1).map((point, index) => createRouteEdge(points[index].pointId, point.pointId, index));
 	if (configuredEdges.length === 0 && route.loop && points.length > 2) edges.push(createRouteEdge(points[points.length - 1].pointId, points[0].pointId, edges.length));
 	return {

@@ -13,6 +13,7 @@
 			<div class="twin-toolbar__actions">
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button @click="createDialogVisible = true">新建场景</el-button>
+				<el-button type="warning" plain @click="applyPackagingLineTemplate">50托盘包装线</el-button>
 				<el-button @click="router.push('/iot/digital-twin/model-generator')">生成模型</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
 				<el-button :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
@@ -31,7 +32,7 @@
 		</header>
 
 		<section class="twin-status-strip">
-			<div><span>路线状态</span><strong :class="`is-${metrics.state}`">{{ routeStateText }}</strong></div>
+			<div><span>路线状态</span><strong :class="`is-${metrics.state}`">{{ routeStateText }}<small v-if="metrics.waitingEdgeId || metrics.waitingPointId"> · {{ waitingReasonText }}</small></strong></div>
 			<div><span>位置</span><strong>{{ metrics.distanceMeters.toFixed(2) }} / {{ metrics.lengthMeters.toFixed(2) }} m</strong></div>
 			<div><span>实时绑定</span><strong>{{ manifest.bindings.length }} 条 · {{ liveMode ? '轮询中' : '已暂停' }}</strong></div>
 			<div><span>渲染</span><strong>{{ metrics.fps }} FPS · {{ metrics.drawCalls }} calls</strong></div>
@@ -75,6 +76,10 @@
 							<el-select v-if="point.kind === 'diverter' || point.kind === 'merger'" v-model="point.actuatorBindingId" size="small" clearable placeholder="执行器/到位信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-model="point.sensorBindingId" size="small" clearable placeholder="检测/工位信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						</div>
+						<div v-if="['junction','diverter'].includes(point.kind || '')" class="twin-route-binding-grid">
+							<el-select v-model="point.decisionMode" size="small" placeholder="岔口决策模式" @change="syncRouteGraph"><el-option v-for="option in junctionDecisionModeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-input-number v-model="point.decisionTimeoutSeconds" :min="1" :max="300" size="small" controls-position="right" aria-label="路由等待告警秒数" @change="syncRouteGraph" />
+						</div>
 						<div class="twin-coordinate-grid">
 							<el-input-number v-model="point.position[0]" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
 							<el-input-number v-model="point.position[1]" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
@@ -99,13 +104,18 @@
 							<div><label>容量</label><el-input-number v-model="edge.capacity" :min="1" :max="999" size="small" controls-position="right" @change="syncRouteGraph" /></div>
 							<div><label>预览占用</label><el-input-number v-model="previewOccupancy[edge.edgeId]" :min="0" :max="999" size="small" controls-position="right" @change="applyRoutingPreview(false)" /></div>
 						</div>
+						<div class="twin-route-edge__settings">
+							<div><label>占用来源</label><el-select v-model="edge.occupancyMode" size="small" @change="syncRouteGraph"><el-option v-for="option in occupancyModeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
+							<div><label>预占租约（秒）</label><el-input-number v-model="edge.reservationTimeoutSeconds" :min="1" :max="3600" size="small" controls-position="right" @change="syncRouteGraph" /></div>
+						</div>
 						<el-select v-model="edge.occupancyBindingId" size="small" clearable placeholder="绑定实时占用数量" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+						<el-select v-model="edge.fullBindingId" size="small" clearable placeholder="绑定实时满位信号（可选）" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						<el-select v-model="edge.blockedBindingId" size="small" clearable placeholder="绑定故障/封锁信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 					</div>
 				</div>
 				<div v-if="junctionPoints.length" class="twin-panel__subheading"><strong>交叉口转向</strong><el-tag size="small" type="warning">橙色节点</el-tag></div>
 				<div v-for="point in junctionPoints" :key="point.pointId" class="twin-card twin-junction-decision">
-					<label>{{ point.name }} 的默认出口</label>
+					<label>{{ point.name }} 的默认出口（{{ junctionDecisionModeOptions.find(item => item.value === point.decisionMode)?.label || '兼容模式' }}）</label>
 					<el-select v-model="route.junctionDecisions[point.pointId]" size="small" placeholder="按优先级自动选择" clearable @change="syncRouteGraph">
 						<el-option v-for="option in junctionEdgeOptions(point.pointId)" :key="option.value" :label="option.label" :value="option.value" :disabled="option.blocked" />
 					</el-select>
@@ -124,6 +134,7 @@
 						<el-input v-if="ruleForm.source === 'payload'" v-model="ruleForm.payloadKey" size="small" placeholder="物料属性 Key，例如 sku" />
 						<el-select v-else v-model="ruleForm.bindingId" size="small" filterable placeholder="选择 Device 信号绑定"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						<div class="twin-route-edge-form"><el-select v-model="ruleForm.operator" size="small"><el-option v-for="option in ruleOperatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input v-if="!['truthy','falsy'].includes(ruleForm.operator)" v-model="ruleForm.matchValue" size="small" placeholder="比较值" /></div>
+						<el-input v-model="ruleForm.expectedActuatorValue" size="small" clearable placeholder="机构到位期望值（可选，如 Left）" />
 						<el-button size="small" type="primary" @click="addDecisionRule">新增自动规则</el-button>
 					</div>
 					<div class="twin-route-rules"><div v-for="rule in route.decisionRules" :key="rule.ruleId"><div><strong>{{ rule.name }}</strong><small>{{ decisionRuleSummary(rule) }}</small></div><el-switch v-model="rule.enabled" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" @click="removeDecisionRule(rule.ruleId)">×</el-button></div></div>
@@ -165,6 +176,7 @@
 		</main>
 
 		<el-dialog v-model="createDialogVisible" title="新建数字孪生场景" width="520px">
+			<el-alert title="新场景默认生成：双路分叉包装线、桁架、2 台机器人、2 座旋转台和 50 个运行托盘。" type="success" :closable="false" style="margin-bottom:16px" />
 			<el-form label-position="top"><el-form-item label="场景名称"><el-input v-model="createForm.name" /></el-form-item><el-form-item label="根 Asset"><el-select v-model="createForm.rootAssetId" filterable style="width:100%"><el-option v-for="asset in assets" :key="asset.id" :label="asset.name" :value="asset.id" /></el-select></el-form-item><el-form-item label="说明"><el-input v-model="createForm.description" type="textarea" /></el-form-item></el-form>
 			<template #footer><el-button @click="createDialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" @click="createScene">创建并入库</el-button></template>
 		</el-dialog>
@@ -193,7 +205,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
-import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
+import { cloneTwinManifest, createDefaultTwinSceneManifest, createPackagingLineTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -207,7 +219,7 @@ const viewport = ref<HTMLDivElement>();
 const uploadInput = ref<HTMLInputElement>();
 const adapter = ref<ThreeJsEditorAdapter>();
 const professionalEditor = ref<any>();
-const manifest = ref<TwinSceneManifest>(createDefaultTwinSceneManifest());
+const manifest = ref<TwinSceneManifest>(createPackagingLineTwinSceneManifest());
 const scenes = ref<DigitalTwinSceneSummary[]>([]);
 const currentScene = ref<DigitalTwinSceneDetail>();
 const selectedSceneId = ref('');
@@ -225,11 +237,11 @@ const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), vers
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
 
-const createForm = reactive({ name: '工厂数字孪生场景', description: '', rootAssetId: '' });
+const createForm = reactive({ name: '50托盘智能包装线', description: '双路分叉包装线，包含桁架、机器人、旋转台和 50 个循环托盘。', rootAssetId: '' });
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
 const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
-const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' as 'payload' | 'binding', payloadKey: 'sku', bindingId: '', operator: 'equals' as TwinRouteRuleOperator, matchValue: '' });
+const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' as 'payload' | 'binding', payloadKey: 'sku', bindingId: '', operator: 'equals' as TwinRouteRuleOperator, matchValue: '', expectedActuatorValue: '' });
 const routingPayloadText = ref('{"sku":"A","weight":1}');
 const previewOccupancy = reactive<Record<string, number>>({});
 const route = computed(() => manifest.value.routes[0]);
@@ -247,9 +259,12 @@ const bindingKeys = computed(() => {
 	const source = bindingForm.sourceKind === 'telemetry' ? selectedDevice.value?.temps : selectedDevice.value?.attrs;
 	return (source || []).map((item) => ({ label: item.name ? `${item.name} (${item.keyName})` : item.keyName, value: item.keyName }));
 });
-const routeStateText = computed(() => ({ running: '运行中', paused: '已暂停', completed: '已完成' })[metrics.state]);
+const routeStateText = computed(() => ({ running: '运行中', waiting: '等待放行', paused: '已暂停', completed: '已完成' })[metrics.state]);
+const waitingReasonText = computed(() => ({ ROUTE_NOT_READY: 'PLC 路由未就绪', DIVERTER_NOT_READY: '分流机构未到位', TARGET_SECTION_FULL: '目标段已满', TARGET_SECTION_BLOCKED: '目标段封锁', TARGET_SECTION_SIGNAL_STALE: '目标段信号失效' })[metrics.waitingReason || 'TARGET_SECTION_BLOCKED']);
 const curveOptions = [{ label: '直线', value: 'line' }, { label: '平滑曲线', value: 'catmullRom' }];
 const routingModeOptions = [{ label: '手动', value: 'manual' }, { label: '自动规则', value: 'automatic' }];
+const occupancyModeOptions = [{ label: '运行时计算', value: 'calculated' }, { label: '离线仿真', value: 'simulation' }, { label: 'PLC / IoT 实时', value: 'live' }];
+const junctionDecisionModeOptions = [{ label: 'PLC 决策', value: 'plc' }, { label: '离线规则', value: 'simulation' }, { label: '人工调试', value: 'manual' }];
 const ruleSourceOptions = [{ label: '物料属性', value: 'payload' }, { label: 'Device 信号', value: 'binding' }];
 const routePointKindOptions = [{ label: '途经点', value: 'waypoint' }, { label: '普通交叉口', value: 'junction' }, { label: '分流器', value: 'diverter' }, { label: '汇流器', value: 'merger' }, { label: '缓存段', value: 'buffer' }, { label: '加工工位', value: 'processStation' }, { label: '传感器', value: 'sensor' }, { label: '站点', value: 'station' }];
 const ruleOperatorOptions = [{ label: '等于', value: 'equals' }, { label: '不等于', value: 'notEquals' }, { label: '大于', value: 'greaterThan' }, { label: '大于等于', value: 'greaterThanOrEqual' }, { label: '小于', value: 'lessThan' }, { label: '小于等于', value: 'lessThanOrEqual' }, { label: '包含', value: 'contains' }, { label: '为真', value: 'truthy' }, { label: '为假', value: 'falsy' }];
@@ -276,7 +291,8 @@ const junctionEdgeOptions = (pointId: string) => route.value.edges
 const decisionRuleSummary = (rule: TwinRouteDecisionRule) => {
 	const source = rule.source === 'binding' ? routeBindingOptions.value.find((item) => item.value === rule.bindingId)?.label || rule.bindingId : `物料.${rule.payloadKey}`;
 	const operator = ruleOperatorOptions.find((item) => item.value === rule.operator)?.label || rule.operator;
-	return `${source} ${operator}${['truthy', 'falsy'].includes(rule.operator) ? '' : ` ${String(rule.matchValue ?? '')}`} → ${route.value.edges.find((edge) => edge.edgeId === rule.edgeId)?.name || rule.edgeId}`;
+	const actuator = rule.expectedActuatorValue === undefined ? '' : ` · 到位=${String(rule.expectedActuatorValue)}`;
+	return `${source} ${operator}${['truthy', 'falsy'].includes(rule.operator) ? '' : ` ${String(rule.matchValue ?? '')}`} → ${route.value.edges.find((edge) => edge.edgeId === rule.edgeId)?.name || rule.edgeId}${actuator}`;
 };
 const parsePreviewPayload = (showError: boolean): Record<string, unknown> | undefined => {
 	try {
@@ -399,10 +415,39 @@ const createScene = async () => {
 	if (!createForm.name.trim() || !createForm.rootAssetId) { ElMessage.warning('请填写场景名称并选择根 Asset'); return; }
 	creating.value = true;
 	try {
-		const draft = createDefaultTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
+		const draft = createPackagingLineTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
+		for (const object of draft.objects) object.assetId = createForm.rootAssetId;
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({ name: draft.name, description: draft.description, rootAssetId: createForm.rootAssetId, draftPayload: draft }));
-		createDialogVisible.value = false; await loadScenes(); await loadScene(detail.id); ElMessage.success('场景、路线和初始资源绑定已写入数据库');
+		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('包装线、路线和 50 托盘配置已写入数据库，点击“运行”即可启动');
 	} finally { creating.value = false; }
+};
+
+const applyPackagingLineTemplate = async () => {
+	if (!currentScene.value) {
+		createForm.name = '50托盘智能包装线';
+		createForm.description = '双路分叉包装线，包含桁架、机器人、旋转台和 50 个循环托盘。';
+		createDialogVisible.value = true;
+		return;
+	}
+	const confirmed = await ElMessageBox.confirm('这会替换当前场景草稿中的对象、路线和编辑器快照，并立即保存到数据库；历史发布版本不受影响。', '应用 50 托盘包装线模板', { type: 'warning' })
+		.then(() => true)
+		.catch(() => false);
+	if (!confirmed) return;
+	const draft = createPackagingLineTwinSceneManifest();
+	draft.sceneId = manifest.value.sceneId;
+	draft.rootAssetId = manifest.value.rootAssetId;
+	for (const object of draft.objects) object.assetId = draft.rootAssetId || undefined;
+	manifest.value = draft;
+	for (const key of Object.keys(previewOccupancy)) delete previewOccupancy[key];
+	for (const edge of route.value.edges) previewOccupancy[edge.edgeId] = 0;
+	routingPayloadText.value = '{"sku":"A","weight":1}';
+	playing.value = false;
+	liveMode.value = false;
+	routeDrawMode.value = false;
+	viewportMode.value = 'runtime';
+	await initializeViewport();
+	refreshDiagnostics();
+	if (await saveDraft(true)) ElMessage.success('50 托盘包装线已生成并入库，点击“运行”即可启动');
 };
 
 const saveDraft = async (silent = false) => {
@@ -520,6 +565,7 @@ const removeBinding = (bindingId: string) => {
 	}
 	for (const edge of route.value.edges) {
 		if (edge.occupancyBindingId === bindingId) delete edge.occupancyBindingId;
+		if (edge.fullBindingId === bindingId) delete edge.fullBindingId;
 		if (edge.blockedBindingId === bindingId) delete edge.blockedBindingId;
 	}
 	route.value.decisionRules = route.value.decisionRules.filter((rule) => rule.bindingId !== bindingId);
@@ -642,6 +688,7 @@ const addDecisionRule = async () => {
 	rule.bindingId = ruleForm.source === 'binding' ? ruleForm.bindingId : undefined;
 	rule.operator = ruleForm.operator;
 	rule.matchValue = ['truthy', 'falsy'].includes(rule.operator) ? undefined : parseRuleValue(ruleForm.matchValue);
+	rule.expectedActuatorValue = ruleForm.expectedActuatorValue.trim() ? parseRuleValue(ruleForm.expectedActuatorValue) : undefined;
 	rule.priority = 100;
 	route.value.decisionRules.push(rule);
 	await syncRouteGraph();
@@ -698,7 +745,7 @@ onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter
 
 <style scoped lang="scss">
 .twin-workbench{--border:rgba(148,163,184,.2);--panel:rgba(8,19,34,.97);display:flex;flex-direction:column;min-height:calc(100vh - 132px);margin:-15px;color:#dbeafe;background:#07111f;overflow:hidden}.twin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:70px;padding:10px 18px;border-bottom:1px solid var(--border);background:#07111f}.twin-toolbar__title,.twin-toolbar__actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.twin-toolbar__title{min-width:320px}.scene-select{width:220px}.twin-toolbar__eyebrow,.twin-panel__heading span{font-size:10px;font-weight:800;letter-spacing:.15em;color:#38bdf8}.is-hidden{display:none}
-.twin-status-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border);background:#0a1728}.twin-status-strip>div{display:flex;flex-direction:column;gap:4px;padding:9px 15px;border-right:1px solid var(--border)}.twin-status-strip span,.twin-card__label{font-size:11px;color:#7f95ad}.twin-status-strip strong{font-size:12px}.is-running{color:#4ade80}.is-paused{color:#fbbf24}
+.twin-status-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border);background:#0a1728}.twin-status-strip>div{display:flex;flex-direction:column;gap:4px;padding:9px 15px;border-right:1px solid var(--border)}.twin-status-strip span,.twin-card__label{font-size:11px;color:#7f95ad}.twin-status-strip strong{font-size:12px}.twin-status-strip strong small{font:inherit}.is-running{color:#4ade80}.is-paused{color:#fbbf24}.is-waiting{color:#fb7185}.is-completed{color:#38bdf8}
 .twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1}.twin-panel{min-height:0;padding:14px;background:var(--panel);overflow:auto}.twin-panel--left{border-right:1px solid var(--border)}.twin-panel--right{border-left:1px solid var(--border)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}
 .twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
