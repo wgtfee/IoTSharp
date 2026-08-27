@@ -14,7 +14,7 @@ on:
 jobs:
   build-client:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 
@@ -22,12 +22,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
-          cache: npm
-          cache-dependency-path: ClientApp/package-lock.json
 
       - name: Install dependencies
         working-directory: ClientApp
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build ClientApp
         working-directory: ClientApp
