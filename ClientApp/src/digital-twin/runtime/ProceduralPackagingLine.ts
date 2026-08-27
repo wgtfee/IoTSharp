@@ -241,7 +241,6 @@ export class ProceduralPackagingLine {
 		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
 		this.sectionIds = this.resolveSectionIds(this.route.edges || []);
 		this.group.name = '丝饼包装与立库入库数字孪生线';
-
 		this.buildFloorLabels();
 		this.buildPlasticConveyors();
 		this.buildRotaryTableAndSilkCart();
@@ -898,16 +897,8 @@ export class ProceduralPackagingLine {
 	}
 
 	private finishRobotBatch() {
-		const palletIds = [...this.robotTask.palletIds];
-		for (let index = 0; index < palletIds.length; index += 1) {
-			const pallet = this.pallets.get(palletIds[index]);
-			if (!pallet) continue;
-			const targetLane: PalletStage = index < 3 ? 'to-gantry-a' : 'to-gantry-b';
-			if (!this.transferPallet(pallet, this.sectionIds.transit)) continue;
-			pallet.stage = targetLane;
-			pallet.progress = 0;
-			this.loadingSlots[index] = undefined;
-		}
+		// 机器人只负责把 6 个空托盘变成 Loaded。是否能离开上料位由 Section Capacity 决定，
+		// 后续 updatePlasticPalletFlow 会持续重试，避免下游满时只尝试一次造成死锁。
 		this.currentRow += 1;
 		if (this.currentRow >= SILK_ROWS) {
 			if (this.currentSide === 'A') {
@@ -946,6 +937,17 @@ export class ProceduralPackagingLine {
 	private updatePlasticPalletFlow(deltaSeconds: number) {
 		const transitSpeed = Math.max(0.25, this.speed) / 8;
 		for (const pallet of this.pallets.values()) {
+			// Loaded 托盘停在上料位时持续尝试进入下游 Section；下游满则保留原位 Waiting，
+			// 下游一旦释放 Capacity 即自动 Resume，不依赖机器人任务结束瞬间的一次性 Transfer。
+			if (pallet.stage === 'loading' && pallet.loaded && pallet.loadSlot !== undefined) {
+				const loadSlot = pallet.loadSlot;
+				if (this.transferPallet(pallet, this.sectionIds.transit)) {
+					this.loadingSlots[loadSlot] = undefined;
+					pallet.stage = loadSlot < 3 ? 'to-gantry-a' : 'to-gantry-b';
+					pallet.progress = 0;
+				}
+				continue;
+			}
 			if (pallet.stage === 'to-gantry-a' || pallet.stage === 'to-gantry-b') {
 				pallet.progress = clamp01(pallet.progress + deltaSeconds * transitSpeed);
 				if (pallet.progress < 1) continue;
