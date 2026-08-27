@@ -67,6 +67,7 @@ internal static class TwinManifestInspector
         var manifest = document.RootElement;
 
         ValidateTopLevel(manifest, result);
+        ValidateSilkLineSimulation(manifest, result);
         ValidateUntrustedValues(manifest, "$", result.Diagnostics);
         InspectResources(manifest, result);
         var objectIds = InspectObjects(manifest, rootAssetId, result);
@@ -96,6 +97,41 @@ internal static class TwinManifestInspector
             if (!TryGetNonEmptyString(world, "upAxis", out var upAxis) || upAxis != "Y")
             {
                 result.Diagnostics.Add(Error("twin.scene.axis.invalid", "场景上轴必须是 Y。", "world.upAxis"));
+            }
+        }
+    }
+
+    private static void ValidateSilkLineSimulation(JsonElement manifest, TwinManifestInspection result)
+    {
+        if (!manifest.TryGetProperty("runtime", out var runtime) || runtime.ValueKind != JsonValueKind.Object ||
+            !runtime.TryGetProperty("silkLineSimulation", out var simulation)) return;
+        if (simulation.ValueKind != JsonValueKind.Object)
+        {
+            result.Diagnostics.Add(Error("twin.silk-line.simulation.invalid", "silkLineSimulation 必须是对象。", "runtime.silkLineSimulation"));
+            return;
+        }
+
+        foreach (var (name, minimum, maximum) in new[]
+        {
+            ("palletCount", 1, 200), ("silkCakesPerCart", 1, 100),
+            ("stackRows", 1, 10), ("stackColumns", 1, 10), ("stackLayers", 1, 20)
+        })
+        {
+            if (!simulation.TryGetProperty(name, out var value) || !value.TryGetInt32(out var parsed) || parsed < minimum || parsed > maximum)
+            {
+                result.Diagnostics.Add(Error("twin.silk-line.simulation.range.invalid", $"{name} 必须是 {minimum} 到 {maximum} 的整数。", $"runtime.silkLineSimulation.{name}"));
+            }
+        }
+
+        foreach (var (name, minimum, maximum) in new[]
+        {
+            ("cartChangeDelaySeconds", 0.0, 300.0), ("robotCycleSeconds", 0.2, 120.0),
+            ("gantryCycleSeconds", 0.2, 120.0), ("palletReleaseIntervalSeconds", 0.0, 60.0)
+        })
+        {
+            if (!simulation.TryGetProperty(name, out var value) || !value.TryGetDouble(out var parsed) || parsed < minimum || parsed > maximum)
+            {
+                result.Diagnostics.Add(Error("twin.silk-line.simulation.range.invalid", $"{name} 必须在 {minimum} 到 {maximum} 之间。", $"runtime.silkLineSimulation.{name}"));
             }
         }
     }
@@ -169,11 +205,11 @@ internal static class TwinManifestInspector
                 procedural.ValueKind == JsonValueKind.Object)
             {
                 var preset = GetString(procedural, "preset");
-                if (preset is not ("basic-conveyor" or "packaging-line"))
+                if (preset is not ("basic-conveyor" or "packaging-line" or "silk-cake-line"))
                 {
                     result.Diagnostics.Add(Error("twin.object.procedural.preset.invalid", "程序化对象预设不受支持。", $"{path}.procedural.preset"));
                 }
-                else if (preset == "packaging-line")
+                else if (preset is "packaging-line" or "silk-cake-line")
                 {
                     var palletCount = GetInt(procedural, "palletCount", 0);
                     if (palletCount is < 1 or > 200)

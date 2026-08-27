@@ -6,16 +6,19 @@ import type { TwinDataUpdate } from '/@/api/digital-twin';
 import { BindingEngine } from '/@/digital-twin/bindings/BindingEngine';
 import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
-import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
+import { defaultSilkLineSimulationOptions, SilkCakeLineRuntime } from '/@/digital-twin/runtime/SilkCakeLineRuntime';
 import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
 
 export interface TwinSelectionInfo {
 	name: string;
 	uuid: string;
 	path: string;
-	kind: 'scene-object' | 'route-point';
+	kind: 'scene-object' | 'route-point' | 'runtime-entity';
 	objectId?: string;
 	nodePath?: string;
+	entityType?: string;
+	entityId?: string;
+	runtimeData?: Record<string, unknown>;
 	routePointIndex?: number;
 	routePointId?: string;
 }
@@ -34,6 +37,18 @@ export interface TwinRuntimeMetrics extends TwinRouteEngineSnapshot {
 	triangles: number;
 	geometries: number;
 	textures: number;
+	silkLine?: {
+		onlinePallets: number;
+		loadedPallets: number;
+		emptyPallets: number;
+		waitingPallets: number;
+		cartRemaining: number;
+		robotState: string;
+		gantryState: string;
+		stackOccupied: number;
+		stackCapacity: number;
+		blockedSections: number;
+	};
 }
 
 export interface TwinRuntimeEvents {
@@ -75,7 +90,7 @@ export class TwinRuntime {
 	private route: TwinRouteDefinition;
 	private routeEngine: RouteEngine;
 	private readonly materialFlowRuntime: TwinMaterialFlowRuntime;
-	private packagingLine?: ProceduralPackagingLine;
+	private silkCakeLine?: SilkCakeLineRuntime;
 	private routeLine?: any;
 	private ground?: any;
 	private selectionHelper?: any;
@@ -106,8 +121,8 @@ export class TwinRuntime {
 		);
 
 		this.scene.background = new THREE.Color(manifest.world.background);
-		const isPackagingLine = manifest.objects.some((item) => item.procedural?.preset === 'packaging-line');
-		this.camera.position.set(...(isPackagingLine ? [29, 24, 34] as const : [11, 9, 13] as const));
+		const isSilkCakeLine = manifest.objects.some((item) => ['packaging-line', 'silk-cake-line'].includes(item.procedural?.preset || ''));
+		this.camera.position.set(...(isSilkCakeLine ? [32, 26, 38] as const : [11, 9, 13] as const));
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1;
@@ -119,7 +134,7 @@ export class TwinRuntime {
 
 		this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
 		this.orbitControls.enableDamping = true;
-		this.orbitControls.target.set(...(isPackagingLine ? [3, 1.2, -2] as const : [0, 0.8, 0] as const));
+		this.orbitControls.target.set(...(isSilkCakeLine ? [5, 1.2, -2] as const : [0, 0.8, 0] as const));
 		this.orbitControls.maxPolarAngle = Math.PI * 0.49;
 		this.orbitControls.minDistance = 2;
 		this.orbitControls.maxDistance = 80;
@@ -156,19 +171,19 @@ export class TwinRuntime {
 
 	setRunning(running: boolean) {
 		this.routeEngine.setRunning(running);
-		this.packagingLine?.setRunning(running);
+		this.silkCakeLine?.setRunning(running);
 	}
 
 	setSpeed(speed: number) {
 		this.route.defaultSpeed = speed;
 		this.routeEngine.setSpeed(speed);
-		this.packagingLine?.setSpeed(speed);
+		this.silkCakeLine?.setSpeed(speed);
 		this.emitRouteChange();
 	}
 
 	resetRoute() {
 		this.routeEngine.reset();
-		this.packagingLine?.reset();
+		this.silkCakeLine?.reset();
 	}
 
 	correctRouteDistance(distanceMeters: number) {
@@ -211,6 +226,7 @@ export class TwinRuntime {
 			staleBindingIds: [...(context.staleBindingIds || this.routingContext.staleBindingIds || [])],
 		};
 		this.materialFlowRuntime.applyRoutingContext(this.routingContext);
+		this.silkCakeLine?.setRoutingContext(this.routingContext);
 		this.routeEngine.setRoutingContext(this.routingContext);
 		this.rebuildRouteLines();
 	}
@@ -283,7 +299,7 @@ export class TwinRuntime {
 		return {
 			sections: this.materialFlowRuntime.sections.getSnapshots(),
 			entities: this.materialFlowRuntime.entities.getAll(),
-			packagingLine: this.packagingLine?.getSnapshot(),
+			silkCakeLine: this.silkCakeLine?.getSnapshot(),
 		};
 	}
 
@@ -366,9 +382,9 @@ export class TwinRuntime {
 		this.lastFrameAt = now;
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
-			this.routeEngine.updateFixed(this.fixedStep);
-			this.packagingLine?.updateFixed(this.fixedStep);
 			this.bindingEngine.tick(this.fixedStep);
+			this.routeEngine.updateFixed(this.fixedStep);
+			this.silkCakeLine?.updateFixed(this.fixedStep);
 			this.accumulator -= this.fixedStep;
 		}
 		this.routeEngine.render(this.accumulator / this.fixedStep);
@@ -379,6 +395,7 @@ export class TwinRuntime {
 			const elapsedSeconds = (now - this.metricsStartedAt) / 1000;
 			const memory = this.renderer.info.memory;
 			const render = this.renderer.info.render;
+			const silkSnapshot = this.silkCakeLine?.getSnapshot();
 			this.events.onMetrics?.({
 				...this.routeEngine.getSnapshot(),
 				fps: Math.round(this.frameCounter / elapsedSeconds),
@@ -386,6 +403,18 @@ export class TwinRuntime {
 				triangles: render.triangles,
 				geometries: memory.geometries,
 				textures: memory.textures,
+				silkLine: silkSnapshot ? {
+					onlinePallets: silkSnapshot.palletFlow.onlineCount,
+					loadedPallets: silkSnapshot.palletFlow.loadedCount,
+					emptyPallets: silkSnapshot.palletFlow.emptyCount,
+					waitingPallets: silkSnapshot.palletFlow.waitingCount,
+					cartRemaining: silkSnapshot.cart?.remainingCount ?? 0,
+					robotState: silkSnapshot.robot.state,
+					gantryState: silkSnapshot.gantry.state,
+					stackOccupied: silkSnapshot.stack.occupied,
+					stackCapacity: silkSnapshot.stack.capacity,
+					blockedSections: silkSnapshot.blockedSections.length,
+				} : undefined,
 			});
 			this.frameCounter = 0;
 			this.metricsStartedAt = now;
@@ -402,7 +431,7 @@ export class TwinRuntime {
 		directional.shadow.mapSize.set(2048, 2048);
 		this.scene.add(directional);
 
-		const environmentSize = this.manifest.objects.some((item) => item.procedural?.preset === 'packaging-line') ? 60 : 40;
+		const environmentSize = this.manifest.objects.some((item) => ['packaging-line', 'silk-cake-line'].includes(item.procedural?.preset || '')) ? 70 : 40;
 		if (showGrid) {
 			const grid = new THREE.GridHelper(environmentSize, environmentSize, 0x1d4ed8, 0x1f3a55);
 			grid.userData[helperFlag] = true;
@@ -420,13 +449,15 @@ export class TwinRuntime {
 	}
 
 	private createProceduralConveyor() {
-		const packagingDefinition = this.manifest.objects.find((item) => item.kind === 'procedural' && item.procedural?.preset === 'packaging-line');
-		if (packagingDefinition) {
-			this.packagingLine = new ProceduralPackagingLine(this.route, packagingDefinition.procedural?.palletCount ?? 50);
-			this.packagingLine.group.userData.twinObjectId = packagingDefinition.objectId;
-			this.applyTransform(this.packagingLine.group, packagingDefinition);
-			this.objectIndex.set(packagingDefinition.objectId, this.packagingLine.group);
-			this.scene.add(this.packagingLine.group);
+		const silkLineDefinition = this.manifest.objects.find((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line'].includes(item.procedural?.preset || ''));
+		if (silkLineDefinition) {
+			const palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;
+			const options = { ...defaultSilkLineSimulationOptions(palletCount), ...(this.manifest.runtime.silkLineSimulation || {}), palletCount };
+			this.silkCakeLine = new SilkCakeLineRuntime(this.route, this.materialFlowRuntime, options);
+			this.silkCakeLine.group.userData.twinObjectId = silkLineDefinition.objectId;
+			this.applyTransform(this.silkCakeLine.group, silkLineDefinition);
+			this.objectIndex.set(silkLineDefinition.objectId, this.silkCakeLine.group);
+			this.scene.add(this.silkCakeLine.group);
 			return;
 		}
 
@@ -477,7 +508,7 @@ export class TwinRuntime {
 	}
 
 	private createMovingObject() {
-		if (this.packagingLine) return;
+		if (this.silkCakeLine) return;
 		this.movingObject.name = '路线测试物料';
 		const definition = this.manifest.objects.find((item) => item.objectId === 'phase0-moving-package' || item.objectId === 'moving-package');
 		if (!definition) return;
@@ -574,7 +605,7 @@ export class TwinRuntime {
 	private applyRouteChange() {
 		this.materialFlowRuntime.setRoute(this.route);
 		this.routeEngine.setRoute(this.route);
-		this.packagingLine?.setRoute(this.route);
+		this.silkCakeLine?.setRoute(this.route);
 		this.rebuildRouteVisuals();
 		this.emitRouteChange();
 	}
@@ -595,6 +626,7 @@ export class TwinRuntime {
 		}
 		this.routingContext = { ...this.routingContext, bindingValues, staleBindingIds: [...staleBindingIds] };
 		this.materialFlowRuntime.applyRoutingContext(this.routingContext);
+		this.silkCakeLine?.setRoutingContext(this.routingContext);
 		this.routeEngine.setRoutingContext(this.routingContext);
 		this.rebuildRouteLines();
 	}
@@ -606,7 +638,7 @@ export class TwinRuntime {
 		const position: TwinVector3 = [object.position.x, object.position.y, object.position.z];
 		this.route.points[this.selectedRoutePointIndex].position = position;
 		this.routeEngine.setRoute(this.route);
-		this.packagingLine?.setRoute(this.route);
+		this.silkCakeLine?.setRoute(this.route);
 		this.rebuildRouteLines();
 		this.emitRouteChange();
 	}
@@ -666,14 +698,18 @@ export class TwinRuntime {
 		this.selectionHelper.object = selected;
 		this.selectionHelper.userData[helperFlag] = true;
 		this.scene.add(this.selectionHelper);
+		const entityInfo = this.getTwinEntityInfo(selected);
 		const twinInfo = this.getTwinObjectInfo(selected);
 		this.events.onSelectionChange?.({
-			name: selected.name || selected.type,
+			name: entityInfo?.entityId || selected.name || selected.type,
 			uuid: selected.uuid,
 			path: this.getObjectPath(selected),
-			kind: 'scene-object',
-			objectId: twinInfo?.objectId,
-			nodePath: twinInfo?.nodePath,
+			kind: entityInfo ? 'runtime-entity' : 'scene-object',
+			objectId: entityInfo ? undefined : twinInfo?.objectId,
+			nodePath: entityInfo ? undefined : twinInfo?.nodePath,
+			entityType: entityInfo?.entityType,
+			entityId: entityInfo?.entityId,
+			runtimeData: entityInfo ? this.silkCakeLine?.getEntityDetail(entityInfo.entityType, entityInfo.entityId) : undefined,
 		});
 	};
 
@@ -710,6 +746,17 @@ export class TwinRuntime {
 			if (current.userData?.twinObjectId) {
 				const relativeNodes = nodes.slice(1).map((item) => item.name || item.type);
 				return { objectId: String(current.userData.twinObjectId), nodePath: relativeNodes.length ? relativeNodes.join('/') : undefined };
+			}
+			current = current.parent;
+		}
+		return undefined;
+	}
+
+	private getTwinEntityInfo(object: any): { entityType: string; entityId: string } | undefined {
+		let current = object;
+		while (current && current !== this.scene) {
+			if (current.userData?.twinEntityType && current.userData?.twinEntityId) {
+				return { entityType: String(current.userData.twinEntityType), entityId: String(current.userData.twinEntityId) };
 			}
 			current = current.parent;
 		}

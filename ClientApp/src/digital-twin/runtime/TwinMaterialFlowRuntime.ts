@@ -136,6 +136,18 @@ export class TwinSectionManager {
 		}
 	}
 
+	resetState() {
+		for (const record of this.sections.values()) {
+			record.entities.clear();
+			record.reservations.clear();
+			record.inFlight.clear();
+			delete record.liveOccupancy;
+			delete record.liveFull;
+			record.blockedSignal = false;
+			record.signalStale = false;
+		}
+	}
+
 	applyRoutingContext(context: TwinRouteRoutingContext, now = Date.now()) {
 		const stale = new Set(context.staleBindingIds || []);
 		for (const record of this.sections.values()) {
@@ -325,6 +337,10 @@ export class TwinEntityManager {
 		return [...this.entities.values()].map((entity) => structuredClone(entity));
 	}
 
+	clear() {
+		this.entities.clear();
+	}
+
 	lockDecision(entityId: string, decision: TwinRouteDecision) {
 		const entity = this.ensure(entityId, undefined, decision.decidedAt);
 		if (entity.activeDecision) return entity.activeDecision;
@@ -405,7 +421,8 @@ export class TwinJunctionManager {
 				sourceValue = actual;
 				return true;
 			});
-			selectedEdgeId = selectedRule?.edgeId;
+			// 离线规则未命中时使用已配置默认出口；PLC 模式必须继续等待，不能擅自回退。
+			selectedEdgeId = selectedRule?.edgeId || (mode === 'simulation' ? this.route.junctionDecisions[junctionPointId] : undefined);
 		}
 
 		if (!selectedEdgeId || !candidates.some((edge) => edge.edgeId === selectedEdgeId)) return { waitingReason: 'ROUTE_NOT_READY' };
@@ -467,6 +484,11 @@ export class TwinMaterialFlowRuntime {
 
 	applyRoutingContext(context: TwinRouteRoutingContext, now = Date.now()) {
 		this.sections.applyRoutingContext(context, now);
+	}
+
+	resetState() {
+		this.sections.resetState();
+		this.entities.clear();
 	}
 
 	tryAdvanceAtJunction(request: TwinJunctionAdvanceRequest): TwinJunctionDecisionResult {

@@ -13,7 +13,7 @@
 			<div class="twin-toolbar__actions">
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button @click="createDialogVisible = true">新建场景</el-button>
-				<el-button type="warning" plain @click="applyPackagingLineTemplate">50托盘包装线</el-button>
+				<el-button type="warning" plain @click="applySilkCakeLineTemplate">50托盘丝饼线</el-button>
 				<el-button @click="router.push('/iot/digital-twin/model-generator')">生成模型</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
 				<el-button :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
@@ -38,6 +38,13 @@
 			<div><span>渲染</span><strong>{{ metrics.fps }} FPS · {{ metrics.drawCalls }} calls</strong></div>
 			<div><span>场景规模</span><strong>{{ formatNumber(metrics.triangles) }} triangles</strong></div>
 		</section>
+		<section v-if="metrics.silkLine" class="twin-status-strip twin-status-strip--silk">
+			<div><span>在线托盘</span><strong>{{ metrics.silkLine.onlinePallets }} · Loaded {{ metrics.silkLine.loadedPallets }} / Empty {{ metrics.silkLine.emptyPallets }}</strong></div>
+			<div><span>等待与阻塞</span><strong>{{ metrics.silkLine.waitingPallets }} 个托盘 · {{ metrics.silkLine.blockedSections }} 段</strong></div>
+			<div><span>丝车剩余</span><strong>{{ metrics.silkLine.cartRemaining }} 个丝饼</strong></div>
+			<div><span>设备任务</span><strong>Robot {{ metrics.silkLine.robotState }} · Gantry {{ metrics.silkLine.gantryState }}</strong></div>
+			<div><span>码垛进度</span><strong>{{ metrics.silkLine.stackOccupied }} / {{ metrics.silkLine.stackCapacity }}</strong></div>
+		</section>
 
 		<main class="twin-layout">
 			<aside class="twin-panel twin-panel--left">
@@ -56,6 +63,19 @@
 					<label>分流方式</label><el-segmented v-model="route.routingMode" :options="routingModeOptions" @change="syncRouteGraph" />
 					<label>运行速度 {{ route.defaultSpeed.toFixed(1) }} m/s</label>
 					<el-slider v-model="route.defaultSpeed" :min="0.1" :max="5" :step="0.1" @input="changeSpeed" />
+				</div>
+				<div v-if="manifest.runtime.silkLineSimulation" class="twin-card">
+					<span class="twin-card__label">丝饼产线模拟参数</span>
+					<div class="silk-simulation-grid">
+						<label>塑料托盘数<el-input-number v-model="manifest.runtime.silkLineSimulation.palletCount" :min="1" :max="200" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>每车丝饼数<el-input-number v-model="manifest.runtime.silkLineSimulation.silkCakesPerCart" :min="1" :max="100" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>机器人节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.robotCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>桁架节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.gantryCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>换车延时(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.cartChangeDelaySeconds" :min="0" :max="300" :step="1" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>码垛 行/列/层<span><el-input-number v-model="manifest.runtime.silkLineSimulation.stackRows" :min="1" :max="10" size="small" @change="applySilkSimulationOptions" /><el-input-number v-model="manifest.runtime.silkLineSimulation.stackColumns" :min="1" :max="10" size="small" @change="applySilkSimulationOptions" /><el-input-number v-model="manifest.runtime.silkLineSimulation.stackLayers" :min="1" :max="20" size="small" @change="applySilkSimulationOptions" /></span></label>
+					</div>
+					<div class="twin-inline-control"><label>空丝车自动更换</label><el-switch v-model="manifest.runtime.silkLineSimulation.autoReplaceSilkCart" @change="applySilkSimulationOptions" /></div>
+					<small>修改后重建仿真；保存草稿时参数、路线和资源对象一起入库。</small>
 				</div>
 
 				<div class="twin-panel__subheading"><strong>场景模型</strong><el-button size="small" text type="primary" @click="resourceDrawerVisible = true">添加</el-button></div>
@@ -152,6 +172,7 @@
 				<div class="twin-panel__heading"><div><span>BINDING</span><strong>对象与数据绑定</strong></div></div>
 				<div class="twin-card twin-selection-card">
 					<span class="twin-card__label">当前选择</span><strong>{{ selected?.name ?? '未选择对象' }}</strong><small>{{ selected?.nodePath || selected?.path || '请在场景中选择模型节点' }}</small>
+					<pre v-if="selectedRuntimeData" class="twin-runtime-detail">{{ selectedRuntimeData }}</pre>
 					<el-button v-if="selected?.kind === 'scene-object'" size="small" @click="focusSelected">聚焦对象</el-button>
 				</div>
 				<div class="twin-card binding-form">
@@ -176,7 +197,7 @@
 		</main>
 
 		<el-dialog v-model="createDialogVisible" title="新建数字孪生场景" width="520px">
-			<el-alert title="新场景默认生成：双路分叉包装线、桁架、2 台机器人、2 座旋转台和 50 个运行托盘。" type="success" :closable="false" style="margin-bottom:16px" />
+			<el-alert title="新场景默认生成：丝车、旋转台、上料机器人、双路分流、桁架码垛、空托盘回流和 50 个绿色塑料托盘。" type="success" :closable="false" style="margin-bottom:16px" />
 			<el-form label-position="top"><el-form-item label="场景名称"><el-input v-model="createForm.name" /></el-form-item><el-form-item label="根 Asset"><el-select v-model="createForm.rootAssetId" filterable style="width:100%"><el-option v-for="asset in assets" :key="asset.id" :label="asset.name" :value="asset.id" /></el-select></el-form-item><el-form-item label="说明"><el-input v-model="createForm.description" type="textarea" /></el-form-item></el-form>
 			<template #footer><el-button @click="createDialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" @click="createScene">创建并入库</el-button></template>
 		</el-dialog>
@@ -205,7 +226,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
-import { cloneTwinManifest, createDefaultTwinSceneManifest, createPackagingLineTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
+import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -219,7 +240,7 @@ const viewport = ref<HTMLDivElement>();
 const uploadInput = ref<HTMLInputElement>();
 const adapter = ref<ThreeJsEditorAdapter>();
 const professionalEditor = ref<any>();
-const manifest = ref<TwinSceneManifest>(createPackagingLineTwinSceneManifest());
+const manifest = ref<TwinSceneManifest>(createSilkCakeLineTwinSceneManifest());
 const scenes = ref<DigitalTwinSceneSummary[]>([]);
 const currentScene = ref<DigitalTwinSceneDetail>();
 const selectedSceneId = ref('');
@@ -237,7 +258,7 @@ const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), vers
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
 
-const createForm = reactive({ name: '50托盘智能包装线', description: '双路分叉包装线，包含桁架、机器人、旋转台和 50 个循环托盘。', rootAssetId: '' });
+const createForm = reactive({ name: '50托盘丝饼产线数字孪生', description: '丝车供料、旋转定位、机器人上料、分段输送、PLC 岔口、桁架码垛和空塑料托盘回流。', rootAssetId: '' });
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
 const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
@@ -249,6 +270,7 @@ const junctionPoints = computed(() => route.value.points.filter((point) => ['jun
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
+const selectedRuntimeData = computed(() => selected.value?.runtimeData ? JSON.stringify(selected.value.runtimeData, null, 2) : '');
 const canAddBinding = computed(() => Boolean(selected.value?.objectId && bindingForm.deviceId && (bindingForm.key || bindingForm.sourceKind === 'connectivity')));
 const selectedDevice = computed(() => assetDevices.value.find((item) => item.id === bindingForm.deviceId));
 const routeBindingOptions = computed(() => manifest.value.bindings
@@ -415,25 +437,25 @@ const createScene = async () => {
 	if (!createForm.name.trim() || !createForm.rootAssetId) { ElMessage.warning('请填写场景名称并选择根 Asset'); return; }
 	creating.value = true;
 	try {
-		const draft = createPackagingLineTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
+		const draft = createSilkCakeLineTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
 		for (const object of draft.objects) object.assetId = createForm.rootAssetId;
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({ name: draft.name, description: draft.description, rootAssetId: createForm.rootAssetId, draftPayload: draft }));
-		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('包装线、路线和 50 托盘配置已写入数据库，点击“运行”即可启动');
+		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('丝饼产线、工艺参数、路线和 50 个塑料托盘配置已写入数据库，点击“运行”即可启动');
 	} finally { creating.value = false; }
 };
 
-const applyPackagingLineTemplate = async () => {
+const applySilkCakeLineTemplate = async () => {
 	if (!currentScene.value) {
-		createForm.name = '50托盘智能包装线';
-		createForm.description = '双路分叉包装线，包含桁架、机器人、旋转台和 50 个循环托盘。';
+		createForm.name = '50托盘丝饼产线数字孪生';
+		createForm.description = '丝车供料、旋转定位、机器人上料、分段输送、PLC 岔口、桁架码垛和空塑料托盘回流。';
 		createDialogVisible.value = true;
 		return;
 	}
-	const confirmed = await ElMessageBox.confirm('这会替换当前场景草稿中的对象、路线和编辑器快照，并立即保存到数据库；历史发布版本不受影响。', '应用 50 托盘包装线模板', { type: 'warning' })
+	const confirmed = await ElMessageBox.confirm('这会替换当前场景草稿中的对象、路线、丝饼仿真参数和编辑器快照，并立即保存到数据库；历史发布版本不受影响。', '应用 50 托盘丝饼产线模板', { type: 'warning' })
 		.then(() => true)
 		.catch(() => false);
 	if (!confirmed) return;
-	const draft = createPackagingLineTwinSceneManifest();
+	const draft = createSilkCakeLineTwinSceneManifest();
 	draft.sceneId = manifest.value.sceneId;
 	draft.rootAssetId = manifest.value.rootAssetId;
 	for (const object of draft.objects) object.assetId = draft.rootAssetId || undefined;
@@ -447,7 +469,7 @@ const applyPackagingLineTemplate = async () => {
 	viewportMode.value = 'runtime';
 	await initializeViewport();
 	refreshDiagnostics();
-	if (await saveDraft(true)) ElMessage.success('50 托盘包装线已生成并入库，点击“运行”即可启动');
+	if (await saveDraft(true)) ElMessage.success('丝饼产线已生成并入库，点击“运行”即可观察机器人上料、分段阻塞、桁架码垛和空托盘回流');
 };
 
 const saveDraft = async (silent = false) => {
@@ -600,6 +622,16 @@ const toggleRouteDrawMode = async () => {
 	routeDrawMode.value = !routeDrawMode.value; adapter.value?.setRouteDrawMode(routeDrawMode.value);
 };
 const changeSpeed = (value: number | number[]) => adapter.value?.setSpeed(Array.isArray(value) ? value[0] : value);
+const applySilkSimulationOptions = async () => {
+	const options = manifest.value.runtime.silkLineSimulation;
+	if (!options) return;
+	const procedural = manifest.value.objects.find((item) => ['packaging-line', 'silk-cake-line'].includes(item.procedural?.preset || ''));
+	if (procedural?.procedural) procedural.procedural.palletCount = options.palletCount;
+	playing.value = false;
+	if (viewportMode.value === 'runtime') await initializeViewport();
+	else await switchViewportMode('runtime');
+	refreshDiagnostics();
+};
 const changeCurveKind = (value: string | number | boolean) => adapter.value?.setRouteCurveKind(value as TwinRouteDefinition['curveKind']);
 const changeLoop = (value: string | number | boolean) => adapter.value?.setRouteLoop(Boolean(value));
 const ensureRuntimeViewport = async () => {
@@ -748,6 +780,8 @@ onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter
 .twin-status-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border);background:#0a1728}.twin-status-strip>div{display:flex;flex-direction:column;gap:4px;padding:9px 15px;border-right:1px solid var(--border)}.twin-status-strip span,.twin-card__label{font-size:11px;color:#7f95ad}.twin-status-strip strong{font-size:12px}.twin-status-strip strong small{font:inherit}.is-running{color:#4ade80}.is-paused{color:#fbbf24}.is-waiting{color:#fb7185}.is-completed{color:#38bdf8}
 .twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1}.twin-panel{min-height:0;padding:14px;background:var(--panel);overflow:auto}.twin-panel--left{border-right:1px solid var(--border)}.twin-panel--right{border-left:1px solid var(--border)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}
 .twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}
+.twin-runtime-detail{max-height:230px;margin:0;padding:9px;border:1px solid rgba(56,189,248,.22);border-radius:8px;background:rgba(2,8,23,.72);overflow:auto;color:#bae6fd;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+.silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
 .twin-viewport-shell{position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
 .twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px 1fr;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
