@@ -13,6 +13,24 @@ declare module 'vue-router' {
 	}
 }
 
+// These routes are part of the frontend application itself.  Keep them separate
+// from the menu response because back-end controlled routing replaces
+// dynamicRoutes[0].children after login.
+export const digitalTwinSupplementalRoutes: Array<RouteRecordRaw> = [
+	{
+		path: '/iot/digital-twin/scenes',
+		name: 'digitaltwinscenes',
+		component: () => import('/@/views/iot/digital-twin/scenes.vue'),
+		meta: { title: '孪生场景中心', isLink: '', isHide: false, isKeepAlive: false, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
+	},
+	{
+		path: '/iot/digital-twin/viewer',
+		name: 'digitaltwinviewer',
+		component: () => import('/@/views/iot/digital-twin/viewer.vue'),
+		meta: { title: '孪生只读运行态', isHide: true, isKeepAlive: false, roles: ['admin', 'common'] },
+	},
+];
+
 export const dynamicRoutes: Array<RouteRecordRaw> = [
 	{
 		path: '/console',
@@ -38,6 +56,7 @@ export const dynamicRoutes: Array<RouteRecordRaw> = [
 					icon: 'iconfont icon-shouye',
 				},
 			},
+			...digitalTwinSupplementalRoutes,
 			{
 				path: '/iot/digital-twin/model-generator',
 				name: 'digitaltwinmodelgenerator',

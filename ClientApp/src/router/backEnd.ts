@@ -5,7 +5,7 @@ import { useUserInfo } from '/@/stores/userInfo';
 import { useRequestOldRoutes } from '/@/stores/requestOldRoutes';
 import { Session } from '/@/utils/storage';
 import { NextLoading } from '/@/utils/loading';
-import { dynamicRoutes, notFoundAndNoPower, staticRoutes } from '/@/router/route';
+import { digitalTwinSupplementalRoutes, dynamicRoutes, notFoundAndNoPower, staticRoutes } from '/@/router/route';
 import { formatTwoStageRoutes, formatFlatteningRoutes, router } from '/@/router/index';
 import { useRoutesList } from '/@/stores/routesList';
 import { useTagsViewRoutes } from '/@/stores/tagsViewRoutes';
@@ -58,8 +58,13 @@ export async function initBackEndControlRoutes() {
 	});
 	// 存储接口原始路由（未处理component），根据需求选择使用
 	useRequestOldRoutes().setRequestOldRoutes(JSON.parse(JSON.stringify(routes)));
-	// 处理路由（component），替换 dynamicRoutes（/@/router/route）第一个顶级 children 的路由
-	dynamicRoutes[0].children = await backEndComponent(routes);
+	// 处理路由（component），替换 dynamicRoutes（/@/router/route）第一个顶级 children 的路由。
+	// 场景中心和只读运行态是随前端发布的业务页面，即使数据库菜单尚未同步，
+	// 也必须可以从工作台跳转访问。若后端已经返回同一路径，则以后端菜单为准。
+	const backEndRoutes = await backEndComponent(routes);
+	const backEndPaths = new Set(formatFlatteningRoutes(backEndRoutes).map((route: any) => route.path));
+	const supplementalRoutes = digitalTwinSupplementalRoutes.filter((route) => !backEndPaths.has(route.path));
+	dynamicRoutes[0].children = [...backEndRoutes, ...supplementalRoutes];
 	// 添加动态路由
 	await setAddRoute();
 	// 设置路由到 pinia routesList 中（已处理成多级嵌套路由）及缓存多级嵌套数组处理后的一维数组

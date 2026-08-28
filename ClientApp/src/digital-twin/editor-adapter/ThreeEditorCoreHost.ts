@@ -24,6 +24,18 @@ const coreCommit = '98197115af2318ed20f334873517018509b8e079';
 
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+const isTransientUrl = (value: unknown): value is string => typeof value === 'string' && /^(blob:|data:|https?:)/i.test(value.trim());
+const sanitizeEditorJson = (value: unknown): unknown => {
+	if (isTransientUrl(value)) return undefined;
+	if (Array.isArray(value)) return value.map(sanitizeEditorJson).filter((item) => item !== undefined);
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+			.map(([key, child]) => [key, sanitizeEditorJson(child)] as const)
+			.filter(([, child]) => child !== undefined));
+	}
+	return value;
+};
+
 const sanitizeModelSnapshot = (value: any): ThreeEditorModelSnapshot | null => {
 	const objectId = value?.rootInfo?.iotsharpObjectId;
 	if (typeof objectId !== 'string' || !objectId) return null;
@@ -34,7 +46,7 @@ const sanitizeModelSnapshot = (value: any): ThreeEditorModelSnapshot | null => {
 			iotsharpResourceId: typeof value.rootInfo.iotsharpResourceId === 'string' ? value.rootInfo.iotsharpResourceId : undefined,
 			name: typeof value.rootInfo.name === 'string' ? value.rootInfo.name : undefined,
 		},
-		group: value.group ? cloneJson(value.group) : undefined,
+		group: value.group ? sanitizeEditorJson(cloneJson(value.group)) as Record<string, unknown> : undefined,
 	};
 };
 
@@ -75,7 +87,7 @@ export class ThreeEditorCoreHost {
 			sceneParams: this.latestSceneParams,
 			meshListParams: [],
 			saveEditorCallBack: (sceneParams: Record<string, unknown>, modelParams: unknown[]) => {
-				this.latestSceneParams = cloneJson(sceneParams || {});
+				this.latestSceneParams = sanitizeEditorJson(cloneJson(sceneParams || {})) as Record<string, unknown>;
 				this.latestModelParams = (modelParams || []).map(sanitizeModelSnapshot).filter(Boolean) as ThreeEditorModelSnapshot[];
 			},
 		});
@@ -133,7 +145,7 @@ export class ThreeEditorCoreHost {
 		this.syncTransformsToManifest();
 		this.editor.saveSceneEditor();
 		const snapshot: ThreeEditorSnapshot = {
-			sceneParams: cloneJson(this.latestSceneParams),
+			sceneParams: sanitizeEditorJson(cloneJson(this.latestSceneParams)) as Record<string, unknown>,
 			modelParams: cloneJson(this.latestModelParams),
 			upstream: {
 				repository: 'z2586300277/threejs-editor',

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { SilkLineSimulationOptions, TwinRouteDefinition, TwinRouteEdgeDefinition } from '/@/digital-twin/contracts';
 import type { TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { TwinMaterialFlowRuntime, type TwinFlowWaitingReason } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
+import { resolveGantryPose } from '/@/digital-twin/runtime/GantryPoseResolver';
 
 type SilkSide = 'A' | 'B';
 type PalletStage = 'source-queue' | 'loading' | 'to-gantry-a' | 'to-gantry-b' | 'gantry-a' | 'gantry-b' | 'returning';
@@ -17,11 +18,12 @@ interface PlasticPalletRuntime {
 	silkCakeId?: string;
 	loadSlot?: number;
 	gantrySlot?: number;
-	returnFrom?: 'A' | 'B';
+	returnFrom?: 'A' | 'B' | 'buffer';
 	returnOrder?: number;
 	returnSequence?: number;
 	returnQueueIndex?: number;
 	returnLoadSlot?: number;
+	cycleCount: number;
 	waitingReason?: TwinFlowWaitingReason;
 }
 
@@ -81,10 +83,12 @@ export interface SilkPackagingLineSnapshot {
 	speed: number;
 	plasticPallets: {
 		total: number;
+		online: number;
 		empty: number;
 		loaded: number;
 		waiting: number;
 		sourceQueue: number;
+		cycled: number;
 	};
 	silkCart: {
 		cartId: string;
@@ -107,6 +111,10 @@ export interface SilkPackagingLineSnapshot {
 		laneA: number;
 		laneB: number;
 		progress: number;
+		phase?: string;
+		targetLayer: number;
+		carriageY: number;
+		safeCarriageY: number;
 	};
 	woodenPallet: {
 		id?: string;
@@ -121,6 +129,12 @@ export interface SilkPackagingLineSnapshot {
 		labeled: number;
 		wrapped: number;
 		stored: number;
+	};
+	watchdog: {
+		state: 'healthy' | 'recovering';
+		idleSeconds: number;
+		recoveryCount: number;
+		blockedPalletIds: string[];
 	};
 	sections: ReturnType<TwinMaterialFlowRuntime['sections']['getSnapshots']>;
 	entities: ReturnType<TwinMaterialFlowRuntime['entities']['getAll']>;
@@ -148,13 +162,16 @@ const LABEL_POSITION = new THREE.Vector3(20.5, 0.72, WOOD_LANE_Z);
 const WRAP_POSITION = new THREE.Vector3(25, 0.72, WOOD_LANE_Z);
 const INBOUND_POSITION = new THREE.Vector3(31, 0.72, WOOD_LANE_Z);
 const STORED_POSITION = new THREE.Vector3(35, 1.1, WOOD_LANE_Z);
-const RETURN_CORNER_EAST = new THREE.Vector3(15, 0.94, 4.8);
-const RETURN_CORNER_WEST = new THREE.Vector3(-12.5, 0.94, 4.8);
+const RETURN_EAST_LOWER = new THREE.Vector3(44, 0.94, -4.2);
+const RETURN_CORNER_EAST = new THREE.Vector3(44, 0.94, 34);
+const RETURN_CORNER_WEST = new THREE.Vector3(-42, 0.94, 34);
+const RETURN_WEST_LOWER = new THREE.Vector3(-42, 0.94, -5.8);
 const RETURN_ENTRY = new THREE.Vector3(-11, 0.94, -5.8);
 // 塑料托盘外径约 1.48 m。中心距必须大于外径；直角弯/汇流按 2.2 m 节距排队，
 // 保证两个托盘分别位于拐角两侧时，欧氏距离仍不会小于托盘外径。
 const PALLET_MIN_CENTER_GAP = 1.5;
 const RETURN_CONVOY_GAP = 2.2;
+const RETURN_BUFFER_GAP = RETURN_CONVOY_GAP;
 const MAX_PALLET_STEP_METERS = 0.65;
 const SOURCE_QUEUE_GAP = 1.7;
 
@@ -251,6 +268,9 @@ export class ProceduralPackagingLine {
 	private gantryTask: GantryTaskRuntime = this.createIdleGantryTask();
 	private activeWoodPallet?: WoodenPalletRuntime;
 	private woodFeedElapsed = 0;
+	private motionThisTick = false;
+	private watchdogIdleSeconds = 0;
+	private watchdogRecoveryCount = 0;
 	private readonly options: {
 		robotCycleSeconds: number;
 		gantryCycleSeconds: number;
@@ -302,7 +322,7 @@ export class ProceduralPackagingLine {
 		returning?: string;
 	};
 
-	constructor(route: TwinRouteDefinition, palletCount = 50, options: Partial<SilkLineSimulationOptions> = {}) {
+	constructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}) {
 		this.options = {
 			robotCycleSeconds: options.robotCycleSeconds ?? 5,
 			gantryCycleSeconds: options.gantryCycleSeconds ?? 5,
@@ -367,6 +387,9 @@ export class ProceduralPackagingLine {
 		this.cartReplaceProgress = 0;
 		this.woodFeedElapsed = 0;
 		this.returnSequence = 0;
+		this.motionThisTick = false;
+		this.watchdogIdleSeconds = 0;
+		this.watchdogRecoveryCount = 0;
 		this.robotTask = this.createIdleRobotTask();
 		this.gantryTask = this.createIdleGantryTask();
 		this.loadingSlots.fill(undefined);
@@ -377,6 +400,7 @@ export class ProceduralPackagingLine {
 			pallet.stage = 'source-queue';
 			pallet.progress = 0;
 			pallet.loaded = false;
+			pallet.cycleCount = 0;
 			delete pallet.silkCakeId;
 			delete pallet.loadSlot;
 			delete pallet.gantrySlot;
@@ -402,6 +426,7 @@ export class ProceduralPackagingLine {
 
 	updateFixed(deltaSeconds: number) {
 		if (!this.running || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+		this.motionThisTick = false;
 		this.updateSilkCart(deltaSeconds);
 		this.updateRobot(deltaSeconds);
 		this.updatePlasticPalletFlow(deltaSeconds);
@@ -412,6 +437,16 @@ export class ProceduralPackagingLine {
 		this.tryStartGantryBatch();
 		this.tryFillLoadingSlots();
 		this.applyAllPoses();
+		const processActive = this.motionThisTick || this.robotTask.state !== 'idle' || this.gantryTask.state !== 'idle'
+			|| this.cartState === 'turning-to-b' || this.cartState === 'replacing' || this.woodProcessQueue.length > 0;
+		if (processActive) this.watchdogIdleSeconds = 0;
+		else this.watchdogIdleSeconds += deltaSeconds;
+		if (this.watchdogIdleSeconds >= 15) {
+			// 清除可能过期的目标槽预留，由下一帧按当前真实空位重新压实；保持 FIFO 且不瞬移实体。
+			for (const pallet of this.pallets.values()) if (pallet.stage === 'returning') delete pallet.returnLoadSlot;
+			this.watchdogRecoveryCount += 1;
+			this.watchdogIdleSeconds = 0;
+		}
 	}
 
 	getSnapshot(): SilkPackagingLineSnapshot {
@@ -421,10 +456,12 @@ export class ProceduralPackagingLine {
 			speed: this.speed,
 			plasticPallets: {
 				total: palletValues.length,
+				online: palletValues.filter((item) => item.stage !== 'source-queue').length,
 				empty: palletValues.filter((item) => !item.loaded).length,
 				loaded: palletValues.filter((item) => item.loaded).length,
 				waiting: palletValues.filter((item) => Boolean(item.waitingReason)).length,
 				sourceQueue: this.sourceQueue.length,
+				cycled: palletValues.filter((item) => item.cycleCount > 0).length,
 			},
 			silkCart: {
 				cartId: this.currentCartId,
@@ -447,6 +484,10 @@ export class ProceduralPackagingLine {
 				laneA: this.gantryLaneA.filter(Boolean).length,
 				laneB: this.gantryLaneB.filter(Boolean).length,
 				progress: this.gantryTask.progress,
+				phase: this.gantryCarriage.userData.motionPhase,
+				targetLayer: this.gantryTask.targetLayer,
+				carriageY: this.gantryCarriage.position.y,
+				safeCarriageY: Number(this.gantryCarriage.userData.safeCarriageY || 7.45),
 			},
 			woodenPallet: {
 				id: this.activeWoodPallet?.woodenPalletId,
@@ -461,6 +502,12 @@ export class ProceduralPackagingLine {
 				labeled: this.woodProcessQueue.filter((item) => item.labelApplied).length,
 				wrapped: this.woodProcessQueue.filter((item) => item.wrapped).length,
 				stored: this.storedWoodPallets.length,
+			},
+			watchdog: {
+				state: this.watchdogRecoveryCount > 0 && this.watchdogIdleSeconds > 0 ? 'recovering' : 'healthy',
+				idleSeconds: this.watchdogIdleSeconds,
+				recoveryCount: this.watchdogRecoveryCount,
+				blockedPalletIds: palletValues.filter((item) => Boolean(item.waitingReason)).map((item) => item.palletId),
 			},
 			sections: this.flowRuntime.sections.getSnapshots(),
 			entities: this.flowRuntime.entities.getAll(),
@@ -482,6 +529,7 @@ export class ProceduralPackagingLine {
 				returnSequence: pallet.returnSequence,
 				returnQueueIndex: pallet.returnQueueIndex,
 				returnLoadSlot: pallet.returnLoadSlot,
+				cycleCount: pallet.cycleCount,
 				waitingReason: pallet.waitingReason,
 				section: this.flowRuntime.entities.get(entityId)?.currentSectionId,
 			} : undefined;
@@ -522,12 +570,12 @@ export class ProceduralPackagingLine {
 			'pack-edge-load': 6,
 			'pack-edge-left-pack': 3,
 			'pack-edge-right-pack': 3,
-			'pack-edge-return-main': Math.max(6, Math.min(24, this.palletCount || 24)),
+			'pack-edge-return-main': Math.max(80, this.palletCount || 80),
 			'silk-edge-loading': 6,
 			'silk-edge-load-buffer': 6,
 			'silk-edge-left-b': 3,
 			'silk-edge-right-b': 3,
-			'silk-edge-return-main': Math.max(6, Math.min(24, this.palletCount || 24)),
+			'silk-edge-return-main': Math.max(80, this.palletCount || 80),
 		};
 		for (const edge of route.edges || []) {
 			if (capacities[edge.edgeId] !== undefined) edge.capacity = capacities[edge.edgeId];
@@ -583,7 +631,7 @@ export class ProceduralPackagingLine {
 			const palletId = `PLASTIC-PALLET-${String(index + 1).padStart(3, '0')}`;
 			const root = this.createPlasticPallet(palletId);
 			const cakeAnchor = root.getObjectByName('SilkCakeAnchor') as THREE.Group;
-			const runtime: PlasticPalletRuntime = { palletId, root, cakeAnchor, stage: 'source-queue', progress: 0, loaded: false };
+			const runtime: PlasticPalletRuntime = { palletId, root, cakeAnchor, stage: 'source-queue', progress: 0, loaded: false, cycleCount: 0 };
 			this.pallets.set(palletId, runtime);
 			this.sourceQueue.push(palletId);
 			this.flowRuntime.entities.ensure(palletId);
@@ -789,8 +837,10 @@ export class ProceduralPackagingLine {
 		const laneBExit = this.getRoutePointPosition('silk-right-inspection', new THREE.Vector3(13.2, 0.94, -4.2)).setY(0.55);
 		const gantry = this.getRoutePointPosition('silk-gantry', new THREE.Vector3(15, 0.94, -7.6)).setY(0.55);
 		const merger = this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2)).setY(0.55);
-		const east = this.getRoutePointPosition('silk-return-east', RETURN_CORNER_EAST).setY(0.55);
+		const east = this.getRoutePointPosition('silk-return-east', RETURN_EAST_LOWER).setY(0.55);
+		const northEast = this.getRoutePointPosition('silk-return-northeast', RETURN_CORNER_EAST).setY(0.55);
 		const west = this.getRoutePointPosition('silk-return-west', RETURN_CORNER_WEST).setY(0.55);
+		const southWest = this.getRoutePointPosition('silk-return-southwest', RETURN_WEST_LOWER).setY(0.55);
 		this.addRollerLane(conveyors, source, diverter, 1.55, '机器人上料及主输送');
 		// A/B 长直缓存线由桁架单元统一绘制；这里只保留两条短分叉连接，避免重复模型叠加。
 		this.addRollerLane(conveyors, diverter, laneAEntry, 1.45, '桁架A线分叉连接');
@@ -799,8 +849,10 @@ export class ProceduralPackagingLine {
 		this.addRollerLane(conveyors, laneBExit, merger, 1.45, 'B线空托盘出站');
 		this.addRollerLane(conveyors, gantry, merger, 1.55, 'A/B空托盘汇流段');
 		this.addRollerLane(conveyors, merger, east, 1.55, '空托盘回流东段');
-		this.addRollerLane(conveyors, east, west, 1.55, '空托盘回流主段');
-		this.addRollerLane(conveyors, west, source, 1.55, '空托盘回流入口');
+		this.addRollerLane(conveyors, east, northEast, 1.55, '空托盘回流东提升段');
+		this.addRollerLane(conveyors, northEast, west, 1.55, '空托盘回流主段');
+		this.addRollerLane(conveyors, west, southWest, 1.55, '空托盘回流西下降段');
+		this.addRollerLane(conveyors, southWest, source, 1.55, '空托盘回流入口');
 		this.group.add(conveyors);
 	}
 
@@ -832,23 +884,23 @@ export class ProceduralPackagingLine {
 		this.gantryRoot.name = '2×3丝饼码垛桁架';
 		this.gantryRoot.userData.twinEntityType = 'gantry-stacker';
 		this.gantryRoot.userData.twinEntityId = 'GantryStacker-01';
-		const x0 = 6.2, x1 = 14.2, z0 = -12.4, z1 = -2.4;
+		const x0 = 6.2, x1 = 14.2, z0 = -12.4, z1 = -2.4, frameHeight = 8.4;
 		for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as Array<[number, number]>) {
-			const post = new THREE.Mesh(new THREE.BoxGeometry(0.24, 4.8, 0.24), this.frameMaterial);
-			post.position.set(x, 2.4, z);
+			const post = new THREE.Mesh(new THREE.BoxGeometry(0.24, frameHeight, 0.24), this.frameMaterial);
+			post.position.set(x, frameHeight / 2, z);
 			this.gantryRoot.add(post);
 		}
-		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z0), new THREE.Vector3(x1, 4.8, z0), 0.16);
-		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z1), new THREE.Vector3(x1, 4.8, z1), 0.16);
-		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z0), new THREE.Vector3(x0, 4.8, z1), 0.16);
-		this.addBeam(this.gantryRoot, new THREE.Vector3(x1, 4.8, z0), new THREE.Vector3(x1, 4.8, z1), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, frameHeight, z0), new THREE.Vector3(x1, frameHeight, z0), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, frameHeight, z1), new THREE.Vector3(x1, frameHeight, z1), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, frameHeight, z0), new THREE.Vector3(x0, frameHeight, z1), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x1, frameHeight, z0), new THREE.Vector3(x1, frameHeight, z1), 0.16);
 		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.55, -7.6), new THREE.Vector3(13.2, 0.55, -7.6), 1.5, 'Gantry-Lane-A-3位');
 		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.55, -4.2), new THREE.Vector3(13.2, 0.55, -4.2), 1.5, 'Gantry-Lane-B-3位');
 		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.42, WOOD_LANE_Z), new THREE.Vector3(14.4, 0.42, WOOD_LANE_Z), 2.1, 'Gantry-Wood-Pallet-Lane');
 		this.gantryCarriage.name = 'Gantry-X-Carriage';
 		const carriageBeam = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.22, 0.34), this.safetyMaterial);
 		this.gantryCarriage.add(carriageBeam);
-		this.gantryCarriage.position.set(10, 4.35, -5.9);
+		this.gantryCarriage.position.set(9.8, 7.45, -5.9);
 		this.gantryRoot.add(this.gantryCarriage);
 		this.gantryLift.name = 'Gantry-Lift';
 		const liftBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.2, 0.22), this.darkFrameMaterial);
@@ -858,11 +910,11 @@ export class ProceduralPackagingLine {
 		this.gantryCarriage.add(this.gantryLift);
 		this.gantryGripper.name = 'GantryGripper-2x3';
 		this.gantryGripper.position.y = -2.2;
-		const gripperFrame = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.18, 2.4), this.robotJointMaterial);
+		const gripperFrame = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.18, 4.0), this.robotJointMaterial);
 		this.gantryGripper.add(gripperFrame);
 		for (let row = 0; row < 2; row += 1) for (let column = 0; column < 3; column += 1) {
 			const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.3, 16), this.robotJointMaterial);
-			head.position.set(-1.6 + column * 1.6, -0.2, -0.8 + row * 1.6);
+			head.position.set(-1.8 + column * 1.8, -0.2, -1.7 + row * 3.4);
 			this.gantryGripper.add(head);
 		}
 		this.gantryLift.add(this.gantryGripper);
@@ -1012,7 +1064,46 @@ export class ProceduralPackagingLine {
 	}
 
 	private feedInitialPlasticPallets() {
-		this.tryFillLoadingSlots();
+		// V5 closed-loop：启动时全部托盘已经在物理线体中，SourceQueue 必须清空。
+		// 前 6 个占据机器人上料位，其余托盘按安全节距分布在扩展回流缓存线上。
+		for (let index = 0; index < ROBOT_BATCH; index += 1) {
+			const palletId = this.sourceQueue.shift();
+			if (!palletId) break;
+			const pallet = this.pallets.get(palletId)!;
+			if (!this.transferPallet(pallet, this.sectionIds.loading)) break;
+			this.loadingSlots[index] = palletId;
+			pallet.stage = 'loading';
+			pallet.loadSlot = index;
+			pallet.progress = 1;
+		}
+		let queueIndex = 0;
+		while (this.sourceQueue.length) {
+			const palletId = this.sourceQueue.shift()!;
+			const pallet = this.pallets.get(palletId)!;
+			pallet.returnFrom = 'buffer';
+			pallet.returnOrder = queueIndex;
+			pallet.returnSequence = this.returnSequence++;
+			pallet.returnQueueIndex = queueIndex;
+			pallet.returnLoadSlot = ROBOT_BATCH - 1 - queueIndex % ROBOT_BATCH;
+			pallet.stage = 'returning';
+			if (!this.transferPallet(pallet, this.sectionIds.returning)) {
+				throw new Error(`V5 closed-loop 回流容量不足，无法上线 ${palletId}`);
+			}
+			const path = this.getReturnRoutePoints(pallet);
+			pallet.progress = this.getReturnQueueHoldProgress(pallet, path);
+			// 折线拐角两侧的“沿线间距”不等于实体欧氏距离。上线时逐步向队尾退让，
+			// 直到与已经排入回流线的每个托盘都满足安全中心距，避免首帧在直角处相交。
+			const progressStep = 0.04 / Math.max(0.001, polylineLength(path));
+			let guard = 0;
+			while (!this.isPalletPositionClear(pallet, pointOnPolyline(path, pallet.progress)) && pallet.progress > 0 && guard < 2_000) {
+				pallet.progress = Math.max(0, pallet.progress - progressStep);
+				guard += 1;
+			}
+			if (!this.isPalletPositionClear(pallet, pointOnPolyline(path, pallet.progress))) {
+				throw new Error(`V5 回流缓存物理长度不足，${palletId} 无法保持 ${PALLET_MIN_CENTER_GAP}m 安全间距`);
+			}
+			queueIndex += 1;
+		}
 	}
 
 	private tryFillLoadingSlots() {
@@ -1195,13 +1286,23 @@ export class ProceduralPackagingLine {
 			.sort((left, right) => (left.returnSequence ?? Number.MAX_SAFE_INTEGER) - (right.returnSequence ?? Number.MAX_SAFE_INTEGER) || left.palletId.localeCompare(right.palletId));
 		returning.forEach((pallet, index) => { pallet.returnQueueIndex = index; });
 		this.assignReturnLoadingSlots(returning);
+		let previousReturnCoordinate: number | undefined;
 		for (const pallet of returning) {
 			const path = this.getReturnRoutePoints(pallet);
+			const pathLength = Math.max(0.001, polylineLength(path));
+			const distanceToReturnEntry = polylineLength(path.slice(0, -1));
 			const preferredLoadSlot = pallet.returnLoadSlot ?? -1;
 			const targetOccupied = preferredLoadSlot < 0 || Boolean(this.loadingSlots[preferredLoadSlot]);
-			const maxProgress = targetOccupied ? this.getReturnQueueHoldProgress(pallet, path) : 1;
+			const targetMaxProgress = targetOccupied ? this.getReturnQueueHoldProgress(pallet, path) : 1;
+			// 仅靠欧氏碰撞圆会让直角拐角处的后车在直线上追到 1.5m，随后前车无法转弯。
+			// 以“距回流入口的有符号沿线距离”为统一坐标，强制 FIFO 相邻车保持 2.2m 路径节距。
+			const convoyMaxProgress = previousReturnCoordinate === undefined
+				? 1
+				: (distanceToReturnEntry - previousReturnCoordinate - RETURN_CONVOY_GAP) / pathLength;
+			const maxProgress = Math.min(targetMaxProgress, convoyMaxProgress);
 			const previousProgress = pallet.progress;
 			this.advancePalletOnPath(pallet, path, travelMeters * 0.75, maxProgress);
+			previousReturnCoordinate = distanceToReturnEntry - pallet.progress * pathLength;
 			if (pallet.progress <= previousProgress + 0.000001 && pallet.progress >= 0) pallet.waitingReason = 'TARGET_SECTION_FULL';
 			else delete pallet.waitingReason;
 			if (pallet.progress < 1) continue;
@@ -1213,6 +1314,7 @@ export class ProceduralPackagingLine {
 			pallet.stage = 'loading';
 			pallet.loadSlot = preferredLoadSlot;
 			pallet.progress = 1;
+			pallet.cycleCount += 1;
 			delete pallet.gantrySlot;
 			delete pallet.returnFrom;
 			delete pallet.returnOrder;
@@ -1242,22 +1344,21 @@ export class ProceduralPackagingLine {
 
 	private updateGantry(deltaSeconds: number) {
 		if (this.gantryTask.state === 'idle') {
-			this.gantryCarriage.position.set(10, 4.35, -5.9);
+			this.gantryCarriage.position.copy(resolveGantryPose(1, 0).carriage);
+			this.gantryLift.position.y = 0;
 			return;
 		}
 		const duration = Math.max(0.2, this.options.gantryCycleSeconds);
 		this.gantryTask.progress = clamp01(this.gantryTask.progress + deltaSeconds / duration);
 		const p = this.gantryTask.progress;
-		if (p < 0.45) {
-			this.gantryCarriage.position.x = 10;
-			this.gantryCarriage.position.z = -5.9;
-			this.gantryLift.position.y = -Math.sin((p / 0.45) * Math.PI) * 0.75;
-		} else {
-			const local = (p - 0.45) / 0.55;
-			this.gantryCarriage.position.z = THREE.MathUtils.lerp(-5.9, WOOD_LANE_Z, local);
-			this.gantryLift.position.y = -Math.sin(local * Math.PI) * 0.65;
-		}
-		if (!this.gantryTask.attachedAtPick && p >= 0.28) {
+		const pose = resolveGantryPose(p, this.gantryTask.targetLayer);
+		this.gantryCarriage.position.copy(pose.carriage);
+		this.gantryLift.position.y = 0;
+		this.gantryCarriage.userData.motionPhase = pose.phase;
+		this.gantryCarriage.userData.targetLayer = this.gantryTask.targetLayer;
+		this.gantryCarriage.userData.safeCarriageY = pose.safeCarriageY;
+		this.gantryCarriage.userData.placeCarriageY = pose.placeCarriageY;
+		if (!this.gantryTask.attachedAtPick && p >= pose.attachAt) {
 			this.gantryTask.attachedAtPick = true;
 			for (const silkCakeId of this.gantryTask.silkCakeIds) {
 				const cake = this.cakes.get(silkCakeId);
@@ -1266,7 +1367,22 @@ export class ProceduralPackagingLine {
 				cake.state = 'gantry-picking';
 			}
 		}
-		if (!this.gantryTask.attachedAtPlace && p >= 0.78 && this.activeWoodPallet) {
+		if (this.gantryTask.attachedAtPick && !this.gantryTask.attachedAtPlace) {
+			// 夹具从两条辊道的 2×3 取料节距平滑收拢到木托盘 2×3 堆叠节距，
+			// 六个丝饼始终保持两行三列拓扑，不会在空中合并或互穿。
+			for (let index = 0; index < this.gantryTask.silkCakeIds.length; index += 1) {
+				const cake = this.cakes.get(this.gantryTask.silkCakeIds[index]);
+				if (!cake || cake.root.parent !== this.gantryGripper) continue;
+				const row = Math.floor(index / 3);
+				const column = index % 3;
+				cake.root.position.set(
+					THREE.MathUtils.lerp(-1.8 + column * 1.8, -1.55 + column * 1.55, pose.patternCompression),
+					-0.3,
+					THREE.MathUtils.lerp(-1.7 + row * 3.4, -0.68 + row * 1.36, pose.patternCompression),
+				);
+			}
+		}
+		if (!this.gantryTask.attachedAtPlace && p >= pose.placeAt && this.activeWoodPallet) {
 			this.gantryTask.attachedAtPlace = true;
 			this.placeGantryLayer(this.activeWoodPallet);
 		}
@@ -1427,16 +1543,19 @@ export class ProceduralPackagingLine {
 
 	private getReturnRoutePoints(pallet: PlasticPalletRuntime) {
 		const slot = pallet.gantrySlot ?? 2;
-		const start = pallet.returnFrom === 'A' ? GANTRY_LANE_A_POSITIONS[slot] : GANTRY_LANE_B_POSITIONS[slot];
 		const gantryExit = this.getRoutePointPosition('silk-gantry', new THREE.Vector3(15, 0.94, -7.6));
 		const merger = this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2));
-		const east = this.getRoutePointPosition('silk-return-east', RETURN_CORNER_EAST);
+		const east = this.getRoutePointPosition('silk-return-east', RETURN_EAST_LOWER);
+		const northEast = this.getRoutePointPosition('silk-return-northeast', RETURN_CORNER_EAST);
 		const west = this.getRoutePointPosition('silk-return-west', RETURN_CORNER_WEST);
+		const southWest = this.getRoutePointPosition('silk-return-southwest', RETURN_WEST_LOWER);
 		const returnEntry = this.getRoutePointPosition('silk-source', RETURN_ENTRY);
 		const target = LOAD_SLOT_POSITIONS[pallet.returnLoadSlot ?? 0];
+		if (pallet.returnFrom === 'buffer') return [merger, east, northEast, west, southWest, returnEntry, target];
+		const start = pallet.returnFrom === 'A' ? GANTRY_LANE_A_POSITIONS[slot] : GANTRY_LANE_B_POSITIONS[slot];
 		return pallet.returnFrom === 'A'
-			? [start, gantryExit, merger, east, west, returnEntry, target]
-			: [start, merger, east, west, returnEntry, target];
+			? [start, gantryExit, merger, east, northEast, west, southWest, returnEntry, target]
+			: [start, merger, east, northEast, west, southWest, returnEntry, target];
 	}
 
 	private getPalletPlannedPosition(pallet: PlasticPalletRuntime) {
@@ -1467,6 +1586,7 @@ export class ProceduralPackagingLine {
 		if (desired <= current + 0.0000001) return;
 		if (this.isPalletPositionClear(pallet, pointOnPolyline(points, desired))) {
 			pallet.progress = desired;
+			this.motionThisTick = true;
 			return;
 		}
 		// 在当前位置和目标位置之间二分寻找最后一个安全点，避免把托盘简单退回固定百分比造成不同长度路线间距失真。
@@ -1478,6 +1598,7 @@ export class ProceduralPackagingLine {
 			else high = middle;
 		}
 		pallet.progress = low;
+		if (low > current + 0.0000001) this.motionThisTick = true;
 	}
 
 	private safeEndHoldProgress(points: THREE.Vector3[]) {
@@ -1488,7 +1609,9 @@ export class ProceduralPackagingLine {
 	private getReturnQueueHoldProgress(pallet: PlasticPalletRuntime, points: THREE.Vector3[]) {
 		const length = Math.max(0.001, polylineLength(points));
 		const distanceToReturnEntry = polylineLength(points.slice(0, -1));
-		const queueDistance = Math.max(0, distanceToReturnEntry - (pallet.returnQueueIndex ?? pallet.returnOrder ?? 0) * RETURN_CONVOY_GAP);
+		// 队首也必须停在上料位之前一个完整托盘间距；其余托盘沿回流缓存线紧凑排队，
+		// 不能因队列超过路径长度而全部压在同一个起点。
+		const queueDistance = Math.max(0, distanceToReturnEntry - RETURN_CONVOY_GAP - (pallet.returnQueueIndex ?? pallet.returnOrder ?? 0) * RETURN_BUFFER_GAP);
 		return Math.min(1, queueDistance / length);
 	}
 

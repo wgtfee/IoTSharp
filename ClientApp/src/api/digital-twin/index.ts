@@ -11,6 +11,7 @@ export interface DigitalTwinSceneSummary {
 	status: 'Draft' | 'Published' | 'Archived' | 'Orphaned';
 	publishedVersionId?: string;
 	publishedVersion?: number;
+	publishedSourceRevision?: number;
 	revision: number;
 	createdAt: string;
 	updatedAt: string;
@@ -114,10 +115,12 @@ export interface TwinSceneVersion {
 	id: string;
 	sceneId: string;
 	version: number;
+	sourceDraftRevision: number;
 	schemaVersion: string;
 	manifestHash: string;
 	changeSummary: string;
 	validationReport: { valid: boolean; diagnostics: TwinValidationDiagnostic[] };
+	manifest?: TwinSceneManifest;
 	createdAt: string;
 	createdBy: string;
 	isCurrent: boolean;
@@ -151,12 +154,13 @@ export const digitalTwinApi = {
 	updateScene: (id: string, data: { name: string; description?: string; rootAssetId: string }) =>
 		request({ url: `/api/digital-twin/scenes/${id}`, method: 'put', data }),
 	saveDraft: (id: string, revision: number, payload: TwinSceneManifest) =>
-		request({ url: `/api/digital-twin/scenes/${id}/draft`, method: 'put', data: { revision, payload } }),
+		request({ url: `/api/digital-twin/scenes/${id}/draft`, method: 'put', data: { revision, name: payload.name, description: payload.description, rootAssetId: payload.rootAssetId, payload } }),
 	validateScene: (id: string, forPublish = false) =>
 		request({ url: `/api/digital-twin/scenes/${id}/validate`, method: 'post', params: { forPublish } }),
 	publishScene: (id: string, revision: number, changeSummary: string) =>
 		request({ url: `/api/digital-twin/scenes/${id}/publish`, method: 'post', data: { revision, changeSummary } }),
 	listVersions: (id: string) => request({ url: `/api/digital-twin/scenes/${id}/versions`, method: 'get' }),
+	getVersion: (id: string, version: number) => request({ url: `/api/digital-twin/scenes/${id}/versions/${version}`, method: 'get' }),
 	rollback: (id: string, version: number) => request({ url: `/api/digital-twin/scenes/${id}/rollback/${version}`, method: 'post' }),
 
 	listModels: (params: { name?: string; status?: string } = {}) =>

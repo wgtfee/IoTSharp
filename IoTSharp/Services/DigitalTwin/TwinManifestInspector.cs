@@ -66,6 +66,12 @@ internal static class TwinManifestInspector
             ["showGrid"] = true
         };
 
+        // threejs-editor may serialize preview textures as blob/data/http URLs in its
+        // editor-only snapshot. They are not runtime resources and must never enter the
+        // immutable Manifest. Strip them server-side so stale clients can still save,
+        // while the general untrusted-value validator continues to reject URLs elsewhere.
+        SanitizeThreeEditorSnapshot(root, result);
+
         result.NormalizedPayload = root.ToJsonString(WebJsonOptions);
         using var document = JsonDocument.Parse(result.NormalizedPayload);
         var manifest = document.RootElement;
@@ -155,10 +161,14 @@ internal static class TwinManifestInspector
 				preset.GetString() == "silk-cake-packaging-line");
 		if (isV4)
 		{
-			var fixedValues = new[] { ("silkCakesPerCart", 36), ("stackRows", 2), ("stackColumns", 3), ("stackLayers", 8) };
+			var fixedValues = new[] { ("palletCount", 80), ("silkCakesPerCart", 36), ("stackRows", 2), ("stackColumns", 3), ("stackLayers", 8) };
 			if (fixedValues.Any(entry => !simulation.TryGetProperty(entry.Item1, out var value) || !value.TryGetInt32(out var parsed) || parsed != entry.Item2))
 			{
-				result.Diagnostics.Add(Error("twin.silk-line.v4.fixed-process.invalid", "V4 固定工艺必须为双面丝车 36 件、木托盘 2×3×8 共 48 件。", "runtime.silkLineSimulation"));
+				result.Diagnostics.Add(Error("twin.silk-line.v5.fixed-process.invalid", "V5 固定工艺必须为 80 个在线闭环塑料托盘、双面丝车 36 件、木托盘 2×3×8 共 48 件。", "runtime.silkLineSimulation"));
+			}
+			if (!simulation.TryGetProperty("palletPopulationMode", out var populationMode) || populationMode.GetString() != "closed-loop")
+			{
+				result.Diagnostics.Add(Error("twin.silk-line.v5.population.invalid", "V5 丝饼线 palletPopulationMode 必须为 closed-loop。", "runtime.silkLineSimulation.palletPopulationMode"));
 			}
 		}
 	}
@@ -680,6 +690,7 @@ internal static class TwinManifestInspector
                 var text = element.GetString()?.Trim();
                 if (text != null && (text.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
                                      text.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ||
+                                     text.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) ||
                                      text.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
                                      text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                                      text.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
@@ -694,6 +705,56 @@ internal static class TwinManifestInspector
                 }
                 break;
         }
+    }
+
+    private static void SanitizeThreeEditorSnapshot(JsonObject root, TwinManifestInspection result)
+    {
+        if (root["editorExtension"] is not JsonObject extension ||
+            extension["threeEditor"] is not JsonObject snapshot) return;
+
+        StripTransientEditorUrls(snapshot, "$.editorExtension.threeEditor", result.Diagnostics);
+    }
+
+    private static void StripTransientEditorUrls(JsonNode? node, string path, List<TwinValidationDiagnosticDto> diagnostics)
+    {
+        if (node is JsonObject jsonObject)
+        {
+            foreach (var property in jsonObject.ToList())
+            {
+                var propertyPath = $"{path}.{property.Key}";
+                if (IsTransientEditorUrl(property.Value))
+                {
+                    jsonObject[property.Key] = null;
+                    diagnostics.Add(Warning("twin.editor-url.stripped", "已移除 three editor 快照中的临时图片或外部 URL。", propertyPath));
+                    continue;
+                }
+                StripTransientEditorUrls(property.Value, propertyPath, diagnostics);
+            }
+            return;
+        }
+
+        if (node is not JsonArray jsonArray) return;
+        for (var index = 0; index < jsonArray.Count; index += 1)
+        {
+            var itemPath = $"{path}[{index}]";
+            if (IsTransientEditorUrl(jsonArray[index]))
+            {
+                jsonArray[index] = null;
+                diagnostics.Add(Warning("twin.editor-url.stripped", "已移除 three editor 快照中的临时图片或外部 URL。", itemPath));
+                continue;
+            }
+            StripTransientEditorUrls(jsonArray[index], itemPath, diagnostics);
+        }
+    }
+
+    private static bool IsTransientEditorUrl(JsonNode? node)
+    {
+        if (node is not JsonValue value || !value.TryGetValue<string>(out var text)) return false;
+        text = text.Trim();
+        return text.StartsWith("blob:", StringComparison.OrdinalIgnoreCase) ||
+               text.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+               text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               text.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsForbiddenExecutablePropertyName(string propertyName)

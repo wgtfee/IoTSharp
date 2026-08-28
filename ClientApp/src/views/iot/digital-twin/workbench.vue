@@ -13,7 +13,7 @@
 			<div class="twin-toolbar__actions">
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button @click="createDialogVisible = true">新建场景</el-button>
-				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V4</el-button>
+				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V5</el-button>
 				<el-button @click="router.push('/iot/digital-twin/model-generator')">生成模型</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
 				<el-button :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
@@ -23,6 +23,8 @@
 				<el-dropdown trigger="click">
 					<el-button>更多</el-button>
 					<template #dropdown><el-dropdown-menu>
+						<el-dropdown-item @click="router.push('/iot/digital-twin/scenes')">场景中心</el-dropdown-item>
+						<el-dropdown-item v-if="currentScene?.publishedVersion" @click="router.push({ path:'/iot/digital-twin/viewer', query:{ sceneId: currentScene.id, version: currentScene.publishedVersion } })">查看线上版本</el-dropdown-item>
 						<el-dropdown-item @click="validateScene">场景校验</el-dropdown-item>
 						<el-dropdown-item @click="openVersions">版本与回滚</el-dropdown-item>
 						<el-dropdown-item divided @click="exportManifest">导出 Manifest</el-dropdown-item>
@@ -69,7 +71,7 @@
 					<el-slider v-model="route.defaultSpeed" :min="0.1" :max="5" :step="0.1" @input="changeSpeed" />
 				</div>
 				<div v-if="manifest.runtime.silkLineSimulation" class="twin-card">
-					<span class="twin-card__label">丝饼完整工艺 V4 参数</span>
+					<span class="twin-card__label">丝饼完整工艺 V5 参数</span>
 					<div class="silk-simulation-grid">
 						<label>塑料托盘数<el-input-number v-model="manifest.runtime.silkLineSimulation.palletCount" :min="6" :max="200" size="small" @change="applySilkSimulationOptions" /></label>
 						<label>每车丝饼数（A/B 3×6）<el-input-number v-model="manifest.runtime.silkLineSimulation.silkCakesPerCart" :min="36" :max="36" disabled size="small" /></label>
@@ -203,7 +205,7 @@
 		</main>
 
 		<el-dialog v-model="createDialogVisible" title="新建数字孪生场景" width="520px">
-			<el-alert title="新场景默认生成：丝车、旋转台、上料机器人、双路分流、桁架码垛、空托盘回流和 50 个绿色塑料托盘。" type="success" :closable="false" style="margin-bottom:16px" />
+			<el-alert title="新场景默认生成：丝车、旋转台、上料机器人、双路分流、分层安全桁架、正交回流缓存环和 80 个全在线绿色塑料托盘。" type="success" :closable="false" style="margin-bottom:16px" />
 			<el-alert v-if="assets.length === 0" title="资产库为空：请先到资产管理新建产线根资产，再创建数字孪生场景。" type="warning" :closable="false" show-icon style="margin-bottom:16px"><template #default><el-button link type="primary" @click="router.push('/iot/assets/assetlist')">打开资产管理</el-button><el-button link @click="loadAssets">刷新资产</el-button></template></el-alert>
 			<el-form label-position="top"><el-form-item label="场景名称"><el-input v-model="createForm.name" /></el-form-item><el-form-item label="根 Asset"><el-select v-model="createForm.rootAssetId" filterable style="width:100%"><el-option v-for="asset in assets" :key="asset.id" :label="asset.name" :value="asset.id" /></el-select></el-form-item><el-form-item label="说明"><el-input v-model="createForm.description" type="textarea" /></el-form-item></el-form>
 			<template #footer><el-button @click="createDialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" :disabled="assets.length === 0" @click="createScene">创建并入库</el-button></template>
@@ -230,7 +232,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
@@ -243,6 +245,7 @@ interface AssetKey { keyName: string; name?: string }
 interface AssetDevice { id: string; name: string; attrs?: AssetKey[]; temps?: AssetKey[] }
 
 const router = useRouter();
+const currentRoute = useRoute();
 const viewport = ref<HTMLDivElement>();
 const uploadInput = ref<HTMLInputElement>();
 const leftPanelCollapsed = ref(false);
@@ -267,7 +270,7 @@ const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), vers
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
 
-const createForm = reactive({ name: '丝饼完整工艺数字孪生 V4', description: '双面丝车3×6、机器人1×6、桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。', rootAssetId: '' });
+const createForm = reactive({ name: '丝饼完整工艺数字孪生 V5', description: '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。', rootAssetId: '' });
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
 const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
@@ -306,8 +309,20 @@ const apiData = <T,>(response: any): T => response.data as T;
 const createId = (prefix: string) => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 const upgradeLegacySilkRouteLayout = (value: TwinSceneManifest) => {
 	const isSilkLine = value.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
+	const isV5Preset = value.objects.some((item) => item.procedural?.preset === 'silk-cake-packaging-line');
 	const silkRoute = value.routes.find((item) => item.routeId === 'silk-cake-line-main');
 	if (!isSilkLine || !silkRoute) return;
+	if (isV5Preset) {
+		for (const object of value.objects.filter((item) => item.procedural?.preset === 'silk-cake-packaging-line')) object.procedural!.palletCount = 80;
+		if (value.runtime.silkLineSimulation) {
+			value.runtime.silkLineSimulation.palletCount = 80;
+			value.runtime.silkLineSimulation.palletPopulationMode = 'closed-loop';
+			value.runtime.silkLineSimulation.silkCakesPerCart = 36;
+			value.runtime.silkLineSimulation.stackRows = 2;
+			value.runtime.silkLineSimulation.stackColumns = 3;
+			value.runtime.silkLineSimulation.stackLayers = 8;
+		}
+	}
 	const legacy: Record<string, TwinVector3> = {
 		'silk-source': [-16, 0.92, -6], 'silk-loading': [-10, 0.92, -6], 'silk-buffer': [-4, 0.92, -6], 'silk-diverter': [2, 0.92, -6],
 		'silk-left-buffer': [8, 0.92, -10], 'silk-left-inspection': [15, 0.92, -10], 'silk-right-buffer': [8, 0.92, -2], 'silk-right-inspection': [15, 0.92, -2],
@@ -350,6 +365,54 @@ const upgradeLegacySilkRouteLayout = (value: TwinSceneManifest) => {
 			if (!nextPoint) continue;
 			point.position = [...nextPoint.position] as TwinVector3;
 			point.name = nextPoint.name;
+		}
+	}
+	const previousClosedLoopCorners: Record<string, TwinVector3> = {
+		'silk-return-east': [15, 0.92, 4.8],
+		'silk-return-west': [-12.5, 0.92, 4.8],
+	};
+	const closedLoopCorners = silkRoute.points.filter((point) => previousClosedLoopCorners[point.pointId]);
+	if (closedLoopCorners.length === 2 && closedLoopCorners.every((point) => samePosition(point.position, previousClosedLoopCorners[point.pointId]))) {
+		for (const point of closedLoopCorners) {
+			const nextPoint = target.get(point.pointId);
+			if (!nextPoint) continue;
+			point.position = [...nextPoint.position] as TwinVector3;
+			point.name = nextPoint.name;
+		}
+		for (const edge of silkRoute.edges) {
+			const nextEdge = templateRoute.edges.find((candidate) => candidate.edgeId === edge.edgeId);
+			if (nextEdge) edge.capacity = nextEdge.capacity;
+		}
+	}
+	if (isV5Preset) {
+		// V4 的长回流仍是两段斜线，80 托盘在斜角处会互锁。V5 补成四边正交缓存环；
+		// 只把可识别的旧内置坐标迁移，用户手工坐标继续保留。
+		const previousV4Corners: Record<string, TwinVector3> = {
+			'silk-return-east': [34, 0.92, 30],
+			'silk-return-west': [-38, 0.92, 30],
+		};
+		for (const point of silkRoute.points) {
+			const previous = previousV4Corners[point.pointId];
+			const next = target.get(point.pointId);
+			if (previous && next && samePosition(point.position, previous)) {
+				point.position = [...next.position] as TwinVector3;
+				point.name = next.name;
+			}
+		}
+		for (const point of templateRoute.points) {
+			if (!silkRoute.points.some((candidate) => candidate.pointId === point.pointId)) silkRoute.points.push(structuredClone(point));
+		}
+		const templateEdges = new Map(templateRoute.edges.map((edge) => [edge.edgeId, edge]));
+		for (const edge of silkRoute.edges) {
+			const templateEdge = templateEdges.get(edge.edgeId);
+			if (!templateEdge || !edge.edgeId.startsWith('silk-edge-return')) continue;
+			edge.fromPointId = templateEdge.fromPointId;
+			edge.toPointId = templateEdge.toPointId;
+			edge.name = templateEdge.name;
+			edge.capacity = templateEdge.capacity;
+		}
+		for (const edge of templateRoute.edges) {
+			if (!silkRoute.edges.some((candidate) => candidate.edgeId === edge.edgeId)) silkRoute.edges.push(structuredClone(edge));
 		}
 	}
 };
@@ -506,18 +569,18 @@ const createScene = async () => {
 		const draft = createSilkCakeLineTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
 		for (const object of draft.objects) object.assetId = createForm.rootAssetId;
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({ name: draft.name, description: draft.description, rootAssetId: createForm.rootAssetId, draftPayload: draft }));
-		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('丝饼完整工艺 V4、路线和循环托盘配置已写入数据库，点击“运行”即可启动');
+		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('丝饼完整工艺 V5、正交回流路线和 80 托盘闭环配置已写入数据库，点击“运行”即可启动');
 	} finally { creating.value = false; }
 };
 
 const applySilkCakeLineTemplate = async () => {
 	if (!currentScene.value) {
-		createForm.name = '丝饼完整工艺数字孪生 V4';
-		createForm.description = '双面丝车3×6、机器人1×6、桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
+		createForm.name = '丝饼完整工艺数字孪生 V5';
+		createForm.description = '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
 		createDialogVisible.value = true;
 		return;
 	}
-	const confirmed = await ElMessageBox.confirm('这会将当前草稿升级为 V4 完整工艺，并替换对象、路线、仿真参数和编辑器快照后立即入库；历史发布版本不受影响。', '应用丝饼完整工艺 V4', { type: 'warning' })
+	const confirmed = await ElMessageBox.confirm('这会将当前草稿升级为 V5 完整工艺，并替换对象、正交回流路线、80 托盘闭环参数和编辑器快照后立即入库；历史发布版本不受影响。', '应用丝饼完整工艺 V5', { type: 'warning' })
 		.then(() => true)
 		.catch(() => false);
 	if (!confirmed) return;
@@ -535,7 +598,7 @@ const applySilkCakeLineTemplate = async () => {
 	viewportMode.value = 'runtime';
 	await initializeViewport();
 	refreshDiagnostics();
-	if (await saveDraft(true)) ElMessage.success('V4 已生成并入库：点击“运行”观察 1×6 上料、2×3 码垛、8 层满托及盖板/贴标/缠膜/入库');
+	if (await saveDraft(true)) ElMessage.success('V5 已生成并入库：点击“运行”观察 80 托盘闭环、1×6 上料、2×3 分层码垛及盖板/贴标/缠膜/入库');
 };
 
 const saveDraft = async (silent = false) => {
@@ -544,21 +607,33 @@ const saveDraft = async (silent = false) => {
 	refreshDiagnostics(); const errors = diagnostics.value.filter((item) => item.severity === 'error');
 	if (errors.length) { ElMessage.error(`存在 ${errors.length} 个阻断错误，无法保存`); return false; }
 	saving.value = true;
+	let detail: DigitalTwinSceneDetail | undefined;
 	try {
-		let detail = currentScene.value;
-		if (detail.name !== manifest.value.name || detail.description !== manifest.value.description || detail.rootAssetId !== manifest.value.rootAssetId) {
-			detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.updateScene(detail.id, { name: manifest.value.name, description: manifest.value.description, rootAssetId: String(manifest.value.rootAssetId) }));
+		detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.saveDraft(currentScene.value.id, currentScene.value.revision, manifest.value));
+	} catch (error: any) {
+		// 保存请求可能已在服务器原子提交，但响应在返回途中失败。重新读取后，
+		// 若服务器 Manifest 与当前编辑内容一致，就恢复 revision 并按成功处理。
+		try {
+			const latest = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.getScene(currentScene.value.id));
+			if (JSON.stringify(normalizeManifest(latest.draftPayload)) === JSON.stringify(normalizeManifest(manifest.value))) detail = latest;
+		} catch { /* 保留原始提交错误 */ }
+		if (!detail) {
+			ElMessage.error(error?.msg || '草稿提交失败，可能存在版本冲突');
+			saving.value = false;
+			return false;
 		}
-		detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.saveDraft(detail.id, detail.revision, manifest.value));
-		currentScene.value = detail;
+	}
+	currentScene.value = detail;
+	try {
 		const persistedManifest = normalizeManifest(detail.draftPayload);
 		if (viewportMode.value === 'editor') Object.assign(manifest.value, persistedManifest);
 		else { manifest.value = persistedManifest; adapter.value?.loadManifest(manifest.value); }
-		await loadScenes();
-		if (!silent) ElMessage.success(`草稿 r${detail.revision} 已保存；${detail.bindings.length} 条资源/数据绑定已入库`);
-		return true;
-	} catch (error: any) { ElMessage.error(error?.msg || '草稿保存失败，可能存在版本冲突'); return false; }
-	finally { saving.value = false; }
+	} catch { ElMessage.warning(`草稿 r${detail.revision} 已提交成功，但本地视图重载失败；重新打开场景即可恢复`); }
+	try { await loadScenes(); }
+	catch { ElMessage.warning(`草稿 r${detail.revision} 已提交成功，但场景列表刷新失败`); }
+	if (!silent) ElMessage.success(`草稿 r${detail.revision} 已原子保存；元数据、Manifest 及 ${detail.bindings.length} 条资源/数据绑定已一次入库`);
+	saving.value = false;
+	return true;
 };
 
 const validateScene = async () => {
@@ -569,14 +644,21 @@ const validateScene = async () => {
 };
 
 const publishScene = async () => {
-	if (!currentScene.value || !(await saveDraft(true))) return;
+	if (!currentScene.value) return;
+	if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
+	const persisted = normalizeManifest(currentScene.value.draftPayload);
+	if (JSON.stringify(persisted) !== JSON.stringify(manifest.value) && !(await saveDraft(true))) return;
 	publishing.value = true;
 	try {
 		const validation = apiData<{ valid: boolean; diagnostics: any[] }>(await digitalTwinApi.validateScene(currentScene.value.id, true)); diagnostics.value = validation.diagnostics;
 		if (!validation.valid) { ElMessage.error('发布校验未通过，请检查模型授权和 Device 引用'); return; }
 		const summary = `发布于 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
 		const version = apiData<TwinSceneVersion>(await digitalTwinApi.publishScene(currentScene.value.id, currentScene.value.revision, summary));
-		await loadScene(currentScene.value.id); await loadScenes(); ElMessage.success(`v${version.version} 已发布，绑定和路线版本快照已入库`);
+		ElMessage.success(`v${version.version} 已发布，Manifest、绑定和路线版本快照已不可变入库`);
+		try { await loadScene(currentScene.value.id); await loadScenes(); }
+		catch { ElMessage.warning(`v${version.version} 已发布成功，但页面刷新失败；发布结果不受影响`); }
+	} catch (error: any) {
+		ElMessage.error(error?.msg || '发布提交失败');
 	} finally { publishing.value = false; }
 };
 
@@ -586,8 +668,13 @@ const openVersions = async () => {
 };
 const rollbackVersion = async (version: number) => {
 	if (!currentScene.value) return;
-	await ElMessageBox.confirm(`运行态将切换到 v${version} 的 Manifest 与绑定快照，草稿不会被覆盖。`, '确认回滚发布指针');
-	await digitalTwinApi.rollback(currentScene.value.id, version); await openVersions(); await loadScene(currentScene.value.id); ElMessage.success(`运行态已切换到 v${version}`);
+	await ElMessageBox.confirm(`将以不可变版本 v${version} 创建一个新的草稿 revision；当前线上发布版本不会改变，确认后仍需重新发布。`, '从历史版本创建草稿');
+	const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.rollback(currentScene.value.id, version));
+	currentScene.value = detail;
+	manifest.value = normalizeManifest(detail.draftPayload);
+	await initializeViewport();
+	await openVersions();
+	ElMessage.success(`已从 v${version} 创建草稿 r${detail.revision}；当前发布版本保持不变`);
 };
 
 const uploadModel = async (event: Event) => {
@@ -835,7 +922,14 @@ const formatDate = (value: string) => new Date(value).toLocaleString('zh-CN', { 
 
 onMounted(async () => {
 	pageLoading.value = true;
-	try { await Promise.all([loadAssets(), loadModels(), loadScenes()]); await nextTick(); if (scenes.value[0]) await loadScene(scenes.value[0].id); else { await initializeViewport(); createDialogVisible.value = true; } }
+	try {
+		await Promise.all([loadAssets(), loadModels(), loadScenes()]);
+		await nextTick();
+		const requestedSceneId = typeof currentRoute.query.sceneId === 'string' ? currentRoute.query.sceneId : '';
+		const targetScene = scenes.value.find((item) => item.id === requestedSceneId) || scenes.value[0];
+		if (targetScene) await loadScene(targetScene.id);
+		else { await initializeViewport(); createDialogVisible.value = true; }
+	}
 	finally { pageLoading.value = false; }
 });
 onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter.value = undefined; professionalEditor.value = undefined; modelBufferCache.clear(); });

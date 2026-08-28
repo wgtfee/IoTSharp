@@ -1307,6 +1307,9 @@ namespace IoTSharp.Data.SqlServer.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<long>("SourceRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uniqueidentifier");
 

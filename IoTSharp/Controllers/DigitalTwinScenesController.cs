@@ -125,16 +125,29 @@ public sealed class DigitalTwinScenesController : ControllerBase
         catch (TwinOperationException exception) { return Failed<List<DigitalTwinSceneVersionDto>>(exception); }
     }
 
+    [HttpGet("{id:guid}/versions/{version:int}")]
+    [Authorize(Roles = AllUserRoles)]
+    public async Task<ApiResult<DigitalTwinSceneVersionDto>> Version(Guid id, int version, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var data = await _service.GetVersionAsync(id, version, this.GetUserProfile(), cancellationToken);
+            return new ApiResult<DigitalTwinSceneVersionDto>(ApiCode.Success, "OK", data);
+        }
+        catch (TwinOperationException exception) { return Failed<DigitalTwinSceneVersionDto>(exception); }
+    }
+
     [HttpPost("{id:guid}/rollback/{version:int}")]
     [Authorize(Roles = AdminRoles)]
-    public async Task<ApiResult<DigitalTwinSceneVersionDto>> Rollback(Guid id, int version, CancellationToken cancellationToken)
+    public async Task<ApiResult<DigitalTwinSceneDetailDto>> Rollback(Guid id, int version, CancellationToken cancellationToken)
     {
         try
         {
             var data = await _service.RollbackAsync(id, version, this.GetUserProfile(), cancellationToken);
-            return new ApiResult<DigitalTwinSceneVersionDto>(ApiCode.Success, "OK", data);
+            return new ApiResult<DigitalTwinSceneDetailDto>(ApiCode.Success, "OK", data);
         }
-        catch (TwinOperationException exception) { return Failed<DigitalTwinSceneVersionDto>(exception); }
+        catch (TwinValidationException exception) { return Invalid<DigitalTwinSceneDetailDto>(exception); }
+        catch (TwinOperationException exception) { return Failed<DigitalTwinSceneDetailDto>(exception); }
     }
 
     [HttpGet("{id:guid}/runtime-manifest")]
@@ -172,7 +185,8 @@ public sealed class DigitalTwinScenesController : ControllerBase
     {
         var message = exception.Validation.Diagnostics.Count == 0
             ? exception.Message
-            : string.Join("；", exception.Validation.Diagnostics.ConvertAll(item => item.Message));
+            : string.Join("；", exception.Validation.Diagnostics.ConvertAll(item =>
+                string.IsNullOrWhiteSpace(item.Path) ? item.Message : $"{item.Path}: {item.Message}"));
         return new ApiResult<T>(ApiCode.InValidData, message, default!);
     }
 }

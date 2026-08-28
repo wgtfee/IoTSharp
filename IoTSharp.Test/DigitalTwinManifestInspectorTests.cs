@@ -140,6 +140,42 @@ public sealed class DigitalTwinManifestInspectorTests
     }
 
     [Fact]
+    public void Inspect_StripsTransientEditorUrls_ButStillRejectsRuntimeUrls()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "编辑器快照清理",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [], "objects": [], "bindings": [],
+          "routes": [{ "routeId": "main", "defaultSpeed": 1, "points": [{ "position": [0,0,0] }, { "position": [1,0,0] }] }],
+          "editorExtension": {
+            "source": "threejs-editor", "payloadVersion": 2,
+            "threeEditor": { "sceneParams": { "preview": "data:image/png;base64,AAA", "environment": "https://example.test/env.hdr", "nested": ["blob:test", "safe"] }, "modelParams": [] }
+          }
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+        Assert.Equal(3, result.Diagnostics.Count(item => item.Code == "twin.editor-url.stripped"));
+        Assert.DoesNotContain("data:", result.NormalizedPayload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("blob:", result.NormalizedPayload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("https://", result.NormalizedPayload, StringComparison.OrdinalIgnoreCase);
+
+        using var unsafeRuntimeDocument = JsonDocument.Parse("""
+        {
+          "name": "运行时外链仍禁止",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "blob:unsafe" },
+          "resources": [], "objects": [], "bindings": [],
+          "routes": [{ "routeId": "main", "defaultSpeed": 1, "points": [{ "position": [0,0,0] }, { "position": [1,0,0] }] }]
+        }
+        """);
+        var unsafeResult = TwinManifestInspector.Inspect(unsafeRuntimeDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+        Assert.Contains(unsafeResult.Diagnostics, item => item.Code == "twin.external-url.forbidden" && item.Path == "$.world.background");
+    }
+
+    [Fact]
     public void Inspect_AcceptsIntersectionGraphAndPersistsBranchDecision()
     {
         using var document = JsonDocument.Parse("""

@@ -144,6 +144,7 @@ export interface TwinRuntimeDefinition {
 
 export interface SilkLineSimulationOptions {
 	palletCount: number;
+	palletPopulationMode?: 'closed-loop' | 'source-queue';
 	silkCakesPerCart: number;
 	cartChangeDelaySeconds: number;
 	robotCycleSeconds: number;
@@ -369,12 +370,12 @@ export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 	},
 });
 
-/** V4 完整丝饼工艺：1×6 上料、2×3 桁架、木托盘 8 层、盖板/贴标/缠膜/入库。 */
+/** V5 完整丝饼工艺：80 托盘全在线闭环、1×6 上料、2×3 分层安全桁架、木托盘 8 层及后包装入库。 */
 export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 	schemaVersion: twinSceneSchemaVersion,
 	sceneId: createId('scene'),
-	name: '丝饼完整工艺数字孪生 V4',
-	description: '双面丝车 3×6、机器人 1×6 批量上料、塑料托盘分段输送、桁架 2×3、木托盘 8 层、盖板、贴标、缠膜和立体库入库。',
+	name: '丝饼完整工艺数字孪生 V5',
+	description: '80 个塑料托盘全在线闭环；双面丝车 3×6、机器人 1×6、桁架 2×3 分层安全码垛、木托盘 8 层、盖板、贴标、缠膜和立体库入库。',
 	rootAssetId: null,
 	world: {
 		unit: 'meter',
@@ -385,9 +386,9 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 	objects: [
 		{
 			objectId: 'silk-cake-line-procedural',
-			name: '程序化丝饼完整工艺 V4',
+			name: '程序化丝饼完整工艺 V5',
 			kind: 'procedural',
-			procedural: { preset: 'silk-cake-packaging-line', palletCount: 50 },
+			procedural: { preset: 'silk-cake-packaging-line', palletCount: 80 },
 			transform: defaultTransform(),
 		},
 	],
@@ -412,8 +413,10 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 				{ pointId: 'silk-right-inspection', name: 'B线检测', position: [13.2, 0.92, -4.2], kind: 'sensor' },
 				{ pointId: 'silk-merger', name: 'B线回流汇入口', position: [15, 0.92, -4.2], kind: 'merger' },
 				{ pointId: 'silk-gantry', name: '桁架码垛工位', position: [15, 0.92, -7.6], kind: 'processStation' },
-				{ pointId: 'silk-return-east', name: '空托盘回流东缓存', position: [15, 0.92, 4.8], kind: 'buffer' },
-				{ pointId: 'silk-return-west', name: '空托盘回流西缓存', position: [-12.5, 0.92, 4.8], kind: 'buffer' },
+				{ pointId: 'silk-return-east', name: '空托盘回流东入口', position: [44, 0.92, -4.2], kind: 'buffer' },
+				{ pointId: 'silk-return-northeast', name: '空托盘回流东北缓存', position: [44, 0.92, 34], kind: 'buffer' },
+				{ pointId: 'silk-return-west', name: '空托盘回流西缓存', position: [-42, 0.92, 34], kind: 'buffer' },
+				{ pointId: 'silk-return-southwest', name: '空托盘回流西南缓存', position: [-42, 0.92, -5.8], kind: 'buffer' },
 			],
 			edges: [
 				{ edgeId: 'silk-edge-loading', fromPointId: 'silk-source', toPointId: 'silk-loading', name: '机器人1×6上料缓存', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
@@ -427,8 +430,10 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 				{ edgeId: 'silk-edge-right-merge', fromPointId: 'silk-right-inspection', toPointId: 'silk-merger', name: 'B线空托盘出站', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-gantry', fromPointId: 'silk-gantry', toPointId: 'silk-merger', name: 'A/B空托盘汇流段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-return-east', fromPointId: 'silk-merger', toPointId: 'silk-return-east', name: '空托盘回流东段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-return-main', fromPointId: 'silk-return-east', toPointId: 'silk-return-west', name: '空托盘回流主段', bidirectional: false, enabled: true, priority: 0, capacity: 8, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-return-entry', fromPointId: 'silk-return-west', toPointId: 'silk-source', name: '空托盘回流入口', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-return-rise', fromPointId: 'silk-return-east', toPointId: 'silk-return-northeast', name: '空托盘回流东侧缓存', bidirectional: false, enabled: true, priority: 0, capacity: 18, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-return-main', fromPointId: 'silk-return-northeast', toPointId: 'silk-return-west', name: '空托盘回流主缓存', bidirectional: false, enabled: true, priority: 0, capacity: 40, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-return-drop', fromPointId: 'silk-return-west', toPointId: 'silk-return-southwest', name: '空托盘回流西侧缓存', bidirectional: false, enabled: true, priority: 0, capacity: 18, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-return-entry', fromPointId: 'silk-return-southwest', toPointId: 'silk-source', name: '机器人上料前回流缓存', bidirectional: false, enabled: true, priority: 0, capacity: 14, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 			],
 			startPointId: 'silk-source',
 			junctionDecisions: { 'silk-diverter': 'silk-edge-left-a' },
@@ -443,7 +448,8 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 		maxPixelRatio: 2,
 		showGrid: true,
 		silkLineSimulation: {
-			palletCount: 50,
+			palletCount: 80,
+			palletPopulationMode: 'closed-loop',
 			silkCakesPerCart: 36,
 			cartChangeDelaySeconds: 4,
 			robotCycleSeconds: 5,
@@ -503,9 +509,9 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			const value = silkSimulation[property];
 			if (value !== undefined && (!Number.isFinite(value) || value < minimum || value > maximum)) diagnostics.push({ severity: 'error', code: 'twin.silk-line.simulation.range.invalid', message: `${property} 必须在 ${minimum} 到 ${maximum} 之间。`, path: `runtime.silkLineSimulation.${property}` });
 		}
-		const isV4 = manifest.objects.some((item) => item.procedural?.preset === 'silk-cake-packaging-line');
-		if (isV4 && (silkSimulation.silkCakesPerCart !== 36 || silkSimulation.stackRows !== 2 || silkSimulation.stackColumns !== 3 || silkSimulation.stackLayers !== 8)) {
-			diagnostics.push({ severity: 'error', code: 'twin.silk-line.v4.fixed-process.invalid', message: 'V4 固定工艺必须为双面丝车 36 件、木托盘 2×3×8 共 48 件。', path: 'runtime.silkLineSimulation' });
+		const isV5 = manifest.objects.some((item) => item.procedural?.preset === 'silk-cake-packaging-line');
+		if (isV5 && (silkSimulation.palletCount !== 80 || silkSimulation.palletPopulationMode !== 'closed-loop' || silkSimulation.silkCakesPerCart !== 36 || silkSimulation.stackRows !== 2 || silkSimulation.stackColumns !== 3 || silkSimulation.stackLayers !== 8)) {
+			diagnostics.push({ severity: 'error', code: 'twin.silk-line.v5.fixed-process.invalid', message: 'V5 固定工艺必须为 80 托盘全在线闭环、双面丝车 36 件、木托盘 2×3×8 共 48 件。', path: 'runtime.silkLineSimulation' });
 		}
 	}
 

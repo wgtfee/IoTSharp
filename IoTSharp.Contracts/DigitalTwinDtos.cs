@@ -121,6 +121,7 @@ public class DigitalTwinSceneDto
     public DigitalTwinSceneStatus Status { get; set; }
     public Guid? PublishedVersionId { get; set; }
     public int? PublishedVersion { get; set; }
+    public long? PublishedSourceRevision { get; set; }
     public long Revision { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -157,6 +158,9 @@ public sealed class DigitalTwinSceneUpdateDto
 public sealed class DigitalTwinDraftSaveDto
 {
     public long Revision { get; set; }
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public Guid? RootAssetId { get; set; }
     public JsonElement Payload { get; set; }
 }
 
@@ -171,10 +175,12 @@ public sealed class DigitalTwinSceneVersionDto
     public Guid Id { get; set; }
     public Guid SceneId { get; set; }
     public int Version { get; set; }
+    public long SourceDraftRevision { get; set; }
     public string SchemaVersion { get; set; } = DigitalTwinContractVersions.SceneV1;
     public string ManifestHash { get; set; } = string.Empty;
     public string ChangeSummary { get; set; } = string.Empty;
     public JsonElement ValidationReport { get; set; }
+    public JsonElement? Manifest { get; set; }
     public DateTime CreatedAt { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
     public bool IsCurrent { get; set; }

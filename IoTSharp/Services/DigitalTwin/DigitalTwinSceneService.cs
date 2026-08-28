@@ -173,26 +173,51 @@ public sealed class DigitalTwinSceneService
     {
         var scene = await FindSceneAsync(id, profile, true, cancellationToken)
             ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景不存在。");
-        if (scene.Revision != request.Revision)
-        {
-            throw new TwinOperationException(ApiCode.InValidData, $"草稿版本冲突，服务器 revision={scene.Revision}，请重新加载后再保存。");
-        }
-
-        var inspection = TwinManifestInspector.Inspect(request.Payload, scene.Id, scene.RootAssetId);
+        var name = request.Name?.Trim() ?? scene.Name;
+        if (string.IsNullOrWhiteSpace(name)) throw new TwinOperationException(ApiCode.InValidData, "场景名称不能为空。");
+        var rootAssetId = request.RootAssetId ?? scene.RootAssetId;
+        var asset = await FindAssetAsync(rootAssetId, profile, cancellationToken)
+            ?? throw new TwinOperationException(ApiCode.CantFindObject, "Root Asset 不存在或不在当前租户范围内。");
+        var payload = JsonNode.Parse(request.Payload.GetRawText())?.AsObject()
+            ?? throw new TwinOperationException(ApiCode.InValidData, "场景草稿不是有效的 JSON 对象。");
+        payload["name"] = name;
+        payload["description"] = request.Description?.Trim() ?? scene.Description ?? string.Empty;
+        payload["rootAssetId"] = rootAssetId.ToString("D");
+        using var document = JsonDocument.Parse(payload.ToJsonString(WebJsonOptions));
+        var inspection = TwinManifestInspector.Inspect(document.RootElement, scene.Id, rootAssetId);
         await AppendReferenceDiagnosticsAsync(inspection, profile, false, cancellationToken);
         ThrowIfInvalid(inspection);
 
+        if (scene.Revision != request.Revision)
+        {
+            // HTTP 响应中断时，数据库可能已经完整提交，而浏览器仍持有旧 revision。
+            // 相同 Manifest 的重试属于幂等提交，直接返回服务器当前草稿，避免页面
+            // 永久陷入“实际已保存、随后每次都版本冲突”的状态。
+            var sameCommittedDraft = string.Equals(scene.Name, name, StringComparison.Ordinal)
+                && string.Equals(scene.Description ?? string.Empty, request.Description?.Trim() ?? scene.Description ?? string.Empty, StringComparison.Ordinal)
+                && scene.RootAssetId == rootAssetId
+                && string.Equals(ComputeSha256(scene.DraftPayload), ComputeSha256(inspection.NormalizedPayload), StringComparison.Ordinal);
+            if (sameCommittedDraft) return ToSceneDetailDto(scene);
+
+            throw new TwinOperationException(ApiCode.InValidData, $"草稿版本冲突，服务器 revision={scene.Revision}，请重新加载后再保存。");
+        }
+
         var now = DateTime.UtcNow;
         var actor = ResolveActor(profile);
+        scene.Name = name;
+        scene.Description = request.Description?.Trim() ?? scene.Description ?? string.Empty;
+        scene.RootAssetId = rootAssetId;
+        scene.RootAsset = asset;
         scene.DraftPayload = inspection.NormalizedPayload;
         scene.Revision += 1;
         scene.UpdatedAt = now;
         scene.UpdatedBy = actor;
         ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
         ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
-        AddAudit(profile, scene.Id, scene.Name, "TwinSceneDraftUpdate", new
+        AddAudit(profile, scene.Id, scene.Name, "TwinSceneDraftCommit", new
         {
             scene.Revision,
+            scene.RootAssetId,
             bindingCount = inspection.Bindings.Count,
             routeCount = inspection.Routes.Count,
             manifestHash = ComputeSha256(inspection.NormalizedPayload)
@@ -235,6 +260,15 @@ public sealed class DigitalTwinSceneService
         await AppendReferenceDiagnosticsAsync(inspection, profile, true, cancellationToken);
         ThrowIfInvalid(inspection);
 
+        // 发布同一个草稿 revision 是幂等操作。这样即使首次发布已经提交、响应在
+        // 返回途中中断，重试也只会返回现有线上版本，不会制造重复版本。
+        if (scene.PublishedVersion is not null
+            && scene.PublishedVersion.SourceRevision == scene.Revision
+            && string.Equals(scene.PublishedVersion.ManifestHash, ComputeSha256(inspection.NormalizedPayload), StringComparison.Ordinal))
+        {
+            return ToVersionDto(scene.PublishedVersion, true);
+        }
+
         var versionNumber = (await _context.DigitalTwinSceneVersions
             .Where(item => item.SceneId == scene.Id)
             .MaxAsync(item => (int?)item.Version, cancellationToken) ?? 0) + 1;
@@ -246,6 +280,7 @@ public sealed class DigitalTwinSceneService
             Id = Guid.NewGuid(),
             SceneId = scene.Id,
             Version = versionNumber,
+            SourceRevision = scene.Revision,
             SchemaVersion = DigitalTwinContractVersions.SceneV1,
             Manifest = inspection.NormalizedPayload,
             ManifestHash = ComputeSha256(inspection.NormalizedPayload),
@@ -290,25 +325,41 @@ public sealed class DigitalTwinSceneService
         return versions.Select(item => ToVersionDto(item, item.Id == scene.PublishedVersionId)).ToList();
     }
 
-    /// <summary>
-    /// 回滚仅切换当前发布指针，不修改历史清单和绑定快照。
-    /// </summary>
-    public async Task<DigitalTwinSceneVersionDto> RollbackAsync(Guid id, int versionNumber, UserProfile profile, CancellationToken cancellationToken)
+    public async Task<DigitalTwinSceneVersionDto> GetVersionAsync(Guid id, int versionNumber, UserProfile profile, CancellationToken cancellationToken)
     {
         var scene = await FindSceneAsync(id, profile, false, cancellationToken)
+            ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景不存在。");
+        var version = await _context.DigitalTwinSceneVersions.AsNoTracking().FirstOrDefaultAsync(item =>
+            item.SceneId == scene.Id && item.Version == versionNumber && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer,
+            cancellationToken) ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景版本不存在。");
+        return ToVersionDto(version, version.Id == scene.PublishedVersionId, true);
+    }
+
+    /// <summary>
+    /// 从不可变历史版本创建一个新草稿；当前发布指针和历史版本均不修改。
+    /// </summary>
+    public async Task<DigitalTwinSceneDetailDto> RollbackAsync(Guid id, int versionNumber, UserProfile profile, CancellationToken cancellationToken)
+    {
+        var scene = await FindSceneAsync(id, profile, true, cancellationToken)
             ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景不存在。");
         var version = await _context.DigitalTwinSceneVersions.FirstOrDefaultAsync(item =>
             item.SceneId == scene.Id && item.Version == versionNumber && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer,
             cancellationToken) ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景版本不存在。");
+        using var document = JsonDocument.Parse(version.Manifest);
+        var inspection = TwinManifestInspector.Inspect(document.RootElement, scene.Id, scene.RootAssetId);
+        await AppendReferenceDiagnosticsAsync(inspection, profile, false, cancellationToken);
+        ThrowIfInvalid(inspection);
         var now = DateTime.UtcNow;
-        scene.PublishedVersionId = version.Id;
-        scene.PublishedVersion = version;
-        scene.Status = DigitalTwinSceneStatus.Published;
+        var actor = ResolveActor(profile);
+        scene.DraftPayload = inspection.NormalizedPayload;
+        scene.Revision += 1;
         scene.UpdatedAt = now;
-        scene.UpdatedBy = ResolveActor(profile);
-        AddAudit(profile, scene.Id, scene.Name, "TwinSceneRollback", new { version.Id, version.Version, version.ManifestHash }, "RolledBack", now);
+        scene.UpdatedBy = actor;
+        ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
+        ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
+        AddAudit(profile, scene.Id, scene.Name, "TwinSceneRollbackDraft", new { version.Id, version.Version, version.ManifestHash, scene.Revision }, "DraftCreated", now);
         await _context.SaveChangesAsync(cancellationToken);
-        return ToVersionDto(version, true);
+        return ToSceneDetailDto(scene);
     }
 
     /// <summary>
@@ -518,7 +569,9 @@ public sealed class DigitalTwinSceneService
 
     private static void CopyPublishedBindings(DigitalTwinScene scene, DigitalTwinSceneVersion version, UserProfile profile, string actor, DateTime now)
     {
-        foreach (var source in scene.Bindings.Where(item => item.SceneVersionId == null && !item.Deleted))
+        // Adding a tracked version binding also fixes up scene.Bindings. Materialize the
+        // draft source first so EF cannot mutate the collection currently being enumerated.
+        foreach (var source in scene.Bindings.Where(item => item.SceneVersionId == null && !item.Deleted).ToList())
         {
             version.Bindings.Add(new TwinObjectBinding
             {
@@ -536,7 +589,8 @@ public sealed class DigitalTwinSceneService
 
     private static void CopyPublishedRoutes(DigitalTwinScene scene, DigitalTwinSceneVersion version, UserProfile profile, string actor, DateTime now)
     {
-        foreach (var source in scene.Routes.Where(item => item.SceneVersionId == null && !item.Deleted))
+        // See CopyPublishedBindings: relationship fix-up appends snapshots to scene.Routes.
+        foreach (var source in scene.Routes.Where(item => item.SceneVersionId == null && !item.Deleted).ToList())
         {
             version.Routes.Add(new TwinRoute
             {
@@ -694,6 +748,7 @@ public sealed class DigitalTwinSceneService
         Status = scene.Status,
         PublishedVersionId = scene.PublishedVersionId,
         PublishedVersion = scene.PublishedVersion?.Version,
+        PublishedSourceRevision = scene.PublishedVersion?.SourceRevision,
         Revision = scene.Revision,
         CreatedAt = scene.CreatedAt,
         UpdatedAt = scene.UpdatedAt,
@@ -715,6 +770,7 @@ public sealed class DigitalTwinSceneService
             Status = summary.Status,
             PublishedVersionId = summary.PublishedVersionId,
             PublishedVersion = summary.PublishedVersion,
+            PublishedSourceRevision = summary.PublishedSourceRevision,
             Revision = summary.Revision,
             CreatedAt = summary.CreatedAt,
             UpdatedAt = summary.UpdatedAt,
@@ -762,15 +818,17 @@ public sealed class DigitalTwinSceneService
         Enabled = item.Enabled
     };
 
-    private static DigitalTwinSceneVersionDto ToVersionDto(DigitalTwinSceneVersion version, bool current) => new()
+    private static DigitalTwinSceneVersionDto ToVersionDto(DigitalTwinSceneVersion version, bool current, bool includeManifest = false) => new()
     {
         Id = version.Id,
         SceneId = version.SceneId,
         Version = version.Version,
+        SourceDraftRevision = version.SourceRevision,
         SchemaVersion = version.SchemaVersion,
         ManifestHash = version.ManifestHash,
         ChangeSummary = version.ChangeSummary ?? string.Empty,
         ValidationReport = ParseJson(version.ValidationReport),
+        Manifest = includeManifest ? ParseJson(version.Manifest) : null,
         CreatedAt = version.CreatedAt,
         CreatedBy = version.CreatedBy ?? string.Empty,
         IsCurrent = current

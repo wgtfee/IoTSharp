@@ -12,6 +12,7 @@ public class DigitalTwinSceneVersion : IJustMy
     public Guid SceneId { get; set; }
     public DigitalTwinScene Scene { get; set; }
     public int Version { get; set; }
+    public long SourceRevision { get; set; }
     public string SchemaVersion { get; set; }
     public string Manifest { get; set; }
     public string ManifestHash { get; set; }
