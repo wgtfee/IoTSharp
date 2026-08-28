@@ -1,6 +1,1556 @@
+import * as THREE from 'three';
+import type { SilkLineSimulationOptions, TwinRouteDefinition, TwinRouteEdgeDefinition } from '/@/digital-twin/contracts';
+import type { TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
+import { TwinMaterialFlowRuntime, type TwinFlowWaitingReason } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
+
+type SilkSide = 'A' | 'B';
+type PalletStage = 'source-queue' | 'loading' | 'to-gantry-a' | 'to-gantry-b' | 'gantry-a' | 'gantry-b' | 'returning';
+type WoodStage = 'stacking' | 'covering' | 'labeling' | 'wrapping' | 'inbound' | 'stored';
+
+interface PlasticPalletRuntime {
+	palletId: string;
+	root: THREE.Group;
+	cakeAnchor: THREE.Group;
+	stage: PalletStage;
+	progress: number;
+	loaded: boolean;
+	silkCakeId?: string;
+	loadSlot?: number;
+	gantrySlot?: number;
+	returnFrom?: 'A' | 'B';
+	returnOrder?: number;
+	returnSequence?: number;
+	returnQueueIndex?: number;
+	returnLoadSlot?: number;
+	waitingReason?: TwinFlowWaitingReason;
+}
+
+interface SilkCakeRuntime {
+	silkCakeId: string;
+	root: THREE.Group;
+	state: 'on-cart' | 'robot-picking' | 'on-pallet' | 'gantry-picking' | 'on-wood-pallet' | 'stored';
+	side: SilkSide;
+	row: number;
+	column: number;
+}
+
+interface SilkCartSlotRuntime {
+	side: SilkSide;
+	row: number;
+	column: number;
+	anchor: THREE.Group;
+	silkCakeId?: string;
+}
+
+interface RobotTaskRuntime {
+	state: 'idle' | 'picking';
+	progress: number;
+	side: SilkSide;
+	row: number;
+	palletIds: string[];
+	silkCakeIds: string[];
+	attachedAtPick: boolean;
+	attachedAtPlace: boolean;
+}
+
+interface GantryTaskRuntime {
+	state: 'idle' | 'picking';
+	progress: number;
+	palletIds: string[];
+	silkCakeIds: string[];
+	targetLayer: number;
+	attachedAtPick: boolean;
+	attachedAtPlace: boolean;
+}
+
+interface WoodenPalletRuntime {
+	woodenPalletId: string;
+	root: THREE.Group;
+	stackAnchor: THREE.Group;
+	stage: WoodStage;
+	progress: number;
+	layer: number;
+	silkCakeIds: string[];
+	coverApplied: boolean;
+	labelApplied: boolean;
+	wrapped: boolean;
+}
+
+export interface SilkPackagingLineSnapshot {
+	running: boolean;
+	speed: number;
+	plasticPallets: {
+		total: number;
+		empty: number;
+		loaded: number;
+		waiting: number;
+		sourceQueue: number;
+	};
+	silkCart: {
+		cartId: string;
+		activeSide: SilkSide;
+		currentRow: number;
+		remaining: number;
+		capacity: number;
+		state: string;
+	};
+	robot: {
+		state: string;
+		batchSize: number;
+		emptyPalletsReady: number;
+		progress: number;
+		side: SilkSide;
+		row: number;
+	};
+	gantry: {
+		state: string;
+		laneA: number;
+		laneB: number;
+		progress: number;
+	};
+	woodenPallet: {
+		id?: string;
+		layer: number;
+		maxLayers: number;
+		silkCakeCount: number;
+		maxSilkCakeCount: number;
+		stage?: WoodStage;
+	};
+	postProcess: {
+		covered: number;
+		labeled: number;
+		wrapped: number;
+		stored: number;
+	};
+	sections: ReturnType<TwinMaterialFlowRuntime['sections']['getSnapshots']>;
+	entities: ReturnType<TwinMaterialFlowRuntime['entities']['getAll']>;
+}
+
+const SILK_ROWS = 3;
+const SILK_COLUMNS = 6;
+const SILK_SIDES = 2;
+const SILK_PER_CART = SILK_ROWS * SILK_COLUMNS * SILK_SIDES;
+const ROBOT_BATCH = 6;
+const GANTRY_ROWS = 2;
+const GANTRY_COLUMNS = 3;
+const GANTRY_BATCH = GANTRY_ROWS * GANTRY_COLUMNS;
+const WOOD_MAX_LAYERS = 8;
+const SILK_PER_WOOD_PALLET = GANTRY_BATCH * WOOD_MAX_LAYERS;
+
+const LOAD_SLOT_POSITIONS = Array.from({ length: ROBOT_BATCH }, (_, index) => new THREE.Vector3(-10 + index * 1.55, 0.94, -5.8));
+const GANTRY_LANE_A_POSITIONS = Array.from({ length: 3 }, (_, index) => new THREE.Vector3(8 + index * 1.8, 0.94, -7.6));
+const GANTRY_LANE_B_POSITIONS = Array.from({ length: 3 }, (_, index) => new THREE.Vector3(8 + index * 1.8, 0.94, -4.2));
+// 木托盘主辊道布置在两条塑料托盘缓存线的上方，避免与空托盘回流线及岔口交叉。
+const WOOD_LANE_Z = -11.0;
+const WOOD_STACK_POSITION = new THREE.Vector3(10, 0.72, WOOD_LANE_Z);
+const COVER_POSITION = new THREE.Vector3(16, 0.72, WOOD_LANE_Z);
+const LABEL_POSITION = new THREE.Vector3(20.5, 0.72, WOOD_LANE_Z);
+const WRAP_POSITION = new THREE.Vector3(25, 0.72, WOOD_LANE_Z);
+const INBOUND_POSITION = new THREE.Vector3(31, 0.72, WOOD_LANE_Z);
+const STORED_POSITION = new THREE.Vector3(35, 1.1, WOOD_LANE_Z);
+const RETURN_CORNER_EAST = new THREE.Vector3(15, 0.94, 4.8);
+const RETURN_CORNER_WEST = new THREE.Vector3(-12.5, 0.94, 4.8);
+const RETURN_ENTRY = new THREE.Vector3(-11, 0.94, -5.8);
+// 塑料托盘外径约 1.48 m。中心距必须大于外径；直角弯/汇流按 2.2 m 节距排队，
+// 保证两个托盘分别位于拐角两侧时，欧氏距离仍不会小于托盘外径。
+const PALLET_MIN_CENTER_GAP = 1.5;
+const RETURN_CONVOY_GAP = 2.2;
+const MAX_PALLET_STEP_METERS = 0.65;
+const SOURCE_QUEUE_GAP = 1.7;
+
+const markShadow = (object: THREE.Object3D) => {
+	object.traverse((child: any) => {
+		if (!child.isMesh) return;
+		child.castShadow = true;
+		child.receiveShadow = true;
+	});
+};
+
+const clamp01 = (value: number) => THREE.MathUtils.clamp(value, 0, 1);
+const polylineLength = (points: THREE.Vector3[]) => points.slice(1).reduce((sum, point, index) => sum + point.distanceTo(points[index]), 0);
+const pointOnPolyline = (points: THREE.Vector3[], progress: number) => {
+	if (!points.length) return new THREE.Vector3();
+	if (points.length === 1) return points[0].clone();
+	const lengths = points.slice(1).map((point, index) => point.distanceTo(points[index]));
+	const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+	if (totalLength <= 0.00001) return points[points.length - 1].clone();
+	let remaining = clamp01(progress) * totalLength;
+	for (let index = 0; index < lengths.length; index += 1) {
+		const length = lengths[index];
+		if (remaining <= length || index === lengths.length - 1) {
+			return points[index].clone().lerp(points[index + 1], length <= 0.00001 ? 1 : remaining / length);
+		}
+		remaining -= length;
+	}
+	return points[points.length - 1].clone();
+};
+const lerpPose = (object: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3, progress: number) => {
+	object.position.lerpVectors(from, to, clamp01(progress));
+	const direction = to.clone().sub(from).setY(0);
+	if (direction.lengthSq() > 0.00001) object.rotation.y = Math.atan2(direction.x, direction.z);
+};
+
+const lerpPolylinePose = (object: THREE.Object3D, points: THREE.Vector3[], progress: number) => {
+	if (points.length < 2) return;
+	const lengths = points.slice(1).map((point, index) => point.distanceTo(points[index]));
+	const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+	if (totalLength <= 0.00001) {
+		object.position.copy(points[points.length - 1]);
+		return;
+	}
+	let remaining = clamp01(progress) * totalLength;
+	for (let index = 0; index < lengths.length; index += 1) {
+		const length = lengths[index];
+		if (remaining <= length || index === lengths.length - 1) {
+			lerpPose(object, points[index], points[index + 1], length <= 0.00001 ? 1 : remaining / length);
+			return;
+		}
+		remaining -= length;
+	}
+};
+
 /**
- * 旧文件名兼容层。
- * V3 起真实实现已拆为 SilkCakeLineRuntime（业务）和 ProceduralSilkCakeLine（显示），
- * 禁止再在此处恢复“整圈 distance += speed”的包装 Demo。
+ * 丝饼产线程序化数字孪生。
+ *
+ * - 丝车 A/B 两面，每面 3 行 × 6 列；A 面三行抓完后旋转 180° 再抓 B 面。
+ * - 上料机器人使用 1×6 夹具，只有凑齐 6 个空塑料托盘时才一次抓一整行。
+ * - 塑料托盘通过 TwinMaterialFlowRuntime 的 Section Capacity / Reserved / Waiting 控制流转。
+ * - 桁架内两条塑料托盘辊道各 3 位，木托盘主辊道独立布置在上方；2×3 夹具一次抓 6 个丝饼。
+ * - 木托盘每层 2×3，共 8 层 = 48 个丝饼；之后盖板、贴标、缠膜、立体库入库。
+ * - 桁架抓空后的塑料托盘回流，再组成下一组 6 个空托盘。
  */
-export { ProceduralSilkCakeLine as ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralSilkCakeLine';
+export class ProceduralPackagingLine {
+	readonly group = new THREE.Group();
+
+	private route: TwinRouteDefinition;
+	private readonly palletCount: number;
+	private flowRuntime: TwinMaterialFlowRuntime;
+	private readonly pallets = new Map<string, PlasticPalletRuntime>();
+	private readonly cakes = new Map<string, SilkCakeRuntime>();
+	private readonly cartSlots: SilkCartSlotRuntime[] = [];
+	private readonly sourceQueue: string[] = [];
+	private readonly loadingSlots: Array<string | undefined> = Array(ROBOT_BATCH).fill(undefined);
+	private readonly gantryLaneA: Array<string | undefined> = Array(3).fill(undefined);
+	private readonly gantryLaneB: Array<string | undefined> = Array(3).fill(undefined);
+	private readonly woodProcessQueue: WoodenPalletRuntime[] = [];
+	private readonly storedWoodPallets: WoodenPalletRuntime[] = [];
+
+	private running = false;
+	private speed = 1.35;
+	private silkSequence = 0;
+	private cartSequence = 0;
+	private woodSequence = 0;
+	private returnSequence = 0;
+	private currentCartId = '';
+	private currentSide: SilkSide = 'A';
+	private currentRow = 0;
+	private cartState: 'ready-a' | 'feeding-a' | 'turning-to-b' | 'ready-b' | 'feeding-b' | 'empty' | 'replacing' = 'ready-a';
+	private cartTurnProgress = 0;
+	private cartReplaceProgress = 0;
+	private robotTask: RobotTaskRuntime = this.createIdleRobotTask();
+	private gantryTask: GantryTaskRuntime = this.createIdleGantryTask();
+	private activeWoodPallet?: WoodenPalletRuntime;
+	private woodFeedElapsed = 0;
+	private readonly options: {
+		robotCycleSeconds: number;
+		gantryCycleSeconds: number;
+		cartChangeDelaySeconds: number;
+		coverCycleSeconds: number;
+		labelCycleSeconds: number;
+		wrappingCycleSeconds: number;
+		warehouseInboundCycleSeconds: number;
+		emptyWoodPalletFeedSeconds: number;
+		autoReplaceSilkCart: boolean;
+		autoFeedWoodPallet: boolean;
+	};
+
+	private readonly frameMaterial = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.48, metalness: 0.76 });
+	private readonly darkFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.58, metalness: 0.68 });
+	private readonly rollerMaterial = new THREE.MeshStandardMaterial({ color: 0xaeb8c6, roughness: 0.32, metalness: 0.86 });
+	private readonly plasticMaterial = new THREE.MeshStandardMaterial({ color: 0x087f5b, roughness: 0.55, metalness: 0.08 });
+	private readonly plasticDarkMaterial = new THREE.MeshStandardMaterial({ color: 0x065f46, roughness: 0.62, metalness: 0.08 });
+	private readonly silkMaterial = new THREE.MeshStandardMaterial({ color: 0xf2f4ef, roughness: 0.86, metalness: 0.01 });
+	private readonly silkEdgeMaterial = new THREE.MeshStandardMaterial({ color: 0xdde3dc, roughness: 0.72, metalness: 0.01 });
+	private readonly robotMaterial = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.32, metalness: 0.42 });
+	private readonly robotJointMaterial = new THREE.MeshStandardMaterial({ color: 0x202b3c, roughness: 0.34, metalness: 0.82 });
+	private readonly safetyMaterial = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x3b2400, roughness: 0.36, metalness: 0.42 });
+	private readonly woodMaterial = new THREE.MeshStandardMaterial({ color: 0x9a6a2f, roughness: 0.82, metalness: 0.03 });
+	private readonly coverMaterial = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.66, metalness: 0.08 });
+	private readonly labelMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x111111, roughness: 0.9, metalness: 0 });
+	private readonly wrapMaterial = new THREE.MeshStandardMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.22, roughness: 0.16, metalness: 0.02, side: THREE.DoubleSide });
+
+	private readonly silkCartRoot = new THREE.Group();
+	private readonly silkCartBody = new THREE.Group();
+	private readonly rotaryDisc = new THREE.Group();
+	private readonly robotRoot = new THREE.Group();
+	private readonly robotShoulder = new THREE.Group();
+	private readonly robotElbow = new THREE.Group();
+	private readonly robotWrist = new THREE.Group();
+	private readonly robotRowGripper = new THREE.Group();
+	private readonly gantryRoot = new THREE.Group();
+	private readonly gantryCarriage = new THREE.Group();
+	private readonly gantryLift = new THREE.Group();
+	private readonly gantryGripper = new THREE.Group();
+	private readonly coverGantryHead = new THREE.Group();
+	private readonly wrapperFilm = new THREE.Group();
+
+	private sectionIds: {
+		loading?: string;
+		transit?: string;
+		laneA?: string;
+		laneB?: string;
+		returning?: string;
+	};
+
+	constructor(route: TwinRouteDefinition, palletCount = 50, options: Partial<SilkLineSimulationOptions> = {}) {
+		this.options = {
+			robotCycleSeconds: options.robotCycleSeconds ?? 5,
+			gantryCycleSeconds: options.gantryCycleSeconds ?? 5,
+			cartChangeDelaySeconds: options.cartChangeDelaySeconds ?? 4,
+			coverCycleSeconds: options.coverCycleSeconds ?? 3,
+			labelCycleSeconds: options.labelCycleSeconds ?? 2,
+			wrappingCycleSeconds: options.wrappingCycleSeconds ?? 8,
+			warehouseInboundCycleSeconds: options.warehouseInboundCycleSeconds ?? 5,
+			emptyWoodPalletFeedSeconds: options.emptyWoodPalletFeedSeconds ?? 1,
+			autoReplaceSilkCart: options.autoReplaceSilkCart ?? true,
+			autoFeedWoodPallet: options.autoFeedWoodPallet ?? true,
+		};
+		this.route = structuredClone(route);
+		this.applySilkLineSectionCapacities(this.route);
+		this.palletCount = Math.min(200, Math.max(6, Math.floor(palletCount)));
+		this.speed = route.defaultSpeed;
+		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
+		this.sectionIds = this.resolveSectionIds(this.route.edges || []);
+		this.group.name = '丝饼包装与立库入库数字孪生线';
+		this.buildFloorLabels();
+		this.buildPlasticConveyors();
+		this.buildRotaryTableAndSilkCart();
+		this.buildRobot();
+		this.buildGantryCell();
+		this.buildPostProcessLine();
+		this.buildPlasticPallets();
+		this.replaceSilkCart(true);
+		this.feedInitialPlasticPallets();
+		this.feedNewWoodPallet();
+		markShadow(this.group);
+		this.applyAllPoses();
+	}
+
+	setRunning(running: boolean) {
+		this.running = running;
+	}
+
+	setSpeed(speed: number) {
+		if (Number.isFinite(speed) && speed > 0) this.speed = speed;
+	}
+
+	setRoutingContext(context: TwinRouteRoutingContext) {
+		this.flowRuntime.applyRoutingContext(context);
+	}
+
+	setRoute(route: TwinRouteDefinition) {
+		this.route = structuredClone(route);
+		this.applySilkLineSectionCapacities(this.route);
+		this.speed = route.defaultSpeed;
+		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
+		this.sectionIds = this.resolveSectionIds(this.route.edges || []);
+		this.reset();
+	}
+
+	reset() {
+		this.running = false;
+		this.flowRuntime = new TwinMaterialFlowRuntime(this.route);
+		this.currentSide = 'A';
+		this.currentRow = 0;
+		this.cartState = 'ready-a';
+		this.cartTurnProgress = 0;
+		this.cartReplaceProgress = 0;
+		this.woodFeedElapsed = 0;
+		this.returnSequence = 0;
+		this.robotTask = this.createIdleRobotTask();
+		this.gantryTask = this.createIdleGantryTask();
+		this.loadingSlots.fill(undefined);
+		this.gantryLaneA.fill(undefined);
+		this.gantryLaneB.fill(undefined);
+		this.sourceQueue.splice(0, this.sourceQueue.length);
+		for (const pallet of this.pallets.values()) {
+			pallet.stage = 'source-queue';
+			pallet.progress = 0;
+			pallet.loaded = false;
+			delete pallet.silkCakeId;
+			delete pallet.loadSlot;
+			delete pallet.gantrySlot;
+			delete pallet.returnFrom;
+			delete pallet.returnOrder;
+			delete pallet.returnSequence;
+			delete pallet.returnQueueIndex;
+			delete pallet.returnLoadSlot;
+			delete pallet.waitingReason;
+			pallet.cakeAnchor.clear();
+			this.sourceQueue.push(pallet.palletId);
+			this.flowRuntime.entities.ensure(pallet.palletId);
+		}
+		for (const queueItem of this.woodProcessQueue.splice(0)) this.group.remove(queueItem.root);
+		for (const stored of this.storedWoodPallets.splice(0)) this.group.remove(stored.root);
+		if (this.activeWoodPallet) this.group.remove(this.activeWoodPallet.root);
+		this.activeWoodPallet = undefined;
+		this.replaceSilkCart(true);
+		this.feedInitialPlasticPallets();
+		this.feedNewWoodPallet();
+		this.applyAllPoses();
+	}
+
+	updateFixed(deltaSeconds: number) {
+		if (!this.running || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+		this.updateSilkCart(deltaSeconds);
+		this.updateRobot(deltaSeconds);
+		this.updatePlasticPalletFlow(deltaSeconds);
+		this.updateGantry(deltaSeconds);
+		this.updateWoodPalletFeed(deltaSeconds);
+		this.updateWoodPostProcess(deltaSeconds);
+		this.tryStartRobotBatch();
+		this.tryStartGantryBatch();
+		this.tryFillLoadingSlots();
+		this.applyAllPoses();
+	}
+
+	getSnapshot(): SilkPackagingLineSnapshot {
+		const palletValues = [...this.pallets.values()];
+		return {
+			running: this.running,
+			speed: this.speed,
+			plasticPallets: {
+				total: palletValues.length,
+				empty: palletValues.filter((item) => !item.loaded).length,
+				loaded: palletValues.filter((item) => item.loaded).length,
+				waiting: palletValues.filter((item) => Boolean(item.waitingReason)).length,
+				sourceQueue: this.sourceQueue.length,
+			},
+			silkCart: {
+				cartId: this.currentCartId,
+				activeSide: this.currentSide,
+				currentRow: this.currentRow + 1,
+				remaining: Math.min(SILK_PER_CART, this.cartSlots.filter((slot) => Boolean(slot.silkCakeId)).length),
+				capacity: SILK_PER_CART,
+				state: this.cartState,
+			},
+			robot: {
+				state: this.robotTask.state,
+				batchSize: this.robotTask.silkCakeIds.length,
+				emptyPalletsReady: this.loadingSlots.filter(Boolean).length,
+				progress: this.robotTask.progress,
+				side: this.robotTask.side,
+				row: this.robotTask.row + 1,
+			},
+			gantry: {
+				state: this.gantryTask.state,
+				laneA: this.gantryLaneA.filter(Boolean).length,
+				laneB: this.gantryLaneB.filter(Boolean).length,
+				progress: this.gantryTask.progress,
+			},
+			woodenPallet: {
+				id: this.activeWoodPallet?.woodenPalletId,
+				layer: this.activeWoodPallet?.layer ?? 0,
+				maxLayers: WOOD_MAX_LAYERS,
+				silkCakeCount: Math.min(SILK_PER_WOOD_PALLET, this.activeWoodPallet?.silkCakeIds.length ?? 0),
+				maxSilkCakeCount: SILK_PER_WOOD_PALLET,
+				stage: this.activeWoodPallet?.stage,
+			},
+			postProcess: {
+				covered: this.woodProcessQueue.filter((item) => item.coverApplied).length,
+				labeled: this.woodProcessQueue.filter((item) => item.labelApplied).length,
+				wrapped: this.woodProcessQueue.filter((item) => item.wrapped).length,
+				stored: this.storedWoodPallets.length,
+			},
+			sections: this.flowRuntime.sections.getSnapshots(),
+			entities: this.flowRuntime.entities.getAll(),
+		};
+	}
+
+	/** 运行实体只读诊断。业务状态来自 Runtime，不从 Three.js 反推。 */
+	getEntityDetail(entityType: string, entityId: string): Record<string, unknown> | undefined {
+		if (entityType === 'plastic-pallet') {
+			const pallet = this.pallets.get(entityId);
+			return pallet ? {
+				palletId: pallet.palletId,
+				state: pallet.loaded ? 'loaded' : pallet.stage === 'returning' ? 'empty-return' : pallet.stage,
+				silkCakeId: pallet.silkCakeId,
+				progress: pallet.progress,
+				loadSlot: pallet.loadSlot,
+				gantrySlot: pallet.gantrySlot,
+				returnOrder: pallet.returnOrder,
+				returnSequence: pallet.returnSequence,
+				returnQueueIndex: pallet.returnQueueIndex,
+				returnLoadSlot: pallet.returnLoadSlot,
+				waitingReason: pallet.waitingReason,
+				section: this.flowRuntime.entities.get(entityId)?.currentSectionId,
+			} : undefined;
+		}
+		if (entityType === 'silk-cake') {
+			const cake = this.cakes.get(entityId);
+			return cake ? { silkCakeId: cake.silkCakeId, state: cake.state, side: cake.side, row: cake.row + 1, column: cake.column + 1 } : undefined;
+		}
+		if (entityType === 'silk-cart') return {
+			...this.getSnapshot().silkCart,
+			rowsPerSide: SILK_ROWS,
+			columnsPerRow: SILK_COLUMNS,
+			A: this.getCartSideDetail('A'),
+			B: this.getCartSideDetail('B'),
+		};
+		if (entityType === 'loading-robot') return { ...this.getSnapshot().robot, task: this.robotTask } as unknown as Record<string, unknown>;
+		if (entityType === 'gantry-stacker') return { ...this.getSnapshot().gantry, task: this.gantryTask, woodenPallet: this.getSnapshot().woodenPallet } as unknown as Record<string, unknown>;
+		if (entityType === 'wooden-pallet') {
+			const pallet = [this.activeWoodPallet, ...this.woodProcessQueue, ...this.storedWoodPallets].find((item) => item?.woodenPalletId === entityId);
+			return pallet ? {
+				woodenPalletId: pallet.woodenPalletId,
+				state: pallet.stage,
+				layer: pallet.layer,
+				maxLayers: WOOD_MAX_LAYERS,
+				silkCakeCount: pallet.silkCakeIds.length,
+				capacity: SILK_PER_WOOD_PALLET,
+				coverApplied: pallet.coverApplied,
+				labelApplied: pallet.labelApplied,
+				wrapped: pallet.wrapped,
+			} : undefined;
+		}
+		return undefined;
+	}
+
+	private applySilkLineSectionCapacities(route: TwinRouteDefinition) {
+		const capacities: Record<string, number> = {
+			'pack-edge-scan': 6,
+			'pack-edge-load': 6,
+			'pack-edge-left-pack': 3,
+			'pack-edge-right-pack': 3,
+			'pack-edge-return-main': Math.max(6, Math.min(24, this.palletCount || 24)),
+			'silk-edge-loading': 6,
+			'silk-edge-load-buffer': 6,
+			'silk-edge-left-b': 3,
+			'silk-edge-right-b': 3,
+			'silk-edge-return-main': Math.max(6, Math.min(24, this.palletCount || 24)),
+		};
+		for (const edge of route.edges || []) {
+			if (capacities[edge.edgeId] !== undefined) edge.capacity = capacities[edge.edgeId];
+			if (!edge.occupancyMode) edge.occupancyMode = 'simulation';
+		}
+	}
+
+	private resolveSectionIds(edges: TwinRouteEdgeDefinition[]) {
+		const byId = (id: string) => edges.find((edge) => edge.edgeId === id)?.edgeId;
+		return {
+			loading: byId('pack-edge-scan') || byId('silk-edge-loading') || edges[0]?.edgeId,
+			transit: byId('pack-edge-load') || byId('silk-edge-load-buffer') || edges[1]?.edgeId || edges[0]?.edgeId,
+			laneA: byId('pack-edge-left-pack') || byId('silk-edge-left-b') || edges[2]?.edgeId || edges[0]?.edgeId,
+			laneB: byId('pack-edge-right-pack') || byId('silk-edge-right-b') || edges[3]?.edgeId || edges[0]?.edgeId,
+			returning: byId('pack-edge-return-main') || byId('silk-edge-return-main') || edges[edges.length - 1]?.edgeId || edges[0]?.edgeId,
+		};
+	}
+
+	private getCartSideDetail(side: SilkSide) {
+		const slots = this.cartSlots.filter((slot) => slot.side === side);
+		return {
+			remaining: slots.filter((slot) => Boolean(slot.silkCakeId)).length,
+			rows: Array.from({ length: SILK_ROWS }, (_, row) => ({
+				row: row + 1,
+				remaining: slots.filter((slot) => slot.row === row && Boolean(slot.silkCakeId)).length,
+			})),
+		};
+	}
+
+	private transferPallet(pallet: PlasticPalletRuntime, targetSectionId: string | undefined) {
+		if (!targetSectionId) return true;
+		const entity = this.flowRuntime.entities.ensure(pallet.palletId);
+		const result = this.flowRuntime.sections.tryTransfer(pallet.palletId, entity.currentSectionId, targetSectionId);
+		if (!result.canAccept) {
+			const reason: TwinFlowWaitingReason = result.reason === 'signal-stale'
+				? 'TARGET_SECTION_SIGNAL_STALE'
+				: result.reason === 'full'
+					? 'TARGET_SECTION_FULL'
+					: 'TARGET_SECTION_BLOCKED';
+			pallet.waitingReason = reason;
+			this.flowRuntime.entities.wait(pallet.palletId, reason, targetSectionId);
+			return false;
+		}
+		delete pallet.waitingReason;
+		this.flowRuntime.entities.resume(pallet.palletId, targetSectionId);
+		return true;
+	}
+
+	private buildPlasticPallets() {
+		const group = new THREE.Group();
+		group.name = `${this.palletCount}个循环塑料托盘`;
+		for (let index = 0; index < this.palletCount; index += 1) {
+			const palletId = `PLASTIC-PALLET-${String(index + 1).padStart(3, '0')}`;
+			const root = this.createPlasticPallet(palletId);
+			const cakeAnchor = root.getObjectByName('SilkCakeAnchor') as THREE.Group;
+			const runtime: PlasticPalletRuntime = { palletId, root, cakeAnchor, stage: 'source-queue', progress: 0, loaded: false };
+			this.pallets.set(palletId, runtime);
+			this.sourceQueue.push(palletId);
+			this.flowRuntime.entities.ensure(palletId);
+			group.add(root);
+		}
+		this.group.add(group);
+	}
+
+	private createPlasticPallet(palletId: string) {
+		const root = new THREE.Group();
+		root.name = palletId;
+		root.userData.entityType = 'plastic-pallet';
+		root.userData.entityId = palletId;
+		root.userData.twinEntityType = 'plastic-pallet';
+		root.userData.twinEntityId = palletId;
+		const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.74, 0.12, 32), this.plasticMaterial);
+		base.position.y = 0.06;
+		root.add(base);
+		const inner = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.055, 10, 32), this.plasticDarkMaterial);
+		inner.rotation.x = Math.PI / 2;
+		inner.position.y = 0.135;
+		root.add(inner);
+		const outer = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.055, 10, 32), this.plasticDarkMaterial);
+		outer.rotation.x = Math.PI / 2;
+		outer.position.y = 0.135;
+		root.add(outer);
+		for (let index = 0; index < 12; index += 1) {
+			const holder = new THREE.Group();
+			holder.rotation.y = index * Math.PI / 6;
+			const rib = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.05, 0.055), this.plasticDarkMaterial);
+			rib.position.set(0.3, 0.145, 0);
+			holder.add(rib);
+			root.add(holder);
+		}
+		const column = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.25, 0.92, 28), this.plasticMaterial);
+		column.position.y = 0.58;
+		root.add(column);
+		const cakeAnchor = new THREE.Group();
+		cakeAnchor.name = 'SilkCakeAnchor';
+		cakeAnchor.position.y = 0.68;
+		root.add(cakeAnchor);
+		return root;
+	}
+
+	private createSilkCake(id: string, side: SilkSide, row: number, column: number) {
+		const root = new THREE.Group();
+		root.name = id;
+		root.userData.entityType = 'silk-cake';
+		root.userData.entityId = id;
+		root.userData.twinEntityType = 'silk-cake';
+		root.userData.twinEntityId = id;
+		const body = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.42, 40, 1, false), this.silkMaterial);
+		root.add(body);
+		const edgeA = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.025, 8, 40), this.silkEdgeMaterial);
+		edgeA.rotation.x = Math.PI / 2;
+		edgeA.position.y = -0.215;
+		root.add(edgeA);
+		const edgeB = edgeA.clone();
+		edgeB.position.y = 0.215;
+		root.add(edgeB);
+		const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.46, 24), this.plasticDarkMaterial);
+		root.add(hole);
+		const runtime: SilkCakeRuntime = { silkCakeId: id, root, state: 'on-cart', side, row, column };
+		this.cakes.set(id, runtime);
+		return runtime;
+	}
+
+	private buildRotaryTableAndSilkCart() {
+		const cell = new THREE.Group();
+		cell.name = '双面丝车旋转供料单元';
+		cell.position.set(-6.4, 0, -10.5);
+		const base = new THREE.Mesh(new THREE.CylinderGeometry(2.25, 2.35, 0.35, 40), this.darkFrameMaterial);
+		base.position.y = 0.18;
+		cell.add(base);
+		const discMesh = new THREE.Mesh(new THREE.CylinderGeometry(2.08, 2.08, 0.18, 40), this.safetyMaterial);
+		discMesh.position.y = 0.44;
+		this.rotaryDisc.add(discMesh);
+		cell.add(this.rotaryDisc);
+		this.silkCartRoot.name = '丝车';
+		this.silkCartRoot.userData.twinEntityType = 'silk-cart';
+		this.silkCartRoot.position.y = 0.55;
+		this.rotaryDisc.add(this.silkCartRoot);
+		this.silkCartRoot.add(this.silkCartBody);
+		this.buildSilkCartFrame();
+		this.group.add(cell);
+	}
+
+	private buildSilkCartFrame() {
+		this.silkCartBody.clear();
+		this.cartSlots.splice(0, this.cartSlots.length);
+		const chassis = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.24, 2.0), this.frameMaterial);
+		chassis.position.y = 0.18;
+		this.silkCartBody.add(chassis);
+		for (const x of [-3, 3]) {
+			const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 3.7, 0.14), this.frameMaterial);
+			post.position.set(x, 2.0, 0);
+			this.silkCartBody.add(post);
+		}
+		for (let row = 0; row < SILK_ROWS; row += 1) {
+			const y = 0.9 + row * 1.15;
+			const beam = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.1, 0.1), this.frameMaterial);
+			beam.position.set(0, y, 0);
+			this.silkCartBody.add(beam);
+			for (const side of ['A', 'B'] as SilkSide[]) {
+				const z = side === 'A' ? 0.78 : -0.78;
+				for (let column = 0; column < SILK_COLUMNS; column += 1) {
+					const x = -2.75 + column * 1.1;
+					const anchor = new THREE.Group();
+					anchor.name = `Cart-${side}-R${row + 1}-C${column + 1}`;
+					anchor.position.set(x, y, z);
+					anchor.rotation.y = side === 'A' ? 0 : Math.PI;
+					this.silkCartBody.add(anchor);
+					this.cartSlots.push({ side, row, column, anchor });
+				}
+			}
+		}
+		for (const x of [-2.7, 2.7]) for (const z of [-0.72, 0.72]) {
+			const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.16, 18), this.robotJointMaterial);
+			wheel.rotation.z = Math.PI / 2;
+			wheel.position.set(x, 0.08, z);
+			this.silkCartBody.add(wheel);
+		}
+	}
+
+	private replaceSilkCart(initial = false) {
+		for (const slot of this.cartSlots) {
+			if (slot.silkCakeId) {
+				const cake = this.cakes.get(slot.silkCakeId);
+				if (cake && cake.state === 'on-cart') this.cakes.delete(cake.silkCakeId);
+			}
+			while (slot.anchor.children.length) slot.anchor.remove(slot.anchor.children[0]);
+			delete slot.silkCakeId;
+		}
+		this.cartSequence += 1;
+		this.currentCartId = `SILK-CART-${String(this.cartSequence).padStart(3, '0')}`;
+		this.silkCartRoot.userData.twinEntityId = this.currentCartId;
+		for (const slot of this.cartSlots) {
+			this.silkSequence += 1;
+			const silkCakeId = `SILK-${String(this.silkSequence).padStart(6, '0')}`;
+			const cake = this.createSilkCake(silkCakeId, slot.side, slot.row, slot.column);
+			slot.silkCakeId = silkCakeId;
+			slot.anchor.add(cake.root);
+			cake.root.rotation.x = Math.PI / 2;
+		}
+		this.currentSide = 'A';
+		this.currentRow = 0;
+		this.cartState = 'ready-a';
+		this.cartTurnProgress = 0;
+		this.cartReplaceProgress = 0;
+		this.rotaryDisc.rotation.y = 0;
+		if (!initial) this.robotTask = this.createIdleRobotTask();
+	}
+
+	private buildRobot() {
+		this.robotRoot.name = '1×6上料机器人';
+		this.robotRoot.userData.twinEntityType = 'loading-robot';
+		this.robotRoot.userData.twinEntityId = 'LoadingRobot-01';
+		this.robotRoot.position.set(-6.5, 0, -7.9);
+		const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.82, 0.6, 24), this.robotJointMaterial);
+		pedestal.position.y = 0.3;
+		this.robotRoot.add(pedestal);
+		const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.58, 0.5, 24), this.robotMaterial);
+		turret.position.y = 0.78;
+		this.robotRoot.add(turret);
+		this.robotShoulder.position.y = 1.0;
+		this.robotShoulder.add(new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 18), this.robotJointMaterial));
+		const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.75, 0.48), this.robotMaterial);
+		upperArm.position.y = 0.84;
+		this.robotShoulder.add(upperArm);
+		this.robotRoot.add(this.robotShoulder);
+		this.robotElbow.position.y = 1.7;
+		this.robotElbow.add(new THREE.Mesh(new THREE.SphereGeometry(0.33, 18, 18), this.robotJointMaterial));
+		const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.55, 0.42), this.robotMaterial);
+		forearm.position.y = 0.74;
+		this.robotElbow.add(forearm);
+		this.robotShoulder.add(this.robotElbow);
+		this.robotWrist.position.y = 1.5;
+		const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.38, 18), this.robotJointMaterial);
+		wrist.rotation.z = Math.PI / 2;
+		this.robotWrist.add(wrist);
+		this.robotElbow.add(this.robotWrist);
+		this.robotRowGripper.name = 'RobotRowGripper-1x6';
+		this.robotRowGripper.position.set(0, 0.38, 0);
+		const rail = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.16, 0.18), this.darkFrameMaterial);
+		this.robotRowGripper.add(rail);
+		for (let index = 0; index < ROBOT_BATCH; index += 1) {
+			const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.32, 16), this.robotJointMaterial);
+			head.position.set(-2.75 + index * 1.1, -0.2, 0);
+			this.robotRowGripper.add(head);
+		}
+		this.robotWrist.add(this.robotRowGripper);
+		this.group.add(this.robotRoot);
+	}
+
+	private buildPlasticConveyors() {
+		const conveyors = new THREE.Group();
+		conveyors.name = '塑料托盘循环输送线';
+		const source = this.getRoutePointPosition('silk-source', RETURN_ENTRY).setY(0.55);
+		const diverter = this.getRoutePointPosition('silk-diverter', new THREE.Vector3(5.1, 0.94, -5.8)).setY(0.55);
+		const laneAEntry = this.getRoutePointPosition('silk-left-buffer', new THREE.Vector3(6.8, 0.94, -7.6)).setY(0.55);
+		const laneBEntry = this.getRoutePointPosition('silk-right-buffer', new THREE.Vector3(6.8, 0.94, -4.2)).setY(0.55);
+		const laneAExit = this.getRoutePointPosition('silk-left-inspection', new THREE.Vector3(13.2, 0.94, -7.6)).setY(0.55);
+		const laneBExit = this.getRoutePointPosition('silk-right-inspection', new THREE.Vector3(13.2, 0.94, -4.2)).setY(0.55);
+		const gantry = this.getRoutePointPosition('silk-gantry', new THREE.Vector3(15, 0.94, -7.6)).setY(0.55);
+		const merger = this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2)).setY(0.55);
+		const east = this.getRoutePointPosition('silk-return-east', RETURN_CORNER_EAST).setY(0.55);
+		const west = this.getRoutePointPosition('silk-return-west', RETURN_CORNER_WEST).setY(0.55);
+		this.addRollerLane(conveyors, source, diverter, 1.55, '机器人上料及主输送');
+		// A/B 长直缓存线由桁架单元统一绘制；这里只保留两条短分叉连接，避免重复模型叠加。
+		this.addRollerLane(conveyors, diverter, laneAEntry, 1.45, '桁架A线分叉连接');
+		this.addRollerLane(conveyors, diverter, laneBEntry, 1.45, '桁架B线分叉连接');
+		this.addRollerLane(conveyors, laneAExit, gantry, 1.45, 'A线空托盘出站');
+		this.addRollerLane(conveyors, laneBExit, merger, 1.45, 'B线空托盘出站');
+		this.addRollerLane(conveyors, gantry, merger, 1.55, 'A/B空托盘汇流段');
+		this.addRollerLane(conveyors, merger, east, 1.55, '空托盘回流东段');
+		this.addRollerLane(conveyors, east, west, 1.55, '空托盘回流主段');
+		this.addRollerLane(conveyors, west, source, 1.55, '空托盘回流入口');
+		this.group.add(conveyors);
+	}
+
+	private addRollerLane(parent: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, width: number, name: string) {
+		const delta = to.clone().sub(from);
+		const length = Math.hypot(delta.x, delta.z);
+		if (length <= 0.01) return;
+		const segment = new THREE.Group();
+		segment.name = name;
+		segment.position.copy(from).add(to).multiplyScalar(0.5);
+		segment.rotation.y = -Math.atan2(delta.z, delta.x);
+		const railA = new THREE.Mesh(new THREE.BoxGeometry(length, 0.16, 0.1), this.frameMaterial);
+		railA.position.set(0, 0.12, -width / 2);
+		segment.add(railA);
+		const railB = railA.clone();
+		railB.position.z = width / 2;
+		segment.add(railB);
+		const rollerCount = Math.max(2, Math.ceil(length / 0.55));
+		for (let index = 0; index <= rollerCount; index += 1) {
+			const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, width - 0.12, 12), this.rollerMaterial);
+			roller.rotation.x = Math.PI / 2;
+			roller.position.set(-length / 2 + index * length / rollerCount, 0.13, 0);
+			segment.add(roller);
+		}
+		parent.add(segment);
+	}
+
+	private buildGantryCell() {
+		this.gantryRoot.name = '2×3丝饼码垛桁架';
+		this.gantryRoot.userData.twinEntityType = 'gantry-stacker';
+		this.gantryRoot.userData.twinEntityId = 'GantryStacker-01';
+		const x0 = 6.2, x1 = 14.2, z0 = -12.4, z1 = -2.4;
+		for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] as Array<[number, number]>) {
+			const post = new THREE.Mesh(new THREE.BoxGeometry(0.24, 4.8, 0.24), this.frameMaterial);
+			post.position.set(x, 2.4, z);
+			this.gantryRoot.add(post);
+		}
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z0), new THREE.Vector3(x1, 4.8, z0), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z1), new THREE.Vector3(x1, 4.8, z1), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, 4.8, z0), new THREE.Vector3(x0, 4.8, z1), 0.16);
+		this.addBeam(this.gantryRoot, new THREE.Vector3(x1, 4.8, z0), new THREE.Vector3(x1, 4.8, z1), 0.16);
+		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.55, -7.6), new THREE.Vector3(13.2, 0.55, -7.6), 1.5, 'Gantry-Lane-A-3位');
+		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.55, -4.2), new THREE.Vector3(13.2, 0.55, -4.2), 1.5, 'Gantry-Lane-B-3位');
+		this.addRollerLane(this.gantryRoot, new THREE.Vector3(6.8, 0.42, WOOD_LANE_Z), new THREE.Vector3(14.4, 0.42, WOOD_LANE_Z), 2.1, 'Gantry-Wood-Pallet-Lane');
+		this.gantryCarriage.name = 'Gantry-X-Carriage';
+		const carriageBeam = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.22, 0.34), this.safetyMaterial);
+		this.gantryCarriage.add(carriageBeam);
+		this.gantryCarriage.position.set(10, 4.35, -5.9);
+		this.gantryRoot.add(this.gantryCarriage);
+		this.gantryLift.name = 'Gantry-Lift';
+		const liftBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.2, 0.22), this.darkFrameMaterial);
+		liftBar.position.y = -1.1;
+		this.gantryLift.add(liftBar);
+		this.gantryLift.position.y = -0.1;
+		this.gantryCarriage.add(this.gantryLift);
+		this.gantryGripper.name = 'GantryGripper-2x3';
+		this.gantryGripper.position.y = -2.2;
+		const gripperFrame = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.18, 2.4), this.robotJointMaterial);
+		this.gantryGripper.add(gripperFrame);
+		for (let row = 0; row < 2; row += 1) for (let column = 0; column < 3; column += 1) {
+			const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.3, 16), this.robotJointMaterial);
+			head.position.set(-1.6 + column * 1.6, -0.2, -0.8 + row * 1.6);
+			this.gantryGripper.add(head);
+		}
+		this.gantryLift.add(this.gantryGripper);
+		this.group.add(this.gantryRoot);
+	}
+
+	private addBeam(parent: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, radius: number) {
+		const direction = to.clone().sub(from);
+		const beam = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, direction.length(), 10), this.frameMaterial);
+		beam.position.copy(from).add(to).multiplyScalar(0.5);
+		beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
+		parent.add(beam);
+	}
+
+	private createWoodenPallet(id: string) {
+		const root = new THREE.Group();
+		root.name = id;
+		root.userData.entityType = 'wooden-pallet';
+		root.userData.entityId = id;
+		root.userData.twinEntityType = 'wooden-pallet';
+		root.userData.twinEntityId = id;
+		for (const z of [-0.75, 0, 0.75]) {
+			const slat = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.14, 0.42), this.woodMaterial);
+			slat.position.set(0, 0.12, z);
+			root.add(slat);
+		}
+		for (const x of [-1.7, 0, 1.7]) {
+			const cross = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 2.1), this.woodMaterial);
+			cross.position.set(x, 0.02, 0);
+			root.add(cross);
+		}
+		const stackAnchor = new THREE.Group();
+		stackAnchor.name = 'WoodStackAnchor';
+		stackAnchor.position.y = 0.24;
+		root.add(stackAnchor);
+		return { root, stackAnchor };
+	}
+
+	private feedNewWoodPallet() {
+		if (this.activeWoodPallet) return;
+		this.woodSequence += 1;
+		const woodenPalletId = `WOOD-PALLET-${String(this.woodSequence).padStart(4, '0')}`;
+		const { root, stackAnchor } = this.createWoodenPallet(woodenPalletId);
+		const runtime: WoodenPalletRuntime = {
+			woodenPalletId,
+			root,
+			stackAnchor,
+			stage: 'stacking',
+			progress: 0,
+			layer: 0,
+			silkCakeIds: [],
+			coverApplied: false,
+			labelApplied: false,
+			wrapped: false,
+		};
+		this.activeWoodPallet = runtime;
+		root.position.copy(WOOD_STACK_POSITION);
+		this.group.add(root);
+	}
+
+	private updateWoodPalletFeed(deltaSeconds: number) {
+		if (this.activeWoodPallet || !this.options.autoFeedWoodPallet) return;
+		this.woodFeedElapsed += deltaSeconds;
+		if (this.woodFeedElapsed < this.options.emptyWoodPalletFeedSeconds) return;
+		this.woodFeedElapsed = 0;
+		this.feedNewWoodPallet();
+	}
+
+	private buildPostProcessLine() {
+		const process = new THREE.Group();
+		process.name = '木托盘后包装与立库入库线';
+		this.addRollerLane(process, new THREE.Vector3(14.4, 0.42, WOOD_LANE_Z), new THREE.Vector3(32.5, 0.42, WOOD_LANE_Z), 2.2, '满托后包装辊道');
+		this.addProcessPortal(process, COVER_POSITION.x, '盖板桁架工位', 0x38bdf8);
+		this.addProcessPortal(process, LABEL_POSITION.x, '贴标工位', 0x22c55e);
+		this.addProcessPortal(process, WRAP_POSITION.x, '缠膜工位', 0xa855f7);
+		const coverGantry = new THREE.Group();
+		coverGantry.name = '盖板桁架';
+		coverGantry.position.set(COVER_POSITION.x, 4.2, COVER_POSITION.z);
+		const beam = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.22, 0.3), this.frameMaterial);
+		coverGantry.add(beam);
+		const head = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 1.8), this.safetyMaterial);
+		head.position.y = -1.0;
+		this.coverGantryHead.add(head);
+		coverGantry.add(this.coverGantryHead);
+		process.add(coverGantry);
+		const wrapperRing = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.12, 12, 48), this.safetyMaterial);
+		wrapperRing.rotation.y = Math.PI / 2;
+		wrapperRing.position.set(WRAP_POSITION.x, 2.2, WRAP_POSITION.z);
+		process.add(wrapperRing);
+		const film = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 4.0, 32, 1, true), this.wrapMaterial);
+		film.position.y = 1.8;
+		this.wrapperFilm.add(film);
+		this.wrapperFilm.position.set(WRAP_POSITION.x, 0, WRAP_POSITION.z);
+		this.wrapperFilm.visible = false;
+		process.add(this.wrapperFilm);
+		this.buildWarehouse(process);
+		this.group.add(process);
+	}
+
+	private addProcessPortal(parent: THREE.Group, x: number, name: string, color: number) {
+		const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.18, roughness: 0.4, metalness: 0.32 });
+		const portal = new THREE.Group();
+		portal.name = name;
+		for (const z of [WOOD_LANE_Z - 1, WOOD_LANE_Z + 1]) {
+			const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.0, 0.16), material);
+			post.position.set(x, 1.5, z);
+			portal.add(post);
+		}
+		const top = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 2.2), material);
+		top.position.set(x, 3.0, WOOD_LANE_Z);
+		portal.add(top);
+		parent.add(portal);
+	}
+
+	private buildWarehouse(parent: THREE.Group) {
+		const warehouse = new THREE.Group();
+		warehouse.name = '立体库入库口';
+		for (const x of [33.5, 36.5]) for (const z of [WOOD_LANE_Z - 2.7, WOOD_LANE_Z + 2.6]) {
+			const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 5.2, 0.18), this.frameMaterial);
+			post.position.set(x, 2.6, z);
+			warehouse.add(post);
+		}
+		for (let level = 0; level < 4; level += 1) {
+			const y = 0.7 + level * 1.35;
+			const shelfA = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.12, 0.18), this.frameMaterial);
+			shelfA.position.set(35, y, WOOD_LANE_Z - 2.6);
+			warehouse.add(shelfA);
+			const shelfB = shelfA.clone();
+			shelfB.position.z = WOOD_LANE_Z + 2.5;
+			warehouse.add(shelfB);
+		}
+		parent.add(warehouse);
+	}
+
+	private buildFloorLabels() {
+		const zones: Array<[string, number, THREE.Vector3, THREE.Vector3]> = [
+			['机器人上料区', 0x0ea5e9, new THREE.Vector3(-6, 0.015, -7.4), new THREE.Vector3(12, 0.02, 7.5)],
+			['桁架码垛区', 0xf59e0b, new THREE.Vector3(10, 0.015, -7.3), new THREE.Vector3(9, 0.02, 10.8)],
+			['后包装区', 0xa855f7, new THREE.Vector3(22, 0.015, WOOD_LANE_Z), new THREE.Vector3(18, 0.02, 4.2)],
+		];
+		for (const [name, color, position, size] of zones) {
+			const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.09, roughness: 1 }));
+			mesh.name = name;
+			mesh.position.copy(position);
+			this.group.add(mesh);
+		}
+	}
+
+	private feedInitialPlasticPallets() {
+		this.tryFillLoadingSlots();
+	}
+
+	private tryFillLoadingSlots() {
+		// 空托盘回流优先：存在已释放的回流托盘时，不再用初始 SourceQueue 抢占新空位。
+		// 否则 50 托盘场景会长期消费新托盘，已经回流的托盘反而堵在回流线末端。
+		if ([...this.pallets.values()].some((pallet) => pallet.stage === 'returning')) return;
+		for (let index = 0; index < ROBOT_BATCH; index += 1) {
+			if (this.loadingSlots[index]) continue;
+			const palletId = this.sourceQueue[0];
+			if (!palletId) break;
+			const pallet = this.pallets.get(palletId);
+			if (!pallet) {
+				this.sourceQueue.shift();
+				continue;
+			}
+			// 刚离开上料位的前一批托盘必须先拉开一个完整托盘直径，才能补入新托盘；
+			// 否则 SourceQueue 的瞬时补位会与仍在机器人辊道上的前车重合。
+			if (!this.isPalletPositionClear(pallet, LOAD_SLOT_POSITIONS[index])) continue;
+			if (!this.transferPallet(pallet, this.sectionIds.loading)) break;
+			this.sourceQueue.shift();
+			this.loadingSlots[index] = palletId;
+			pallet.stage = 'loading';
+			pallet.loadSlot = index;
+			pallet.progress = 1;
+		}
+	}
+
+	private tryStartRobotBatch() {
+		if (this.robotTask.state !== 'idle') return;
+		if (this.cartState === 'turning-to-b' || this.cartState === 'empty' || this.cartState === 'replacing') return;
+		const palletIds = this.loadingSlots.filter((item): item is string => Boolean(item));
+		if (palletIds.length !== ROBOT_BATCH) return;
+		const pallets = palletIds.map((id) => this.pallets.get(id)).filter(Boolean) as PlasticPalletRuntime[];
+		if (pallets.some((item) => item.loaded)) return;
+		const rowSlots = this.cartSlots.filter((slot) => slot.side === this.currentSide && slot.row === this.currentRow && Boolean(slot.silkCakeId));
+		if (rowSlots.length !== SILK_COLUMNS) return;
+		this.robotTask = {
+			state: 'picking',
+			progress: 0,
+			side: this.currentSide,
+			row: this.currentRow,
+			palletIds,
+			silkCakeIds: rowSlots.map((slot) => slot.silkCakeId!),
+			attachedAtPick: false,
+			attachedAtPlace: false,
+		};
+		this.cartState = this.currentSide === 'A' ? 'feeding-a' : 'feeding-b';
+	}
+
+	private updateRobot(deltaSeconds: number) {
+		if (this.robotTask.state === 'idle') {
+			this.robotShoulder.rotation.z = -0.18;
+			this.robotElbow.rotation.z = 0.48;
+			this.robotWrist.rotation.y = 0;
+			return;
+		}
+		const duration = Math.max(0.2, this.options.robotCycleSeconds);
+		this.robotTask.progress = clamp01(this.robotTask.progress + deltaSeconds / duration);
+		const p = this.robotTask.progress;
+		this.robotShoulder.rotation.z = -0.25 + Math.sin(p * Math.PI) * 0.55;
+		this.robotElbow.rotation.z = 0.45 + Math.sin(p * Math.PI) * 0.75;
+		this.robotWrist.rotation.y = (this.robotTask.side === 'A' ? -1 : 1) * Math.sin(p * Math.PI) * 0.4;
+		if (!this.robotTask.attachedAtPick && p >= 0.2) {
+			this.robotTask.attachedAtPick = true;
+			for (const silkCakeId of this.robotTask.silkCakeIds) {
+				const cake = this.cakes.get(silkCakeId);
+				if (!cake) continue;
+				this.robotRowGripper.attach(cake.root);
+				cake.state = 'robot-picking';
+			}
+			for (const slot of this.cartSlots.filter((slot) => this.robotTask.silkCakeIds.includes(slot.silkCakeId || ''))) delete slot.silkCakeId;
+		}
+		if (!this.robotTask.attachedAtPlace && p >= 0.72) {
+			this.robotTask.attachedAtPlace = true;
+			for (let index = 0; index < ROBOT_BATCH; index += 1) {
+				const pallet = this.pallets.get(this.robotTask.palletIds[index]);
+				const cake = this.cakes.get(this.robotTask.silkCakeIds[index]);
+				if (!pallet || !cake) continue;
+				pallet.cakeAnchor.attach(cake.root);
+				cake.root.position.set(0, 0.22, 0);
+				cake.root.rotation.set(0, 0, 0);
+				cake.state = 'on-pallet';
+				pallet.loaded = true;
+				pallet.silkCakeId = cake.silkCakeId;
+			}
+		}
+		if (p >= 1) this.finishRobotBatch();
+	}
+
+	private finishRobotBatch() {
+		// 机器人只负责把 6 个空托盘变成 Loaded。是否能离开上料位由 Section Capacity 决定，
+		// 后续 updatePlasticPalletFlow 会持续重试，避免下游满时只尝试一次造成死锁。
+		this.currentRow += 1;
+		if (this.currentRow >= SILK_ROWS) {
+			if (this.currentSide === 'A') {
+				this.currentRow = 0;
+				this.cartState = 'turning-to-b';
+				this.cartTurnProgress = 0;
+			} else {
+				this.currentRow = 0;
+				this.cartState = 'empty';
+				this.cartReplaceProgress = 0;
+			}
+		} else {
+			this.cartState = this.currentSide === 'A' ? 'ready-a' : 'ready-b';
+		}
+		this.robotTask = this.createIdleRobotTask();
+	}
+
+	private updateSilkCart(deltaSeconds: number) {
+		if (this.cartState === 'turning-to-b') {
+			this.cartTurnProgress = clamp01(this.cartTurnProgress + deltaSeconds / 2.2);
+			this.rotaryDisc.rotation.y = Math.PI * this.cartTurnProgress;
+			if (this.cartTurnProgress >= 1) {
+				this.currentSide = 'B';
+				this.currentRow = 0;
+				this.cartState = 'ready-b';
+			}
+			return;
+		}
+		if (this.cartState === 'empty' || this.cartState === 'replacing') {
+			if (!this.options.autoReplaceSilkCart) return;
+			this.cartState = 'replacing';
+			this.cartReplaceProgress += deltaSeconds;
+			if (this.cartReplaceProgress >= this.options.cartChangeDelaySeconds) this.replaceSilkCart();
+		}
+	}
+
+	private updatePlasticPalletFlow(deltaSeconds: number) {
+		const travelMeters = Math.min(MAX_PALLET_STEP_METERS, Math.max(0.25, this.speed) * deltaSeconds);
+		// 先做业务段转移，再按前后顺序推进实体。前车先更新、后车再做空间检查，
+		// 可保证一个固定步长内不会追尾，也不会在分流/汇流交点互相穿越。
+		for (const pallet of this.pallets.values()) {
+			// Loaded 托盘停在上料位时持续尝试进入下游 Section；下游满则保留原位 Waiting，
+			// 下游一旦释放 Capacity 即自动 Resume，不依赖机器人任务结束瞬间的一次性 Transfer。
+			if (pallet.stage === 'loading' && pallet.loaded && pallet.loadSlot !== undefined) {
+				const loadSlot = pallet.loadSlot;
+				if (this.transferPallet(pallet, this.sectionIds.transit)) {
+					this.loadingSlots[loadSlot] = undefined;
+					pallet.stage = loadSlot < 3 ? 'to-gantry-a' : 'to-gantry-b';
+					pallet.gantrySlot = loadSlot < 3 ? loadSlot : loadSlot - 3;
+					pallet.progress = 0;
+				}
+			}
+		}
+
+		const outbound = [...this.pallets.values()]
+			.filter((pallet) => pallet.stage === 'to-gantry-a' || pallet.stage === 'to-gantry-b')
+			.sort((left, right) => (right.loadSlot ?? -1) - (left.loadSlot ?? -1) || left.palletId.localeCompare(right.palletId));
+		for (const pallet of outbound) {
+			const path = this.getOutboundRoutePoints(pallet);
+			const previousProgress = pallet.progress;
+			this.advancePalletOnPath(pallet, path, travelMeters);
+			if (pallet.progress <= previousProgress + 0.000001) pallet.waitingReason = 'TARGET_SECTION_FULL';
+			else delete pallet.waitingReason;
+			if (pallet.progress < 1) continue;
+			const lane = pallet.stage === 'to-gantry-a' ? this.gantryLaneA : this.gantryLaneB;
+			const preferredIndex = pallet.gantrySlot ?? lane.findIndex((item) => !item);
+			const freeIndex = preferredIndex >= 0 && preferredIndex < lane.length && !lane[preferredIndex] ? preferredIndex : -1;
+			if (freeIndex < 0) {
+				pallet.progress = Math.min(pallet.progress, this.safeEndHoldProgress(path));
+				pallet.waitingReason = 'TARGET_SECTION_FULL';
+				continue;
+			}
+			const targetSection = pallet.stage === 'to-gantry-a' ? this.sectionIds.laneA : this.sectionIds.laneB;
+			if (!this.transferPallet(pallet, targetSection)) {
+				pallet.progress = Math.min(pallet.progress, this.safeEndHoldProgress(path));
+				continue;
+			}
+			lane[freeIndex] = pallet.palletId;
+			pallet.gantrySlot = freeIndex;
+			pallet.stage = pallet.stage === 'to-gantry-a' ? 'gantry-a' : 'gantry-b';
+			pallet.progress = 1;
+			delete pallet.loadSlot;
+			delete pallet.waitingReason;
+		}
+
+		const returning = [...this.pallets.values()]
+			.filter((pallet) => pallet.stage === 'returning')
+			.sort((left, right) => (left.returnSequence ?? Number.MAX_SAFE_INTEGER) - (right.returnSequence ?? Number.MAX_SAFE_INTEGER) || left.palletId.localeCompare(right.palletId));
+		returning.forEach((pallet, index) => { pallet.returnQueueIndex = index; });
+		this.assignReturnLoadingSlots(returning);
+		for (const pallet of returning) {
+			const path = this.getReturnRoutePoints(pallet);
+			const preferredLoadSlot = pallet.returnLoadSlot ?? -1;
+			const targetOccupied = preferredLoadSlot < 0 || Boolean(this.loadingSlots[preferredLoadSlot]);
+			const maxProgress = targetOccupied ? this.getReturnQueueHoldProgress(pallet, path) : 1;
+			const previousProgress = pallet.progress;
+			this.advancePalletOnPath(pallet, path, travelMeters * 0.75, maxProgress);
+			if (pallet.progress <= previousProgress + 0.000001 && pallet.progress >= 0) pallet.waitingReason = 'TARGET_SECTION_FULL';
+			else delete pallet.waitingReason;
+			if (pallet.progress < 1) continue;
+			if (preferredLoadSlot < 0 || this.loadingSlots[preferredLoadSlot] || !this.transferPallet(pallet, this.sectionIds.loading)) {
+				pallet.progress = Math.min(pallet.progress, this.getReturnQueueHoldProgress(pallet, path));
+				continue;
+			}
+			this.loadingSlots[preferredLoadSlot] = pallet.palletId;
+			pallet.stage = 'loading';
+			pallet.loadSlot = preferredLoadSlot;
+			pallet.progress = 1;
+			delete pallet.gantrySlot;
+			delete pallet.returnFrom;
+			delete pallet.returnOrder;
+			delete pallet.returnSequence;
+			delete pallet.returnQueueIndex;
+			delete pallet.returnLoadSlot;
+		}
+	}
+
+	private tryStartGantryBatch() {
+		if (this.gantryTask.state !== 'idle') return;
+		if (!this.activeWoodPallet || this.activeWoodPallet.layer >= WOOD_MAX_LAYERS) return;
+		const palletIds = [...this.gantryLaneA, ...this.gantryLaneB].filter((item): item is string => Boolean(item));
+		if (palletIds.length !== GANTRY_BATCH) return;
+		const pallets = palletIds.map((id) => this.pallets.get(id)).filter(Boolean) as PlasticPalletRuntime[];
+		if (pallets.some((item) => !item.loaded || !item.silkCakeId)) return;
+		this.gantryTask = {
+			state: 'picking',
+			progress: 0,
+			palletIds,
+			silkCakeIds: pallets.map((item) => item.silkCakeId!),
+			targetLayer: this.activeWoodPallet.layer,
+			attachedAtPick: false,
+			attachedAtPlace: false,
+		};
+	}
+
+	private updateGantry(deltaSeconds: number) {
+		if (this.gantryTask.state === 'idle') {
+			this.gantryCarriage.position.set(10, 4.35, -5.9);
+			return;
+		}
+		const duration = Math.max(0.2, this.options.gantryCycleSeconds);
+		this.gantryTask.progress = clamp01(this.gantryTask.progress + deltaSeconds / duration);
+		const p = this.gantryTask.progress;
+		if (p < 0.45) {
+			this.gantryCarriage.position.x = 10;
+			this.gantryCarriage.position.z = -5.9;
+			this.gantryLift.position.y = -Math.sin((p / 0.45) * Math.PI) * 0.75;
+		} else {
+			const local = (p - 0.45) / 0.55;
+			this.gantryCarriage.position.z = THREE.MathUtils.lerp(-5.9, WOOD_LANE_Z, local);
+			this.gantryLift.position.y = -Math.sin(local * Math.PI) * 0.65;
+		}
+		if (!this.gantryTask.attachedAtPick && p >= 0.28) {
+			this.gantryTask.attachedAtPick = true;
+			for (const silkCakeId of this.gantryTask.silkCakeIds) {
+				const cake = this.cakes.get(silkCakeId);
+				if (!cake) continue;
+				this.gantryGripper.attach(cake.root);
+				cake.state = 'gantry-picking';
+			}
+		}
+		if (!this.gantryTask.attachedAtPlace && p >= 0.78 && this.activeWoodPallet) {
+			this.gantryTask.attachedAtPlace = true;
+			this.placeGantryLayer(this.activeWoodPallet);
+		}
+		if (p >= 1) this.finishGantryBatch();
+	}
+
+	private placeGantryLayer(wood: WoodenPalletRuntime) {
+		const layer = this.gantryTask.targetLayer;
+		for (let index = 0; index < this.gantryTask.silkCakeIds.length; index += 1) {
+			const silkCakeId = this.gantryTask.silkCakeIds[index];
+			const cake = this.cakes.get(silkCakeId);
+			if (!cake) continue;
+			wood.stackAnchor.attach(cake.root);
+			const row = Math.floor(index / 3);
+			const column = index % 3;
+			cake.root.position.set(-1.55 + column * 1.55, 0.36 + layer * 0.46, -0.68 + row * 1.36);
+			cake.root.rotation.set(0, 0, 0);
+			cake.state = 'on-wood-pallet';
+			wood.silkCakeIds.push(silkCakeId);
+		}
+		wood.layer += 1;
+	}
+
+	private finishGantryBatch() {
+		const returnPlans = this.gantryTask.palletIds.map((palletId) => {
+			const pallet = this.pallets.get(palletId)!;
+			const fromLane: 'A' | 'B' = pallet.stage === 'gantry-a' ? 'A' : 'B';
+			pallet.returnFrom = fromLane;
+			const pathToMerger = fromLane === 'A'
+				? [GANTRY_LANE_A_POSITIONS[pallet.gantrySlot ?? 2], this.getRoutePointPosition('silk-gantry', new THREE.Vector3(15, 0.94, -7.6)), this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2))]
+				: [GANTRY_LANE_B_POSITIONS[pallet.gantrySlot ?? 2], this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2))];
+			return { pallet, fromLane, preMergeDistance: polylineLength(pathToMerger) };
+		}).filter((item) => Boolean(item.pallet));
+		// 两条支路按“到汇流口的距离”统一编队；同一支路自然保持前车先行，
+		// 两支路在 merger 处也严格按 RETURN_CONVOY_GAP 依次通过。
+		returnPlans.sort((left, right) => left.preMergeDistance - right.preMergeDistance || left.pallet.palletId.localeCompare(right.pallet.palletId));
+		const baseMergeDistance = Math.max(0, ...returnPlans.map((item) => item.preMergeDistance));
+		for (let returnOrder = 0; returnOrder < returnPlans.length; returnOrder += 1) {
+			const { pallet, fromLane, preMergeDistance } = returnPlans[returnOrder];
+			pallet.loaded = false;
+			delete pallet.silkCakeId;
+			pallet.cakeAnchor.clear();
+			const lane = fromLane === 'A' ? this.gantryLaneA : this.gantryLaneB;
+			const index = lane.indexOf(pallet.palletId);
+			if (index >= 0) lane[index] = undefined;
+			if (this.transferPallet(pallet, this.sectionIds.returning)) {
+				pallet.returnOrder = returnOrder;
+				pallet.returnSequence = this.returnSequence++;
+				// 回流从上料线左端进入，最前面的托盘先进入最远的 5 号位，后车依次停靠，禁止穿过已停托盘。
+				pallet.returnLoadSlot = ROBOT_BATCH - 1 - returnOrder;
+				pallet.stage = 'returning';
+				const returnPath = this.getReturnRoutePoints(pallet);
+				const waitDistance = Math.max(0, baseMergeDistance + returnOrder * RETURN_CONVOY_GAP - preMergeDistance);
+				pallet.progress = -waitDistance / Math.max(0.001, polylineLength(returnPath));
+			}
+		}
+		if (this.activeWoodPallet && this.activeWoodPallet.layer >= WOOD_MAX_LAYERS) {
+			this.activeWoodPallet.stage = 'covering';
+			this.activeWoodPallet.progress = 0;
+			this.woodProcessQueue.push(this.activeWoodPallet);
+			this.activeWoodPallet = undefined;
+			this.woodFeedElapsed = 0;
+		}
+		this.gantryTask = this.createIdleGantryTask();
+	}
+
+	private updateWoodPostProcess(deltaSeconds: number) {
+		for (const wood of this.woodProcessQueue) {
+			if (wood.stage === 'stored') continue;
+			const duration = wood.stage === 'covering' ? this.options.coverCycleSeconds
+				: wood.stage === 'labeling' ? this.options.labelCycleSeconds
+					: wood.stage === 'wrapping' ? this.options.wrappingCycleSeconds
+						: wood.stage === 'inbound' ? this.options.warehouseInboundCycleSeconds : 1;
+			wood.progress = clamp01(wood.progress + deltaSeconds / duration);
+			if (wood.stage === 'covering') {
+				lerpPose(wood.root, WOOD_STACK_POSITION, COVER_POSITION, wood.progress);
+				this.coverGantryHead.position.y = -Math.sin(wood.progress * Math.PI) * 0.8;
+				if (wood.progress >= 1) {
+					this.attachCover(wood);
+					wood.coverApplied = true;
+					wood.stage = 'labeling';
+					wood.progress = 0;
+				}
+				continue;
+			}
+			if (wood.stage === 'labeling') {
+				lerpPose(wood.root, COVER_POSITION, LABEL_POSITION, wood.progress);
+				if (wood.progress >= 1) {
+					this.attachLabel(wood);
+					wood.labelApplied = true;
+					wood.stage = 'wrapping';
+					wood.progress = 0;
+				}
+				continue;
+			}
+			if (wood.stage === 'wrapping') {
+				lerpPose(wood.root, LABEL_POSITION, WRAP_POSITION, Math.min(1, wood.progress * 0.25));
+				this.wrapperFilm.visible = true;
+				this.wrapperFilm.rotation.y += deltaSeconds * 2.5;
+				if (wood.progress >= 1) {
+					wood.wrapped = true;
+					wood.stage = 'inbound';
+					wood.progress = 0;
+					this.wrapperFilm.visible = false;
+				}
+				continue;
+			}
+			if (wood.stage === 'inbound') {
+				lerpPose(wood.root, WRAP_POSITION, INBOUND_POSITION, wood.progress);
+				if (wood.progress >= 1) {
+					wood.stage = 'stored';
+					wood.progress = 1;
+					wood.root.position.copy(STORED_POSITION).add(new THREE.Vector3(0, this.storedWoodPallets.length * 0.08, 0));
+					for (const id of wood.silkCakeIds) {
+						const cake = this.cakes.get(id);
+						if (cake) cake.state = 'stored';
+					}
+					this.storedWoodPallets.push(wood);
+				}
+			}
+		}
+		for (let index = this.woodProcessQueue.length - 1; index >= 0; index -= 1) {
+			if (this.woodProcessQueue[index].stage === 'stored') this.woodProcessQueue.splice(index, 1);
+		}
+	}
+
+	private attachCover(wood: WoodenPalletRuntime) {
+		if (wood.root.getObjectByName('TopCover')) return;
+		const cover = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.12, 2.35), this.coverMaterial);
+		cover.name = 'TopCover';
+		cover.position.y = 0.45 + WOOD_MAX_LAYERS * 0.46;
+		wood.root.add(cover);
+	}
+
+	private attachLabel(wood: WoodenPalletRuntime) {
+		if (wood.root.getObjectByName('PackageLabel')) return;
+		const label = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.65), this.labelMaterial);
+		label.name = 'PackageLabel';
+		label.position.set(2.36, 2.1, 0);
+		label.rotation.y = Math.PI / 2;
+		wood.root.add(label);
+	}
+
+	private getRoutePointPosition(pointId: string, fallback: THREE.Vector3) {
+		const point = this.route.points.find((item) => item.pointId === pointId);
+		return point ? new THREE.Vector3(point.position[0], point.position[1], point.position[2]) : fallback.clone();
+	}
+
+	private getOutboundRoutePoints(pallet: PlasticPalletRuntime) {
+		const from = pallet.loadSlot !== undefined ? LOAD_SLOT_POSITIONS[pallet.loadSlot] : LOAD_SLOT_POSITIONS[5];
+		const isLaneA = pallet.stage === 'to-gantry-a';
+		const lanePositions = isLaneA ? GANTRY_LANE_A_POSITIONS : GANTRY_LANE_B_POSITIONS;
+		const target = lanePositions[pallet.gantrySlot ?? 2];
+		const diverter = this.getRoutePointPosition('silk-diverter', new THREE.Vector3(5.1, 0.94, -5.8));
+		const laneEntry = this.getRoutePointPosition(isLaneA ? 'silk-left-buffer' : 'silk-right-buffer', new THREE.Vector3(6.8, 0.94, isLaneA ? -7.6 : -4.2));
+		return [from, diverter, laneEntry, target];
+	}
+
+	private getReturnRoutePoints(pallet: PlasticPalletRuntime) {
+		const slot = pallet.gantrySlot ?? 2;
+		const start = pallet.returnFrom === 'A' ? GANTRY_LANE_A_POSITIONS[slot] : GANTRY_LANE_B_POSITIONS[slot];
+		const gantryExit = this.getRoutePointPosition('silk-gantry', new THREE.Vector3(15, 0.94, -7.6));
+		const merger = this.getRoutePointPosition('silk-merger', new THREE.Vector3(15, 0.94, -4.2));
+		const east = this.getRoutePointPosition('silk-return-east', RETURN_CORNER_EAST);
+		const west = this.getRoutePointPosition('silk-return-west', RETURN_CORNER_WEST);
+		const returnEntry = this.getRoutePointPosition('silk-source', RETURN_ENTRY);
+		const target = LOAD_SLOT_POSITIONS[pallet.returnLoadSlot ?? 0];
+		return pallet.returnFrom === 'A'
+			? [start, gantryExit, merger, east, west, returnEntry, target]
+			: [start, merger, east, west, returnEntry, target];
+	}
+
+	private getPalletPlannedPosition(pallet: PlasticPalletRuntime) {
+		if (pallet.stage === 'loading' && pallet.loadSlot !== undefined) return LOAD_SLOT_POSITIONS[pallet.loadSlot].clone();
+		if (pallet.stage === 'to-gantry-a' || pallet.stage === 'to-gantry-b') return pointOnPolyline(this.getOutboundRoutePoints(pallet), pallet.progress);
+		if (pallet.stage === 'gantry-a' && pallet.gantrySlot !== undefined) return GANTRY_LANE_A_POSITIONS[pallet.gantrySlot].clone();
+		if (pallet.stage === 'gantry-b' && pallet.gantrySlot !== undefined) return GANTRY_LANE_B_POSITIONS[pallet.gantrySlot].clone();
+		if (pallet.stage === 'returning') return pointOnPolyline(this.getReturnRoutePoints(pallet), pallet.progress);
+		return pallet.root.position.clone();
+	}
+
+	private isPalletPositionClear(pallet: PlasticPalletRuntime, candidate: THREE.Vector3) {
+		const minimumGapSquared = PALLET_MIN_CENTER_GAP * PALLET_MIN_CENTER_GAP;
+		for (const other of this.pallets.values()) {
+			if (other === pallet || other.stage === 'source-queue') continue;
+			const otherPosition = this.getPalletPlannedPosition(other);
+			const dx = candidate.x - otherPosition.x;
+			const dz = candidate.z - otherPosition.z;
+			if (dx * dx + dz * dz < minimumGapSquared - 0.000001) return false;
+		}
+		return true;
+	}
+
+	private advancePalletOnPath(pallet: PlasticPalletRuntime, points: THREE.Vector3[], travelMeters: number, maxProgress = 1) {
+		const length = Math.max(0.001, polylineLength(points));
+		const current = pallet.progress;
+		const desired = Math.min(maxProgress, current + Math.max(0, travelMeters) / length);
+		if (desired <= current + 0.0000001) return;
+		if (this.isPalletPositionClear(pallet, pointOnPolyline(points, desired))) {
+			pallet.progress = desired;
+			return;
+		}
+		// 在当前位置和目标位置之间二分寻找最后一个安全点，避免把托盘简单退回固定百分比造成不同长度路线间距失真。
+		let low = current;
+		let high = desired;
+		for (let index = 0; index < 14; index += 1) {
+			const middle = (low + high) / 2;
+			if (this.isPalletPositionClear(pallet, pointOnPolyline(points, middle))) low = middle;
+			else high = middle;
+		}
+		pallet.progress = low;
+	}
+
+	private safeEndHoldProgress(points: THREE.Vector3[]) {
+		const length = Math.max(0.001, polylineLength(points));
+		return Math.max(0, (length - PALLET_MIN_CENTER_GAP) / length);
+	}
+
+	private getReturnQueueHoldProgress(pallet: PlasticPalletRuntime, points: THREE.Vector3[]) {
+		const length = Math.max(0.001, polylineLength(points));
+		const distanceToReturnEntry = polylineLength(points.slice(0, -1));
+		const queueDistance = Math.max(0, distanceToReturnEntry - (pallet.returnQueueIndex ?? pallet.returnOrder ?? 0) * RETURN_CONVOY_GAP);
+		return Math.min(1, queueDistance / length);
+	}
+
+	private assignReturnLoadingSlots(returning: PlasticPalletRuntime[]) {
+		const reserved = new Set<number>();
+		for (let index = 0; index < this.loadingSlots.length; index += 1) {
+			if (this.loadingSlots[index]) reserved.add(index);
+		}
+		for (const pallet of returning) {
+			let freeSlot = -1;
+			for (let index = ROBOT_BATCH - 1; index >= 0; index -= 1) {
+				if (!reserved.has(index)) {
+					freeSlot = index;
+					break;
+				}
+			}
+			if (freeSlot < 0) continue;
+			if (pallet.returnLoadSlot === freeSlot) {
+				reserved.add(freeSlot);
+				continue;
+			}
+			const oldPath = this.getReturnRoutePoints(pallet);
+			const travelledDistance = pallet.progress * Math.max(0.001, polylineLength(oldPath));
+			pallet.returnLoadSlot = freeSlot;
+			const newPath = this.getReturnRoutePoints(pallet);
+			pallet.progress = travelledDistance / Math.max(0.001, polylineLength(newPath));
+			reserved.add(freeSlot);
+		}
+	}
+
+	private applyAllPoses() {
+		for (let index = 0; index < this.loadingSlots.length; index += 1) {
+			const palletId = this.loadingSlots[index];
+			if (!palletId) continue;
+			const pallet = this.pallets.get(palletId);
+			if (pallet) pallet.root.position.copy(LOAD_SLOT_POSITIONS[index]);
+		}
+		for (const pallet of this.pallets.values()) {
+			if (pallet.stage === 'source-queue') {
+				const queueIndex = this.sourceQueue.indexOf(pallet.palletId);
+				const safeQueueIndex = Math.max(0, queueIndex);
+				pallet.root.position.set(-18 - Math.floor(safeQueueIndex / 10) * SOURCE_QUEUE_GAP, 0.94, -13 + (safeQueueIndex % 10) * SOURCE_QUEUE_GAP);
+				continue;
+			}
+			if (pallet.stage === 'to-gantry-a' || pallet.stage === 'to-gantry-b') {
+				lerpPolylinePose(pallet.root, this.getOutboundRoutePoints(pallet), pallet.progress);
+				continue;
+			}
+			if (pallet.stage === 'gantry-a' && pallet.gantrySlot !== undefined) pallet.root.position.copy(GANTRY_LANE_A_POSITIONS[pallet.gantrySlot]);
+			if (pallet.stage === 'gantry-b' && pallet.gantrySlot !== undefined) pallet.root.position.copy(GANTRY_LANE_B_POSITIONS[pallet.gantrySlot]);
+			if (pallet.stage === 'returning') {
+				lerpPolylinePose(pallet.root, this.getReturnRoutePoints(pallet), pallet.progress);
+			}
+		}
+		if (this.activeWoodPallet?.stage === 'stacking') this.activeWoodPallet.root.position.copy(WOOD_STACK_POSITION);
+	}
+
+	private createIdleRobotTask(): RobotTaskRuntime {
+		return { state: 'idle', progress: 0, side: this.currentSide, row: this.currentRow, palletIds: [], silkCakeIds: [], attachedAtPick: false, attachedAtPlace: false };
+	}
+
+	private createIdleGantryTask(): GantryTaskRuntime {
+		return { state: 'idle', progress: 0, palletIds: [], silkCakeIds: [], targetLayer: 0, attachedAtPick: false, attachedAtPlace: false };
+	}
+}

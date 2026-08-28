@@ -56,7 +56,7 @@ export interface TwinSceneObjectDefinition {
 	resourceId?: string;
 	assetId?: string;
 	procedural?: {
-		preset: 'basic-conveyor' | 'packaging-line' | 'silk-cake-line';
+		preset: 'basic-conveyor' | 'packaging-line' | 'silk-cake-line' | 'silk-cake-packaging-line';
 		palletCount?: number;
 	};
 	transform: TwinTransform;
@@ -154,6 +154,12 @@ export interface SilkLineSimulationOptions {
 	stackRows: number;
 	stackColumns: number;
 	stackLayers: number;
+	coverCycleSeconds?: number;
+	labelCycleSeconds?: number;
+	wrappingCycleSeconds?: number;
+	warehouseInboundCycleSeconds?: number;
+	emptyWoodPalletFeedSeconds?: number;
+	autoFeedWoodPallet?: boolean;
 }
 
 export interface SilkCakeDefinition {
@@ -363,12 +369,12 @@ export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 	},
 });
 
-/** 可直接入库的丝饼物流场景；50 是循环载具总数，超出在线容量的托盘进入 SourceQueue。 */
+/** V4 完整丝饼工艺：1×6 上料、2×3 桁架、木托盘 8 层、盖板/贴标/缠膜/入库。 */
 export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 	schemaVersion: twinSceneSchemaVersion,
 	sceneId: createId('scene'),
-	name: '50托盘丝饼产线数字孪生',
-	description: '丝车经旋转台定位，机器人将丝饼放到绿色塑料托盘，托盘分段输送并经岔口到桁架码垛，空托盘随后回流。',
+	name: '丝饼完整工艺数字孪生 V4',
+	description: '双面丝车 3×6、机器人 1×6 批量上料、塑料托盘分段输送、桁架 2×3、木托盘 8 层、盖板、贴标、缠膜和立体库入库。',
 	rootAssetId: null,
 	world: {
 		unit: 'meter',
@@ -379,9 +385,9 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 	objects: [
 		{
 			objectId: 'silk-cake-line-procedural',
-			name: '程序化丝饼产线',
+			name: '程序化丝饼完整工艺 V4',
 			kind: 'procedural',
-			procedural: { preset: 'silk-cake-line', palletCount: 50 },
+			procedural: { preset: 'silk-cake-packaging-line', palletCount: 50 },
 			transform: defaultTransform(),
 		},
 	],
@@ -396,31 +402,31 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 			loop: true,
 			orientToPath: true,
 			points: [
-				{ pointId: 'silk-source', name: '空托盘上线', position: [-16, 0.92, -6], kind: 'station' },
-				{ pointId: 'silk-loading', name: '机器人上料工位', position: [-10, 0.92, -6], kind: 'processStation' },
-				{ pointId: 'silk-buffer', name: '上料后缓存', position: [-4, 0.92, -6], kind: 'buffer' },
-				{ pointId: 'silk-diverter', name: '丝饼分流岔口', position: [2, 0.92, -6], kind: 'diverter', decisionMode: 'simulation', decisionTimeoutSeconds: 10 },
-				{ pointId: 'silk-left-buffer', name: 'A线缓存', position: [8, 0.92, -10], kind: 'buffer' },
-				{ pointId: 'silk-left-inspection', name: 'A线检测', position: [15, 0.92, -10], kind: 'sensor' },
-				{ pointId: 'silk-right-buffer', name: 'B线缓存', position: [8, 0.92, -2], kind: 'buffer' },
-				{ pointId: 'silk-right-inspection', name: 'B线检测', position: [15, 0.92, -2], kind: 'sensor' },
-				{ pointId: 'silk-merger', name: '双线汇流', position: [20, 0.92, -6], kind: 'merger' },
-				{ pointId: 'silk-gantry', name: '桁架码垛工位', position: [25, 0.92, -6], kind: 'processStation' },
-				{ pointId: 'silk-return-east', name: '空托盘回流东缓存', position: [25, 0.92, 8], kind: 'buffer' },
-				{ pointId: 'silk-return-west', name: '空托盘回流西缓存', position: [-16, 0.92, 8], kind: 'buffer' },
+				{ pointId: 'silk-source', name: '空托盘回流接入口', position: [-11, 0.92, -5.8], kind: 'station' },
+				{ pointId: 'silk-loading', name: '机器人上料工位', position: [-6.125, 0.92, -5.8], kind: 'processStation' },
+				{ pointId: 'silk-buffer', name: '上料后缓存', position: [3.2, 0.92, -5.8], kind: 'buffer' },
+				{ pointId: 'silk-diverter', name: '丝饼分流岔口', position: [5.1, 0.92, -5.8], kind: 'diverter', decisionMode: 'simulation', decisionTimeoutSeconds: 10 },
+				{ pointId: 'silk-left-buffer', name: 'A线缓存', position: [6.8, 0.92, -7.6], kind: 'buffer' },
+				{ pointId: 'silk-left-inspection', name: 'A线检测', position: [13.2, 0.92, -7.6], kind: 'sensor' },
+				{ pointId: 'silk-right-buffer', name: 'B线缓存', position: [6.8, 0.92, -4.2], kind: 'buffer' },
+				{ pointId: 'silk-right-inspection', name: 'B线检测', position: [13.2, 0.92, -4.2], kind: 'sensor' },
+				{ pointId: 'silk-merger', name: 'B线回流汇入口', position: [15, 0.92, -4.2], kind: 'merger' },
+				{ pointId: 'silk-gantry', name: '桁架码垛工位', position: [15, 0.92, -7.6], kind: 'processStation' },
+				{ pointId: 'silk-return-east', name: '空托盘回流东缓存', position: [15, 0.92, 4.8], kind: 'buffer' },
+				{ pointId: 'silk-return-west', name: '空托盘回流西缓存', position: [-12.5, 0.92, 4.8], kind: 'buffer' },
 			],
 			edges: [
-				{ edgeId: 'silk-edge-loading', fromPointId: 'silk-source', toPointId: 'silk-loading', name: '机器人上料段', bidirectional: false, enabled: true, priority: 0, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-load-buffer', fromPointId: 'silk-loading', toPointId: 'silk-buffer', name: '上料后缓存段', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-loading', fromPointId: 'silk-source', toPointId: 'silk-loading', name: '机器人1×6上料缓存', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-load-buffer', fromPointId: 'silk-loading', toPointId: 'silk-buffer', name: '六托盘批次放行段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-diverter-in', fromPointId: 'silk-buffer', toPointId: 'silk-diverter', name: '分流前缓存段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-left-a', fromPointId: 'silk-diverter', toPointId: 'silk-left-buffer', name: 'A线入口', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-left-b', fromPointId: 'silk-left-buffer', toPointId: 'silk-left-inspection', name: 'A线检测段', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-left-merge', fromPointId: 'silk-left-inspection', toPointId: 'silk-merger', name: 'A线汇流段', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-left-b', fromPointId: 'silk-left-buffer', toPointId: 'silk-left-inspection', name: '桁架塑托A线3位', bidirectional: false, enabled: true, priority: 10, capacity: 3, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-left-merge', fromPointId: 'silk-left-inspection', toPointId: 'silk-gantry', name: 'A线空托盘出站', bidirectional: false, enabled: true, priority: 10, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-right-a', fromPointId: 'silk-diverter', toPointId: 'silk-right-buffer', name: 'B线入口', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-right-b', fromPointId: 'silk-right-buffer', toPointId: 'silk-right-inspection', name: 'B线检测段', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-right-merge', fromPointId: 'silk-right-inspection', toPointId: 'silk-merger', name: 'B线汇流段', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-gantry', fromPointId: 'silk-merger', toPointId: 'silk-gantry', name: '桁架码垛段', bidirectional: false, enabled: true, priority: 0, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
-				{ edgeId: 'silk-edge-return-east', fromPointId: 'silk-gantry', toPointId: 'silk-return-east', name: '空托盘回流东段', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-right-b', fromPointId: 'silk-right-buffer', toPointId: 'silk-right-inspection', name: '桁架塑托B线3位', bidirectional: false, enabled: true, priority: 0, capacity: 3, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-right-merge', fromPointId: 'silk-right-inspection', toPointId: 'silk-merger', name: 'B线空托盘出站', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-gantry', fromPointId: 'silk-gantry', toPointId: 'silk-merger', name: 'A/B空托盘汇流段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
+				{ edgeId: 'silk-edge-return-east', fromPointId: 'silk-merger', toPointId: 'silk-return-east', name: '空托盘回流东段', bidirectional: false, enabled: true, priority: 0, capacity: 6, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-return-main', fromPointId: 'silk-return-east', toPointId: 'silk-return-west', name: '空托盘回流主段', bidirectional: false, enabled: true, priority: 0, capacity: 8, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 				{ edgeId: 'silk-edge-return-entry', fromPointId: 'silk-return-west', toPointId: 'silk-source', name: '空托盘回流入口', bidirectional: false, enabled: true, priority: 0, capacity: 5, occupancyMode: 'simulation', reservationTimeoutSeconds: 30 },
 			],
@@ -438,16 +444,22 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 		showGrid: true,
 		silkLineSimulation: {
 			palletCount: 50,
-			silkCakesPerCart: 24,
-			cartChangeDelaySeconds: 6,
-			robotCycleSeconds: 4,
+			silkCakesPerCart: 36,
+			cartChangeDelaySeconds: 4,
+			robotCycleSeconds: 5,
 			gantryCycleSeconds: 5,
 			palletReleaseIntervalSeconds: 0.8,
 			loopEmptyPallets: true,
 			autoReplaceSilkCart: true,
-			stackRows: 3,
-			stackColumns: 4,
-			stackLayers: 4,
+			stackRows: 2,
+			stackColumns: 3,
+			stackLayers: 8,
+			coverCycleSeconds: 3,
+			labelCycleSeconds: 2,
+			wrappingCycleSeconds: 8,
+			warehouseInboundCycleSeconds: 5,
+			emptyWoodPalletFeedSeconds: 1,
+			autoFeedWoodPallet: true,
 		},
 	},
 	editorExtension: {
@@ -468,7 +480,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 	const allowedRuleOperators: TwinRouteRuleOperator[] = ['equals', 'notEquals', 'greaterThan', 'greaterThanOrEqual', 'lessThan', 'lessThanOrEqual', 'contains', 'truthy', 'falsy'];
 	const allowedOccupancyModes: TwinSectionOccupancyMode[] = ['calculated', 'simulation', 'live'];
 	const allowedDecisionModes: TwinJunctionDecisionMode[] = ['plc', 'simulation', 'manual'];
-	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line', 'silk-cake-line'];
+	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'];
 	if (manifest.schemaVersion !== twinSceneSchemaVersion) {
 		diagnostics.push({ severity: 'error', code: 'twin.schema.unsupported', message: `不支持的场景合同版本：${manifest.schemaVersion}` });
 	}
@@ -487,6 +499,14 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			const value = silkSimulation[property];
 			if (!Number.isFinite(value) || value < minimum || value > maximum) diagnostics.push({ severity: 'error', code: 'twin.silk-line.simulation.range.invalid', message: `${property} 必须在 ${minimum} 到 ${maximum} 之间。`, path: `runtime.silkLineSimulation.${property}` });
 		}
+		for (const [property, minimum, maximum] of [['coverCycleSeconds', 0.2, 120], ['labelCycleSeconds', 0.2, 120], ['wrappingCycleSeconds', 0.2, 300], ['warehouseInboundCycleSeconds', 0.2, 300], ['emptyWoodPalletFeedSeconds', 0, 300]] as const) {
+			const value = silkSimulation[property];
+			if (value !== undefined && (!Number.isFinite(value) || value < minimum || value > maximum)) diagnostics.push({ severity: 'error', code: 'twin.silk-line.simulation.range.invalid', message: `${property} 必须在 ${minimum} 到 ${maximum} 之间。`, path: `runtime.silkLineSimulation.${property}` });
+		}
+		const isV4 = manifest.objects.some((item) => item.procedural?.preset === 'silk-cake-packaging-line');
+		if (isV4 && (silkSimulation.silkCakesPerCart !== 36 || silkSimulation.stackRows !== 2 || silkSimulation.stackColumns !== 3 || silkSimulation.stackLayers !== 8)) {
+			diagnostics.push({ severity: 'error', code: 'twin.silk-line.v4.fixed-process.invalid', message: 'V4 固定工艺必须为双面丝车 36 件、木托盘 2×3×8 共 48 件。', path: 'runtime.silkLineSimulation' });
+		}
 	}
 
 	const routeIds = new Set<string>();
@@ -502,10 +522,10 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (sceneObject.procedural && !allowedProceduralPresets.includes(sceneObject.procedural.preset)) {
 			diagnostics.push({ severity: 'error', code: 'twin.object.procedural.preset.invalid', message: '程序化对象预设不受支持。', path: `objects[${objectIndex}].procedural.preset` });
 		}
-		if (['packaging-line', 'silk-cake-line'].includes(sceneObject.procedural?.preset || '') && (!Number.isInteger(sceneObject.procedural?.palletCount) || (sceneObject.procedural?.palletCount || 0) < 1 || (sceneObject.procedural?.palletCount || 0) > 200)) {
+		if (['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(sceneObject.procedural?.preset || '') && (!Number.isInteger(sceneObject.procedural?.palletCount) || (sceneObject.procedural?.palletCount || 0) < 6 || (sceneObject.procedural?.palletCount || 0) > 200)) {
 			diagnostics.push({ severity: 'error', code: 'twin.object.procedural.pallet-count.invalid', message: '包装线托盘数量必须是 1 到 200 的整数。', path: `objects[${objectIndex}].procedural.palletCount` });
 		}
-		if (sceneObject.procedural?.preset === 'silk-cake-line' && silkSimulation && sceneObject.procedural.palletCount !== silkSimulation.palletCount) {
+		if (['silk-cake-line', 'silk-cake-packaging-line'].includes(sceneObject.procedural?.preset || '') && silkSimulation && sceneObject.procedural?.palletCount !== silkSimulation.palletCount) {
 			diagnostics.push({ severity: 'warning', code: 'twin.silk-line.pallet-count.mismatch', message: '程序化对象与丝饼仿真参数的托盘数不一致，运行时将以对象配置为准。', path: `objects[${objectIndex}].procedural.palletCount` });
 		}
 	}

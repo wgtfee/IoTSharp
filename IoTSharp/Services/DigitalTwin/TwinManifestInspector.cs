@@ -29,6 +29,10 @@ internal static class TwinManifestInspector
     {
         "equals", "notEquals", "greaterThan", "greaterThanOrEqual", "lessThan", "lessThanOrEqual", "contains", "truthy", "falsy"
     };
+    private static readonly HashSet<string> ForbiddenExecutablePropertyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "script", "scripts", "function", "functions", "javascript"
+    };
 
     /// <summary>
     /// 将客户端草稿固定到服务端场景 ID 和根 Asset，并执行无脚本合同检查。
@@ -111,7 +115,7 @@ internal static class TwinManifestInspector
             return;
         }
 
-        foreach (var (name, minimum, maximum) in new[]
+		foreach (var (name, minimum, maximum) in new[]
         {
             ("palletCount", 1, 200), ("silkCakesPerCart", 1, 100),
             ("stackRows", 1, 10), ("stackColumns", 1, 10), ("stackLayers", 1, 20)
@@ -126,15 +130,38 @@ internal static class TwinManifestInspector
         foreach (var (name, minimum, maximum) in new[]
         {
             ("cartChangeDelaySeconds", 0.0, 300.0), ("robotCycleSeconds", 0.2, 120.0),
-            ("gantryCycleSeconds", 0.2, 120.0), ("palletReleaseIntervalSeconds", 0.0, 60.0)
-        })
-        {
-            if (!simulation.TryGetProperty(name, out var value) || !value.TryGetDouble(out var parsed) || parsed < minimum || parsed > maximum)
-            {
+            ("gantryCycleSeconds", 0.2, 120.0), ("palletReleaseIntervalSeconds", 0.0, 60.0),
+            ("coverCycleSeconds", 0.2, 120.0), ("labelCycleSeconds", 0.2, 120.0),
+            ("wrappingCycleSeconds", 0.2, 300.0), ("warehouseInboundCycleSeconds", 0.2, 300.0),
+            ("emptyWoodPalletFeedSeconds", 0.0, 300.0)
+		})
+		{
+			var optionalV4 = name is "coverCycleSeconds" or "labelCycleSeconds" or "wrappingCycleSeconds" or "warehouseInboundCycleSeconds" or "emptyWoodPalletFeedSeconds";
+			if (!simulation.TryGetProperty(name, out var value))
+			{
+				if (optionalV4) continue;
+				result.Diagnostics.Add(Error("twin.silk-line.simulation.range.invalid", $"{name} 必须在 {minimum} 到 {maximum} 之间。", $"runtime.silkLineSimulation.{name}"));
+				continue;
+			}
+			if (!value.TryGetDouble(out var parsed) || parsed < minimum || parsed > maximum)
+			{
                 result.Diagnostics.Add(Error("twin.silk-line.simulation.range.invalid", $"{name} 必须在 {minimum} 到 {maximum} 之间。", $"runtime.silkLineSimulation.{name}"));
-            }
-        }
-    }
+			}
+		}
+
+		var isV4 = manifest.TryGetProperty("objects", out var objects) && objects.ValueKind == JsonValueKind.Array &&
+			objects.EnumerateArray().Any(item => item.TryGetProperty("procedural", out var procedural) &&
+				procedural.ValueKind == JsonValueKind.Object && procedural.TryGetProperty("preset", out var preset) &&
+				preset.GetString() == "silk-cake-packaging-line");
+		if (isV4)
+		{
+			var fixedValues = new[] { ("silkCakesPerCart", 36), ("stackRows", 2), ("stackColumns", 3), ("stackLayers", 8) };
+			if (fixedValues.Any(entry => !simulation.TryGetProperty(entry.Item1, out var value) || !value.TryGetInt32(out var parsed) || parsed != entry.Item2))
+			{
+				result.Diagnostics.Add(Error("twin.silk-line.v4.fixed-process.invalid", "V4 固定工艺必须为双面丝车 36 件、木托盘 2×3×8 共 48 件。", "runtime.silkLineSimulation"));
+			}
+		}
+	}
 
     private static void InspectResources(JsonElement manifest, TwinManifestInspection result)
     {
@@ -205,11 +232,11 @@ internal static class TwinManifestInspector
                 procedural.ValueKind == JsonValueKind.Object)
             {
                 var preset = GetString(procedural, "preset");
-                if (preset is not ("basic-conveyor" or "packaging-line" or "silk-cake-line"))
+                if (preset is not ("basic-conveyor" or "packaging-line" or "silk-cake-line" or "silk-cake-packaging-line"))
                 {
                     result.Diagnostics.Add(Error("twin.object.procedural.preset.invalid", "程序化对象预设不受支持。", $"{path}.procedural.preset"));
                 }
-                else if (preset is "packaging-line" or "silk-cake-line")
+                else if (preset is "packaging-line" or "silk-cake-line" or "silk-cake-packaging-line")
                 {
                     var palletCount = GetInt(procedural, "palletCount", 0);
                     if (palletCount is < 1 or > 200)
@@ -634,8 +661,7 @@ internal static class TwinManifestInspector
                 foreach (var property in element.EnumerateObject())
                 {
                     var propertyPath = $"{path}.{property.Name}";
-                    if (property.Name.Contains("script", StringComparison.OrdinalIgnoreCase) ||
-                        property.Name.Equals("function", StringComparison.OrdinalIgnoreCase))
+                    if (IsForbiddenExecutablePropertyName(property.Name))
                     {
                         diagnostics.Add(Error("twin.script.forbidden", "场景清单禁止包含脚本或函数。", propertyPath));
                     }
@@ -668,6 +694,33 @@ internal static class TwinManifestInspector
                 }
                 break;
         }
+    }
+
+    private static bool IsForbiddenExecutablePropertyName(string propertyName)
+    {
+        if (ForbiddenExecutablePropertyNames.Contains(propertyName)) return true;
+        return ContainsIdentifierToken(propertyName, "script") || ContainsIdentifierToken(propertyName, "function");
+    }
+
+    private static bool ContainsIdentifierToken(string propertyName, string token)
+    {
+        var searchFrom = 0;
+        while (searchFrom < propertyName.Length)
+        {
+            var index = propertyName.IndexOf(token, searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) return false;
+
+            var end = index + token.Length;
+            var startsToken = index == 0 ||
+                              !char.IsLetterOrDigit(propertyName[index - 1]) ||
+                              (char.IsLower(propertyName[index - 1]) && char.IsUpper(propertyName[index]));
+            var endsToken = end == propertyName.Length ||
+                            !char.IsLetterOrDigit(propertyName[end]) ||
+                            char.IsUpper(propertyName[end]);
+            if (startsToken && endsToken) return true;
+            searchFrom = index + 1;
+        }
+        return false;
     }
 
     private static bool TryParseSourceKind(string value, out TwinBindingSourceKind kind) =>

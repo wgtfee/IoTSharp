@@ -13,16 +13,22 @@ import { TwinSectionGeometryResolver } from '/@/digital-twin/runtime/TwinSection
 
 export const defaultSilkLineSimulationOptions = (palletCount = 50): SilkLineSimulationOptions => ({
 	palletCount,
-	silkCakesPerCart: 24,
-	cartChangeDelaySeconds: 6,
-	robotCycleSeconds: 4,
+	silkCakesPerCart: 36,
+	cartChangeDelaySeconds: 4,
+	robotCycleSeconds: 5,
 	gantryCycleSeconds: 5,
 	palletReleaseIntervalSeconds: 0.8,
 	loopEmptyPallets: true,
 	autoReplaceSilkCart: true,
-	stackRows: 3,
-	stackColumns: 4,
-	stackLayers: 4,
+	stackRows: 2,
+	stackColumns: 3,
+	stackLayers: 8,
+	coverCycleSeconds: 3,
+	labelCycleSeconds: 2,
+	wrappingCycleSeconds: 8,
+	warehouseInboundCycleSeconds: 5,
+	emptyWoodPalletFeedSeconds: 1,
+	autoFeedWoodPallet: true,
 });
 
 /** 丝饼线业务编排层：先状态、后可视化；渲染器没有业务写权限。 */

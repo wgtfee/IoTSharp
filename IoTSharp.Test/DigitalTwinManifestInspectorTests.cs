@@ -96,6 +96,50 @@ public sealed class DigitalTwinManifestInspectorTests
     }
 
     [Fact]
+    public void Inspect_AllowsDescriptionButStillRejectsExecutablePropertyNames()
+    {
+        using var safeDocument = JsonDocument.Parse("""
+        {
+          "name": "包装线",
+          "description": "包装数字孪生场景说明",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "packaging-1", "name": "包装设备", "kind": "procedural",
+            "description": "包装设备说明",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [],
+          "routes": [{ "routeId": "main", "defaultSpeed": 1, "points": [{ "position": [0,0,0] }, { "position": [1,0,0] }] }]
+        }
+        """);
+
+        var safeResult = TwinManifestInspector.Inspect(safeDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(safeResult.Valid, string.Join("; ", safeResult.Diagnostics.Select(item => item.Message)));
+
+        using var unsafeDocument = JsonDocument.Parse("""
+        {
+          "name": "危险包装线",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "packaging-1", "name": "包装设备", "kind": "procedural",
+            "customScript": "alert(1)", "functionBody": "return true",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [],
+          "routes": [{ "routeId": "main", "defaultSpeed": 1, "points": [{ "position": [0,0,0] }, { "position": [1,0,0] }] }]
+        }
+        """);
+
+        var unsafeResult = TwinManifestInspector.Inspect(unsafeDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(unsafeResult.Valid);
+        Assert.Equal(2, unsafeResult.Diagnostics.Count(item => item.Code == "twin.script.forbidden"));
+    }
+
+    [Fact]
     public void Inspect_AcceptsIntersectionGraphAndPersistsBranchDecision()
     {
         using var document = JsonDocument.Parse("""
