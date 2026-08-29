@@ -10,7 +10,7 @@
 				<div class="scene-title"><div><small>{{ scene.sceneKey }}</small><h3>{{ scene.name }}</h3></div><el-tag :type="publicationState(scene).type">{{ publicationState(scene).label }}</el-tag></div>
 				<p>{{ scene.description || '暂无描述' }}</p>
 				<dl><div><dt>根 Asset</dt><dd>{{ scene.rootAssetName || scene.rootAssetId }}</dd></div><div><dt>草稿</dt><dd>r{{ scene.revision }}</dd></div><div><dt>线上版本</dt><dd>{{ scene.publishedVersion ? `v${scene.publishedVersion}` : '未发布' }}</dd></div><div><dt>更新时间</dt><dd>{{ formatDate(scene.updatedAt) }}</dd></div></dl>
-				<footer><el-button size="small" @click="edit(scene)">编辑草稿</el-button><el-button size="small" @click="viewDraft(scene)">查看草稿</el-button><el-button size="small" type="primary" :loading="publishingSceneId === scene.id" :disabled="scene.publishedSourceRevision === scene.revision" @click="publish(scene)">{{ scene.publishedVersion ? '发布新版本' : '发布' }}</el-button><el-button size="small" :disabled="!scene.publishedVersion" type="success" @click="viewPublished(scene)">查看线上</el-button><el-button size="small" @click="openVersions(scene)">版本历史</el-button></footer>
+				<footer><el-button size="small" @click="edit(scene)">编辑草稿</el-button><el-button size="small" @click="viewDraft(scene)">查看草稿</el-button><el-button size="small" type="primary" :loading="publishingSceneId === scene.id" :disabled="scene.publishedSourceRevision === scene.revision" @click="publish(scene)">{{ scene.publishedVersion ? '发布新版本' : '发布' }}</el-button><el-button size="small" :disabled="!scene.publishedVersion" type="success" @click="viewPublished(scene)">查看线上</el-button><el-button size="small" @click="openVersions(scene)">版本历史</el-button><el-button size="small" type="danger" plain :loading="deletingSceneId === scene.id" @click="remove(scene)">删除</el-button></footer>
 			</article>
 		</div>
 		<el-drawer v-model="drawer" :title="`${selected?.name || ''} · 版本历史`" size="600px">
@@ -29,10 +29,15 @@ import { useRouter } from 'vue-router';
 import { digitalTwinApi, type DigitalTwinSceneSummary, type TwinSceneVersion } from '/@/api/digital-twin';
 
 const router = useRouter();
-const loading = ref(false), drawer = ref(false), publishingSceneId = ref('');
+const loading = ref(false), drawer = ref(false), publishingSceneId = ref(''), deletingSceneId = ref('');
 const scenes = ref<DigitalTwinSceneSummary[]>([]), versions = ref<TwinSceneVersion[]>([]);
 const selected = ref<DigitalTwinSceneSummary>();
 const apiData = <T,>(response: any): T => response.data as T;
+const apiErrorMessage = (error: any, fallback: string) => error?.msg
+	|| error?.response?.data?.msg
+	|| (typeof error?.response?.data === 'string' ? error.response.data : '')
+	|| error?.message
+	|| fallback;
 const loadScenes = async () => { loading.value = true; try { scenes.value = apiData(await digitalTwinApi.listScenes()); } finally { loading.value = false; } };
 const publicationState = (scene: DigitalTwinSceneSummary) => !scene.publishedVersion
 	? { label: '仅草稿', type: 'info' as const }
@@ -56,8 +61,28 @@ const publish = async (scene: DigitalTwinSceneSummary) => {
 		ElMessage.success(`${scene.name} 已发布为 v${version.version}`);
 		await loadScenes();
 	} catch (error: any) {
-		ElMessage.error(error?.msg || '场景发布失败');
+		ElMessage.error(apiErrorMessage(error, '场景发布失败'));
 	} finally { publishingSceneId.value = ''; }
+};
+const remove = async (scene: DigitalTwinSceneSummary) => {
+	const publishedWarning = scene.publishedVersion
+		? `场景当前线上版本为 v${scene.publishedVersion}。删除会立即下线该场景并从场景中心隐藏，但不可变历史版本仍保留在数据库审计记录中。`
+		: '删除会从场景中心隐藏该草稿，资源模型本身不会被删除。';
+	const confirmed = await ElMessageBox.confirm(`${publishedWarning}\n\n确认删除“${scene.name}”？`, '删除数字孪生场景', {
+		type: 'error',
+		confirmButtonText: '确认删除',
+		cancelButtonText: '取消',
+	}).then(() => true).catch(() => false);
+	if (!confirmed) return;
+	deletingSceneId.value = scene.id;
+	try {
+		await digitalTwinApi.deleteScene(scene.id);
+		if (selected.value?.id === scene.id) { drawer.value = false; selected.value = undefined; versions.value = []; }
+		ElMessage.success(`${scene.name} 已${scene.publishedVersion ? '下线并' : ''}软删除`);
+		await loadScenes();
+	} catch (error: any) {
+		ElMessage.error(apiErrorMessage(error, '场景删除失败'));
+	} finally { deletingSceneId.value = ''; }
 };
 const openVersions = async (scene: DigitalTwinSceneSummary) => { selected.value = scene; versions.value = apiData(await digitalTwinApi.listVersions(scene.id)); drawer.value = true; };
 const viewVersion = (version: number) => selected.value && router.push({ path: '/iot/digital-twin/viewer', query: { sceneId: selected.value.id, version } });

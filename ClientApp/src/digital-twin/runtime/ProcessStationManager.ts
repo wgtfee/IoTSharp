@@ -1,6 +1,6 @@
-import type { SilkProcessWaitingReason } from '/@/digital-twin/contracts';
+import type { SilkProcessWaitingReason } from '../contracts';
 
-export type TwinProcessStationType = 'robot-loading' | 'gantry-stacking' | 'scan' | 'inspection';
+export type TwinProcessStationType = 'robot-loading' | 'gantry-stacking' | 'scan' | 'inspection' | 'external-inspection' | 'bagging';
 export type TwinProcessStationState = 'idle' | 'waiting' | 'processing' | 'completed' | 'fault';
 
 export interface TwinProcessStationRuntime {

@@ -142,7 +142,11 @@ public sealed class TwinRouteConfiguration : IEntityTypeConfiguration<TwinRoute>
         builder.Property(item => item.RouteType).HasMaxLength(64).IsRequired();
         builder.Property(item => item.CreatedBy).HasMaxLength(256);
         builder.Property(item => item.UpdatedBy).HasMaxLength(256);
-        builder.Property(item => item.Revision).IsConcurrencyToken();
+        // Route rows are owned by the scene draft aggregate. Optimistic concurrency is
+        // enforced once by DigitalTwinScene.Revision when the whole manifest is saved.
+        // Making every route revision a second concurrency token can roll back a valid
+        // aggregate replacement even though the scene revision has already been checked.
+        builder.Property(item => item.Revision);
         builder.HasIndex(item => new { item.SceneId, item.SceneVersionId, item.RouteKey, item.Deleted }).IsUnique();
         builder.HasIndex(item => new { item.TenantId, item.CustomerId, item.Enabled, item.Deleted });
         builder.HasOne(item => item.Scene).WithMany(item => item.Routes).HasForeignKey(item => item.SceneId).OnDelete(DeleteBehavior.Restrict);

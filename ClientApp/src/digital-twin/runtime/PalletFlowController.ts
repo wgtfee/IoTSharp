@@ -237,7 +237,7 @@ export class PalletFlowController {
 				entityId: pallet.palletId,
 				currentSectionId,
 				junctionPointId: sectionGeometry.toPointId,
-				context: { ...this.routingContext, payload: { ...(this.routingContext.payload || {}), routeCode: pallet.routeCode, palletId: pallet.palletId } },
+				context: { ...this.routingContext, payload: { ...(this.routingContext.payload || {}), routeCode: pallet.routeCode, palletId: pallet.palletId, hasSilkCake: Boolean(pallet.silkCakeId) } },
 				now: this.simulatedNow,
 			});
 			targetSectionId = result.decision?.targetSectionId;

@@ -29,6 +29,12 @@ internal static class TwinManifestInspector
     {
         "equals", "notEquals", "greaterThan", "greaterThanOrEqual", "lessThan", "lessThanOrEqual", "contains", "truthy", "falsy"
     };
+    private static readonly HashSet<string> AllowedProcessTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "robot-loading", "external-inspection", "bagging", "gantry-stacking", "scan"
+    };
+    private static readonly HashSet<string> AllowedConveyorSizeClasses = new(StringComparer.OrdinalIgnoreCase) { "small", "large" };
+    private static readonly HashSet<string> AllowedTransportUnitTypes = new(StringComparer.OrdinalIgnoreCase) { "plastic-pallet", "wooden-pallet", "carton" };
     private static readonly HashSet<string> ForbiddenExecutablePropertyNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "script", "scripts", "function", "functions", "javascript"
@@ -66,10 +72,10 @@ internal static class TwinManifestInspector
             ["showGrid"] = true
         };
 
-        // threejs-editor may serialize preview textures as blob/data/http URLs in its
-        // editor-only snapshot. They are not runtime resources and must never enter the
-        // immutable Manifest. Strip them server-side so stale clients can still save,
-        // while the general untrusted-value validator continues to reject URLs elsewhere.
+        // threejs-editor may serialize preview textures, editor callbacks and animation
+        // helpers into its editor-only snapshot. They are not runtime resources and must
+        // never enter the immutable Manifest. Strip them server-side so stale clients can
+        // still save, while the general validator continues to reject them elsewhere.
         SanitizeThreeEditorSnapshot(root, result);
 
         result.NormalizedPayload = root.ToJsonString(WebJsonOptions);
@@ -137,12 +143,14 @@ internal static class TwinManifestInspector
         {
             ("cartChangeDelaySeconds", 0.0, 300.0), ("robotCycleSeconds", 0.2, 120.0),
             ("gantryCycleSeconds", 0.2, 120.0), ("palletReleaseIntervalSeconds", 0.0, 60.0),
+            ("inspectionCycleSeconds", 0.2, 120.0), ("inspectionNgRate", 0.0, 1.0),
+            ("baggingCycleSeconds", 0.2, 120.0),
             ("coverCycleSeconds", 0.2, 120.0), ("labelCycleSeconds", 0.2, 120.0),
             ("wrappingCycleSeconds", 0.2, 300.0), ("warehouseInboundCycleSeconds", 0.2, 300.0),
             ("emptyWoodPalletFeedSeconds", 0.0, 300.0)
 		})
 		{
-			var optionalV4 = name is "coverCycleSeconds" or "labelCycleSeconds" or "wrappingCycleSeconds" or "warehouseInboundCycleSeconds" or "emptyWoodPalletFeedSeconds";
+			var optionalV4 = name is "coverCycleSeconds" or "labelCycleSeconds" or "wrappingCycleSeconds" or "warehouseInboundCycleSeconds" or "emptyWoodPalletFeedSeconds" or "inspectionCycleSeconds" or "inspectionNgRate" or "baggingCycleSeconds";
 			if (!simulation.TryGetProperty(name, out var value))
 			{
 				if (optionalV4) continue;
@@ -164,11 +172,11 @@ internal static class TwinManifestInspector
 			var fixedValues = new[] { ("palletCount", 80), ("silkCakesPerCart", 36), ("stackRows", 2), ("stackColumns", 3), ("stackLayers", 8) };
 			if (fixedValues.Any(entry => !simulation.TryGetProperty(entry.Item1, out var value) || !value.TryGetInt32(out var parsed) || parsed != entry.Item2))
 			{
-				result.Diagnostics.Add(Error("twin.silk-line.v5.fixed-process.invalid", "V5 固定工艺必须为 80 个在线闭环塑料托盘、双面丝车 36 件、木托盘 2×3×8 共 48 件。", "runtime.silkLineSimulation"));
+				result.Diagnostics.Add(Error("twin.silk-line.v6.fixed-process.invalid", "V6 固定工艺必须为 80 个在线闭环塑料托盘、双面丝车 36 件、木托盘 2×3×8 共 48 件。", "runtime.silkLineSimulation"));
 			}
 			if (!simulation.TryGetProperty("palletPopulationMode", out var populationMode) || populationMode.GetString() != "closed-loop")
 			{
-				result.Diagnostics.Add(Error("twin.silk-line.v5.population.invalid", "V5 丝饼线 palletPopulationMode 必须为 closed-loop。", "runtime.silkLineSimulation.palletPopulationMode"));
+				result.Diagnostics.Add(Error("twin.silk-line.v6.population.invalid", "V6 丝饼线 palletPopulationMode 必须为 closed-loop。", "runtime.silkLineSimulation.palletPopulationMode"));
 			}
 		}
 	}
@@ -434,6 +442,37 @@ internal static class TwinManifestInspector
                                 result.Diagnostics.Add(Error("twin.route.point.binding.invalid", "路线节点必须引用 routeEvent 数据绑定。", $"{path}.points[{pointIndex}].{bindingProperty}"));
                             }
                         }
+						if (point.TryGetProperty("process", out var process))
+						{
+							var processPath = $"{path}.points[{pointIndex}].process";
+							if (process.ValueKind != JsonValueKind.Object)
+							{
+								result.Diagnostics.Add(Error("twin.route.point.process.invalid", "工艺定义必须是对象。", processPath));
+							}
+							else
+							{
+								if (!pointKind.Equals("processStation", StringComparison.OrdinalIgnoreCase))
+								{
+									result.Diagnostics.Add(Error("twin.route.point.process-kind.invalid", "只有加工工位节点可以配置工艺定义。", processPath));
+								}
+								if (!TryGetNonEmptyString(process, "type", out var processType) || !AllowedProcessTypes.Contains(processType))
+								{
+									result.Diagnostics.Add(Error("twin.route.point.process-type.invalid", "工位类型不受支持。", $"{processPath}.type"));
+								}
+								if (process.TryGetProperty("cycleSeconds", out var cycleSeconds) &&
+									(!cycleSeconds.TryGetDouble(out var cycleValue) || !double.IsFinite(cycleValue) || cycleValue <= 0))
+								{
+									result.Diagnostics.Add(Error("twin.route.point.process-cycle.invalid", "工位仿真节拍必须大于 0 秒。", $"{processPath}.cycleSeconds"));
+								}
+								foreach (var bindingProperty in new[] { "completeBindingId", "resultBindingId", "faultBindingId" })
+								{
+									if (TryGetNonEmptyString(process, bindingProperty, out var bindingId) && !routeBindingKeys.Contains(bindingId))
+									{
+										result.Diagnostics.Add(Error("twin.route.point.process-binding.invalid", "工位信号必须引用 routeEvent 数据绑定。", $"{processPath}.{bindingProperty}"));
+									}
+								}
+							}
+						}
                     }
                     else if (hasGraph)
                     {
@@ -501,6 +540,24 @@ internal static class TwinManifestInspector
 							(!reservationTimeout.TryGetDouble(out var reservationTimeoutValue) || !double.IsFinite(reservationTimeoutValue) || reservationTimeoutValue <= 0))
 						{
 							result.Diagnostics.Add(Error("twin.route.edge.reservation-timeout.invalid", "输送段预占租约必须大于 0 秒。", $"{edgePath}.reservationTimeoutSeconds"));
+						}
+						var conveyorSizeClass = GetString(edge, "conveyorSizeClass");
+						var transportUnitType = GetString(edge, "transportUnitType");
+						if (conveyorSizeClass != null && !AllowedConveyorSizeClasses.Contains(conveyorSizeClass))
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.conveyor-size.invalid", "辊道规格只能是 small 或 large。", $"{edgePath}.conveyorSizeClass"));
+						}
+						if (transportUnitType != null && !AllowedTransportUnitTypes.Contains(transportUnitType))
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.transport-unit.invalid", "输送对象类型不受支持。", $"{edgePath}.transportUnitType"));
+						}
+						if (conveyorSizeClass?.Equals("small", StringComparison.OrdinalIgnoreCase) == true && transportUnitType?.Equals("wooden-pallet", StringComparison.OrdinalIgnoreCase) == true)
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.transport-unit-size.invalid", "小辊道不允许输送木托盘。", $"{edgePath}.transportUnitType"));
+						}
+						if (conveyorSizeClass?.Equals("large", StringComparison.OrdinalIgnoreCase) == true && transportUnitType?.Equals("plastic-pallet", StringComparison.OrdinalIgnoreCase) == true)
+						{
+							result.Diagnostics.Add(Error("twin.route.edge.transport-unit-size.invalid", "大辊道不允许输送塑料托盘。", $"{edgePath}.transportUnitType"));
 						}
 						if (occupancyMode?.Equals("live", StringComparison.OrdinalIgnoreCase) == true &&
 							!TryGetNonEmptyString(edge, "occupancyBindingId", out _) &&
@@ -712,23 +769,29 @@ internal static class TwinManifestInspector
         if (root["editorExtension"] is not JsonObject extension ||
             extension["threeEditor"] is not JsonObject snapshot) return;
 
-        StripTransientEditorUrls(snapshot, "$.editorExtension.threeEditor", result.Diagnostics);
+        StripUnsafeEditorValues(snapshot, "$.editorExtension.threeEditor", result.Diagnostics);
     }
 
-    private static void StripTransientEditorUrls(JsonNode? node, string path, List<TwinValidationDiagnosticDto> diagnostics)
+    private static void StripUnsafeEditorValues(JsonNode? node, string path, List<TwinValidationDiagnosticDto> diagnostics)
     {
         if (node is JsonObject jsonObject)
         {
             foreach (var property in jsonObject.ToList())
             {
                 var propertyPath = $"{path}.{property.Key}";
+                if (IsForbiddenExecutablePropertyName(property.Key))
+                {
+                    jsonObject.Remove(property.Key);
+                    diagnostics.Add(Warning("twin.editor-executable.stripped", "已移除 three editor 快照中的脚本或函数配置。", propertyPath));
+                    continue;
+                }
                 if (IsTransientEditorUrl(property.Value))
                 {
                     jsonObject[property.Key] = null;
                     diagnostics.Add(Warning("twin.editor-url.stripped", "已移除 three editor 快照中的临时图片或外部 URL。", propertyPath));
                     continue;
                 }
-                StripTransientEditorUrls(property.Value, propertyPath, diagnostics);
+                StripUnsafeEditorValues(property.Value, propertyPath, diagnostics);
             }
             return;
         }
@@ -743,7 +806,7 @@ internal static class TwinManifestInspector
                 diagnostics.Add(Warning("twin.editor-url.stripped", "已移除 three editor 快照中的临时图片或外部 URL。", itemPath));
                 continue;
             }
-            StripTransientEditorUrls(jsonArray[index], itemPath, diagnostics);
+            StripUnsafeEditorValues(jsonArray[index], itemPath, diagnostics);
         }
     }
 

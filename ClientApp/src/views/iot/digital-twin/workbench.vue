@@ -13,7 +13,7 @@
 			<div class="twin-toolbar__actions">
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button @click="createDialogVisible = true">新建场景</el-button>
-				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V5</el-button>
+				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V6</el-button>
 				<el-button @click="router.push('/iot/digital-twin/model-generator')">生成模型</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
 				<el-button :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
@@ -42,7 +42,9 @@
 		</section>
 		<section v-if="metrics.silkLine" class="twin-status-strip twin-status-strip--silk">
 			<div><span>双面丝车</span><strong>{{ metrics.silkLine.cartSide }} 面 · Row {{ metrics.silkLine.cartRow }} · {{ metrics.silkLine.cartRemaining }}/{{ metrics.silkLine.cartCapacity }}</strong></div>
-			<div><span>Robot 1×6</span><strong>{{ metrics.silkLine.robotState }} · Batch {{ metrics.silkLine.robotBatchSize }}/6 · 空托 {{ metrics.silkLine.loadingBufferReady }}/6</strong></div>
+			<div><span>Robot 1×6</span><strong>{{ metrics.silkLine.robotState }} · Batch {{ metrics.silkLine.robotBatchSize }}/6 · 空托 {{ metrics.silkLine.loadingBufferReady }}/6 · 短回流 {{ metrics.silkLine.emptyBypassCount }}</strong></div>
+			<div><span>外检机</span><strong>{{ metrics.silkLine.inspectionState }} · PASS {{ metrics.silkLine.inspectionPassed }} · NG {{ metrics.silkLine.inspectionNg }} · {{ Math.round(metrics.silkLine.inspectionProgress * 100) }}%</strong></div>
+			<div><span>套袋机</span><strong>{{ metrics.silkLine.baggingState }} · Completed {{ metrics.silkLine.baggingCompleted }} · {{ Math.round(metrics.silkLine.baggingProgress * 100) }}%</strong></div>
 			<div><span>Gantry 2×3</span><strong>{{ metrics.silkLine.gantryState }} · A {{ metrics.silkLine.gantryLaneA }}/3 · B {{ metrics.silkLine.gantryLaneB }}/3</strong></div>
 			<div><span>木托盘码垛</span><strong>Layer {{ metrics.silkLine.woodenPalletLayer }}/{{ metrics.silkLine.woodenPalletLayers }} · {{ metrics.silkLine.woodenPalletCakes }}/{{ metrics.silkLine.woodenPalletCapacity }}</strong></div>
 			<div><span>后处理/入库</span><strong>{{ metrics.silkLine.woodenPalletStage }} · C{{ metrics.silkLine.coveredPackages }} L{{ metrics.silkLine.labeledPackages }} W{{ metrics.silkLine.wrappedPackages }} · Stored {{ metrics.silkLine.storedPackages }}</strong></div>
@@ -71,11 +73,15 @@
 					<el-slider v-model="route.defaultSpeed" :min="0.1" :max="5" :step="0.1" @input="changeSpeed" />
 				</div>
 				<div v-if="manifest.runtime.silkLineSimulation" class="twin-card">
-					<span class="twin-card__label">丝饼完整工艺 V5 参数</span>
+					<span class="twin-card__label">丝饼完整工艺 V6 参数</span>
 					<div class="silk-simulation-grid">
 						<label>塑料托盘数<el-input-number v-model="manifest.runtime.silkLineSimulation.palletCount" :min="6" :max="200" size="small" @change="applySilkSimulationOptions" /></label>
 						<label>每车丝饼数（A/B 3×6）<el-input-number v-model="manifest.runtime.silkLineSimulation.silkCakesPerCart" :min="36" :max="36" disabled size="small" /></label>
 						<label>机器人节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.robotCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>机器人空抓批次率<el-input-number v-model="manifest.runtime.silkLineSimulation.emptyPalletBatchRate" :min="0" :max="1" :step="0.01" :precision="2" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>外检节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.inspectionCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>外检 NG 率<el-input-number v-model="manifest.runtime.silkLineSimulation.inspectionNgRate" :min="0" :max="1" :step="0.01" :precision="2" size="small" @change="applySilkSimulationOptions" /></label>
+						<label>套袋节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.baggingCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
 						<label>桁架节拍(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.gantryCycleSeconds" :min="0.2" :max="120" :step="0.5" size="small" @change="applySilkSimulationOptions" /></label>
 						<label>换车延时(s)<el-input-number v-model="manifest.runtime.silkLineSimulation.cartChangeDelaySeconds" :min="0" :max="300" :step="1" size="small" @change="applySilkSimulationOptions" /></label>
 						<label>木托盘 行/列/层（固定）<span><el-input-number v-model="manifest.runtime.silkLineSimulation.stackRows" disabled size="small" /><el-input-number v-model="manifest.runtime.silkLineSimulation.stackColumns" disabled size="small" /><el-input-number v-model="manifest.runtime.silkLineSimulation.stackLayers" disabled size="small" /></span></label>
@@ -95,12 +101,19 @@
 					<div v-for="(point, index) in route.points" :key="point.pointId" class="twin-route-point" :class="{ 'is-selected': selected?.routePointIndex === index }">
 						<div class="twin-route-point__title"><span>{{ index + 1 }}</span><el-input v-model="point.name" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" :disabled="route.points.length <= 2" @click="removeRoutePoint(index)">×</el-button></div>
 						<div class="twin-route-point__meta">
-							<el-select v-model="point.kind" size="small" @change="syncRouteGraph"><el-option v-for="option in routePointKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.kind" size="small" @change="changeRoutePointKind(point)"><el-option v-for="option in routePointKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-radio v-model="route.startPointId" :value="point.pointId" size="small" @change="syncRouteGraph">运行起点</el-radio>
 						</div>
 						<div v-if="['diverter','merger','sensor','processStation'].includes(point.kind || '')" class="twin-route-binding-grid">
 							<el-select v-if="point.kind === 'diverter' || point.kind === 'merger'" v-model="point.actuatorBindingId" size="small" clearable placeholder="执行器/到位信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-model="point.sensorBindingId" size="small" clearable placeholder="检测/工位信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+						</div>
+						<div v-if="point.kind === 'processStation' && point.process" class="twin-route-process-grid">
+							<el-select v-model="point.process.type" size="small" placeholder="工位类型" @change="syncRouteGraph"><el-option v-for="option in processTypeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-input-number v-model="point.process.cycleSeconds" :min="0.2" :max="300" :step="0.5" size="small" controls-position="right" @change="syncRouteGraph" />
+							<el-select v-model="point.process.completeBindingId" size="small" clearable placeholder="完成信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-if="point.process.type === 'external-inspection'" v-model="point.process.resultBindingId" size="small" clearable placeholder="检测结果信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.faultBindingId" size="small" clearable placeholder="故障信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						</div>
 						<div v-if="['junction','diverter'].includes(point.kind || '')" class="twin-route-binding-grid">
 							<el-select v-model="point.decisionMode" size="small" placeholder="岔口决策模式" @change="syncRouteGraph"><el-option v-for="option in junctionDecisionModeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
@@ -127,6 +140,10 @@
 					<div v-for="edge in route.edges" :key="edge.edgeId" class="twin-route-edge" :class="{ 'is-blocked': edge.blocked }">
 						<div class="twin-route-edge__header"><div><strong>{{ routeEdgeLabel(edge) }}</strong><small>{{ edge.bidirectional ? '双向' : '单向' }} · 优先级 {{ edge.priority || 0 }}</small></div><el-switch v-model="edge.blocked" size="small" inline-prompt active-text="封" inactive-text="通" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" @click="removeRouteEdge(edge.edgeId)">×</el-button></div>
 						<div class="twin-route-edge__settings">
+							<div><label>辊道规格</label><el-select v-model="edge.conveyorSizeClass" size="small" @change="changeConveyorSizeClass(edge)"><el-option v-for="option in conveyorSizeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
+							<div><label>输送对象</label><el-select v-model="edge.transportUnitType" size="small" @change="syncRouteGraph"><el-option v-for="option in transportUnitOptions(edge)" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
+						</div>
+						<div class="twin-route-edge__settings">
 							<div><label>容量</label><el-input-number v-model="edge.capacity" :min="1" :max="999" size="small" controls-position="right" @change="syncRouteGraph" /></div>
 							<div><label>预览占用</label><el-input-number v-model="previewOccupancy[edge.edgeId]" :min="0" :max="999" size="small" controls-position="right" @change="applyRoutingPreview(false)" /></div>
 						</div>
@@ -139,6 +156,24 @@
 						<el-select v-model="edge.blockedBindingId" size="small" clearable placeholder="绑定故障/封锁信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 					</div>
 				</div>
+				<template v-if="secondaryConveyorRoutes.length">
+					<div class="twin-panel__subheading"><strong>后包装大型辊道</strong><el-tag size="small" type="info">独立输送对象</el-tag></div>
+					<div v-for="secondaryRoute in secondaryConveyorRoutes" :key="secondaryRoute.routeId" class="twin-card twin-secondary-route">
+						<div class="twin-inline-control"><strong>{{ secondaryRoute.name }}</strong><small>{{ secondaryRoute.edges.length }} 段 · 随场景草稿入库</small></div>
+						<div v-for="edge in secondaryRoute.edges" :key="`${secondaryRoute.routeId}:${edge.edgeId}`" class="twin-route-edge">
+							<div class="twin-route-edge__header"><div><strong>{{ edge.name || edge.edgeId }}</strong><small>{{ edge.edgeId }}</small></div><el-switch v-model="edge.blocked" size="small" inline-prompt active-text="封" inactive-text="通" @change="refreshDiagnostics" /></div>
+							<div class="twin-route-edge__settings">
+								<div><label>辊道规格</label><el-select v-model="edge.conveyorSizeClass" size="small" @change="changeConveyorSizeClass(edge, false)"><el-option v-for="option in conveyorSizeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
+								<div><label>输送对象</label><el-select v-model="edge.transportUnitType" size="small" @change="refreshDiagnostics"><el-option v-for="option in transportUnitOptions(edge)" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
+							</div>
+							<div class="twin-route-edge__settings">
+								<div><label>容量</label><el-input-number v-model="edge.capacity" :min="1" :max="999" size="small" controls-position="right" @change="refreshDiagnostics" /></div>
+								<div><label>预占租约（秒）</label><el-input-number v-model="edge.reservationTimeoutSeconds" :min="1" :max="3600" size="small" controls-position="right" @change="refreshDiagnostics" /></div>
+							</div>
+							<el-select v-model="edge.blockedBindingId" size="small" clearable placeholder="绑定故障/封锁信号（可选）" @change="refreshDiagnostics"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+						</div>
+					</div>
+				</template>
 				<div v-if="junctionPoints.length" class="twin-panel__subheading"><strong>交叉口转向</strong><el-tag size="small" type="warning">橙色节点</el-tag></div>
 				<div v-for="point in junctionPoints" :key="point.pointId" class="twin-card twin-junction-decision">
 					<label>{{ point.name }} 的默认出口（{{ junctionDecisionModeOptions.find(item => item.value === point.decisionMode)?.label || '兼容模式' }}）</label>
@@ -235,7 +270,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
-import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
+import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -269,8 +304,18 @@ const editorInstanceKey = ref(0);
 const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), versionsDrawerVisible = ref(false);
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
+const apiErrorMessage = (error: any, fallback: string) => error?.msg
+	|| error?.response?.data?.msg
+	|| (typeof error?.response?.data === 'string' ? error.response.data : '')
+	|| error?.message
+	|| fallback;
+const showBlockingDiagnostics = async (title: string, items: Array<{ message: string; path?: string }>) => {
+	const lines = items.slice(0, 12).map((item, index) => `${index + 1}. ${item.path || 'manifest'}：${item.message}`);
+	if (items.length > 12) lines.push(`另有 ${items.length - 12} 项，请查看右侧“发布前校验”。`);
+	await ElMessageBox.alert(lines.join('\n'), title, { type: 'error', confirmButtonText: '知道了' });
+};
 
-const createForm = reactive({ name: '丝饼完整工艺数字孪生 V5', description: '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。', rootAssetId: '' });
+const createForm = reactive({ name: '丝饼完整工艺数字孪生 V6', description: '80托盘全在线闭环；Robot 1×6 后先识别空托，空托短回流，有料托经过外检、套袋、套袋后 A/B 分流、Gantry 2×3、木托盘8层及后包装入库。', rootAssetId: '' });
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
 const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
@@ -278,6 +323,7 @@ const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' a
 const routingPayloadText = ref('{"sku":"A","weight":1}');
 const previewOccupancy = reactive<Record<string, number>>({});
 const route = computed(() => manifest.value.routes[0]);
+const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).filter((item) => item.edges.length > 0));
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));
@@ -294,13 +340,15 @@ const bindingKeys = computed(() => {
 	return (source || []).map((item) => ({ label: item.name ? `${item.name} (${item.keyName})` : item.keyName, value: item.keyName }));
 });
 const routeStateText = computed(() => ({ running: '运行中', waiting: '等待放行', paused: '已暂停', completed: '已完成' })[metrics.state]);
-const waitingReasonText = computed(() => ({ ROUTE_NOT_READY: 'PLC 路由未就绪', DIVERTER_NOT_READY: '分流机构未到位', TARGET_SECTION_FULL: '目标段已满', TARGET_SECTION_BLOCKED: '目标段封锁', TARGET_SECTION_SIGNAL_STALE: '目标段信号失效' })[metrics.waitingReason || 'TARGET_SECTION_BLOCKED']);
+const waitingReasonText = computed(() => ({ ROUTE_NOT_READY: 'PLC 路由未就绪', DIVERTER_NOT_READY: '分流机构未到位', TARGET_SECTION_FULL: '目标段已满', TARGET_SECTION_BLOCKED: '目标段封锁', TARGET_SECTION_SIGNAL_STALE: '目标段信号失效', TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED: '输送对象类型不允许' })[metrics.waitingReason || 'TARGET_SECTION_BLOCKED']);
 const curveOptions = [{ label: '直线', value: 'line' }, { label: '平滑曲线', value: 'catmullRom' }];
 const routingModeOptions = [{ label: '手动', value: 'manual' }, { label: '自动规则', value: 'automatic' }];
 const occupancyModeOptions = [{ label: '运行时计算', value: 'calculated' }, { label: '离线仿真', value: 'simulation' }, { label: 'PLC / IoT 实时', value: 'live' }];
 const junctionDecisionModeOptions = [{ label: 'PLC 决策', value: 'plc' }, { label: '离线规则', value: 'simulation' }, { label: '人工调试', value: 'manual' }];
 const ruleSourceOptions = [{ label: '物料属性', value: 'payload' }, { label: 'Device 信号', value: 'binding' }];
 const routePointKindOptions = [{ label: '途经点', value: 'waypoint' }, { label: '普通交叉口', value: 'junction' }, { label: '分流器', value: 'diverter' }, { label: '汇流器', value: 'merger' }, { label: '缓存段', value: 'buffer' }, { label: '加工工位', value: 'processStation' }, { label: '传感器', value: 'sensor' }, { label: '站点', value: 'station' }];
+const processTypeOptions = [{ label: '机器人上料', value: 'robot-loading' }, { label: '外检机', value: 'external-inspection' }, { label: '套袋机', value: 'bagging' }, { label: '桁架码垛', value: 'gantry-stacking' }, { label: '扫码工位', value: 'scan' }];
+const conveyorSizeOptions = [{ label: '小辊道', value: 'small' }, { label: '大辊道', value: 'large' }];
 const ruleOperatorOptions = [{ label: '等于', value: 'equals' }, { label: '不等于', value: 'notEquals' }, { label: '大于', value: 'greaterThan' }, { label: '大于等于', value: 'greaterThanOrEqual' }, { label: '小于', value: 'lessThan' }, { label: '小于等于', value: 'lessThanOrEqual' }, { label: '包含', value: 'contains' }, { label: '为真', value: 'truthy' }, { label: '为假', value: 'falsy' }];
 const viewportModeOptions = [{ label: '专业编辑', value: 'editor' }, { label: '路线运行', value: 'runtime' }];
 const metrics = reactive<TwinRuntimeMetrics>({ state: 'paused', distanceMeters: 0, lengthMeters: 0, progress: 0, speed: 1.2, activePointIds: [], activeEdgeIds: [], unavailableEdgeIds: [], fps: 0, drawCalls: 0, triangles: 0, geometries: 0, textures: 0 });
@@ -321,6 +369,10 @@ const upgradeLegacySilkRouteLayout = (value: TwinSceneManifest) => {
 			value.runtime.silkLineSimulation.stackRows = 2;
 			value.runtime.silkLineSimulation.stackColumns = 3;
 			value.runtime.silkLineSimulation.stackLayers = 8;
+			value.runtime.silkLineSimulation.inspectionCycleSeconds ??= 2;
+			value.runtime.silkLineSimulation.inspectionNgRate ??= 0;
+			value.runtime.silkLineSimulation.baggingCycleSeconds ??= 3;
+			value.runtime.silkLineSimulation.emptyPalletBatchRate ??= 0.1;
 		}
 	}
 	const legacy: Record<string, TwinVector3> = {
@@ -331,6 +383,110 @@ const upgradeLegacySilkRouteLayout = (value: TwinSceneManifest) => {
 	const templateRoute = createSilkCakeLineTwinSceneManifest().routes[0];
 	const target = new Map(templateRoute.points.map((point) => [point.pointId, point]));
 	const samePosition = (left: TwinVector3, right: TwinVector3) => left.every((component, index) => Math.abs(component - right[index]) < 0.001);
+	const isPreV6Route = isV5Preset && !silkRoute.points.some((point) => point.pointId === 'silk-external-inspection');
+	if (isPreV6Route) {
+		const v5Positions: Record<string, TwinVector3> = {
+			'silk-diverter': [5.1, 0.92, -5.8],
+			'silk-left-buffer': [6.8, 0.92, -7.6],
+			'silk-left-inspection': [13.2, 0.92, -7.6],
+			'silk-right-buffer': [6.8, 0.92, -4.2],
+			'silk-right-inspection': [13.2, 0.92, -4.2],
+			'silk-merger': [15, 0.92, -4.2],
+			'silk-gantry': [15, 0.92, -7.6],
+			'silk-return-east': [44, 0.92, -4.2],
+			'silk-return-northeast': [44, 0.92, 34],
+		};
+		for (const point of silkRoute.points) {
+			const oldPosition = v5Positions[point.pointId];
+			const nextPoint = target.get(point.pointId);
+			if (oldPosition && nextPoint && samePosition(point.position, oldPosition)) point.position = [...nextPoint.position] as TwinVector3;
+			if (nextPoint && ['silk-left-inspection', 'silk-right-inspection', 'silk-gantry'].includes(point.pointId)) {
+				point.name = nextPoint.name;
+				point.process = nextPoint.process ? structuredClone(nextPoint.process) : point.process;
+			}
+		}
+		for (const point of templateRoute.points) {
+			if (!silkRoute.points.some((candidate) => candidate.pointId === point.pointId)) silkRoute.points.push(structuredClone(point));
+		}
+		const templateEdges = new Map(templateRoute.edges.map((edge) => [edge.edgeId, edge]));
+		for (const edge of silkRoute.edges) {
+			const nextEdge = templateEdges.get(edge.edgeId);
+			if (!nextEdge) continue;
+			edge.fromPointId = nextEdge.fromPointId;
+			edge.toPointId = nextEdge.toPointId;
+			edge.name = nextEdge.name;
+			edge.capacity = nextEdge.capacity;
+			edge.conveyorSizeClass = nextEdge.conveyorSizeClass;
+			edge.transportUnitType = nextEdge.transportUnitType;
+		}
+		for (const edge of templateRoute.edges) {
+			if (!silkRoute.edges.some((candidate) => candidate.edgeId === edge.edgeId)) silkRoute.edges.push(structuredClone(edge));
+		}
+		if (value.name === '丝饼完整工艺数字孪生 V5') value.name = '丝饼完整工艺数字孪生 V6';
+		for (const object of value.objects.filter((item) => item.procedural?.preset === 'silk-cake-packaging-line')) {
+			if (object.name === '程序化丝饼完整工艺 V5') object.name = '程序化丝饼完整工艺 V6';
+		}
+	}
+	// V6.1：外检前必须具备独立空托检测与短回流。旧 V6 场景只补缺失节点/边，
+	// 不覆盖用户已经移动过的外检、套袋、A/B 分流与桁架坐标。
+	const emptyReturnPointIds = new Set(['silk-empty-return-southeast', 'silk-empty-return-southwest']);
+	const routeBufferForEmpty = silkRoute.points.find((point) => point.pointId === 'silk-buffer');
+	const routeSourceForEmpty = silkRoute.points.find((point) => point.pointId === 'silk-source');
+	for (const point of templateRoute.points.filter((item) => emptyReturnPointIds.has(item.pointId))) {
+		if (silkRoute.points.some((candidate) => candidate.pointId === point.pointId)) continue;
+		const inserted = structuredClone(point);
+		if (routeBufferForEmpty && routeSourceForEmpty) {
+			// 短回流放在主线正 Z 反侧，负 Z 一侧留给丝车进入旋转台。
+			const returnZ = Math.max(routeBufferForEmpty.position[2], routeSourceForEmpty.position[2]) + 5.8;
+			inserted.position = inserted.pointId === 'silk-empty-return-southeast'
+				? [routeBufferForEmpty.position[0], routeBufferForEmpty.position[1], returnZ]
+				: [routeSourceForEmpty.position[0] - 1.8, routeSourceForEmpty.position[1], returnZ];
+		}
+		silkRoute.points.push(inserted);
+	}
+	// 早期 V6.1 的 z=-9.6 会碰旋转包络，随后使用的 z=-16 又会封住丝车进场通道。
+	// 仅迁移仍保持这两组内置坐标的场景，用户手工移动过的控制点不覆盖。
+	const previousEmptyReturnPositions: Record<string, TwinVector3[]> = {
+		'silk-empty-return-southeast': [[3.2, 0.92, -9.6], [3.2, 0.92, -16]],
+		'silk-empty-return-southwest': [[-12.8, 0.92, -9.6], [-12.8, 0.92, -16]],
+	};
+	for (const point of silkRoute.points) {
+		const previous = previousEmptyReturnPositions[point.pointId] || [];
+		const nextPoint = target.get(point.pointId);
+		if (nextPoint && previous.some((position) => samePosition(point.position, position))) point.position = [...nextPoint.position] as TwinVector3;
+	}
+	const emptyReturnEdgeIds = new Set(['silk-edge-empty-return-drop', 'silk-edge-empty-return-main', 'silk-edge-empty-return-rise']);
+	for (const edge of templateRoute.edges.filter((item) => emptyReturnEdgeIds.has(item.edgeId))) {
+		if (!silkRoute.edges.some((candidate) => candidate.edgeId === edge.edgeId)) silkRoute.edges.push(structuredClone(edge));
+	}
+	const loadCheck = silkRoute.points.find((point) => point.pointId === 'silk-buffer');
+	const templateLoadCheck = target.get('silk-buffer');
+	if (loadCheck && templateLoadCheck) {
+		loadCheck.kind = 'diverter';
+		loadCheck.name = templateLoadCheck.name;
+		loadCheck.decisionMode ??= 'simulation';
+		loadCheck.decisionTimeoutSeconds ??= 10;
+	}
+	const returnMerger = silkRoute.points.find((point) => point.pointId === 'silk-source');
+	const templateReturnMerger = target.get('silk-source');
+	if (returnMerger && templateReturnMerger) {
+		returnMerger.kind = 'merger';
+		returnMerger.name = templateReturnMerger.name;
+	}
+	silkRoute.junctionDecisions = { ...(silkRoute.junctionDecisions || {}), 'silk-buffer': 'silk-edge-external-inspection' };
+	const emptyRule = templateRoute.decisionRules?.find((rule) => rule.ruleId === 'silk-rule-empty-return');
+	if (emptyRule && !silkRoute.decisionRules?.some((rule) => rule.ruleId === emptyRule.ruleId)) {
+		silkRoute.decisionRules = [...(silkRoute.decisionRules || []), structuredClone(emptyRule)];
+	}
+	for (const edge of silkRoute.edges) {
+		edge.conveyorSizeClass ??= 'small';
+		edge.transportUnitType ??= 'plastic-pallet';
+	}
+	for (const point of silkRoute.points.filter((item) => item.kind === 'processStation' && !item.process)) {
+		point.process = { type: point.pointId === 'silk-loading' ? 'robot-loading' : point.pointId === 'silk-gantry' ? 'gantry-stacking' : 'scan', cycleSeconds: 2 };
+	}
+	const woodRoute = createSilkCakeLineTwinSceneManifest().routes.find((item) => item.routeId === 'silk-wood-packaging-route');
+	if (isV5Preset && woodRoute && !value.routes.some((item) => item.routeId === woodRoute.routeId)) value.routes.push(structuredClone(woodRoute));
 	const legacyMatches = silkRoute.points.filter((point) => legacy[point.pointId] && samePosition(point.position, legacy[point.pointId])).length;
 	// 仅迁移能确认为旧内置模板的场景；单独拖动过的控制点保持用户坐标不变。
 	if (legacyMatches >= 8) {
@@ -429,6 +585,20 @@ const normalizeManifest = (value: TwinSceneManifest): TwinSceneManifest => {
 const refreshDiagnostics = () => { diagnostics.value = validateTwinSceneManifest(manifest.value); };
 const routePointName = (pointId: string) => route.value.points.find((point) => point.pointId === pointId)?.name || pointId;
 const routeEdgeLabel = (edge: TwinRouteEdgeDefinition) => `${routePointName(edge.fromPointId)} ${edge.bidirectional ? '↔' : '→'} ${routePointName(edge.toPointId)}`;
+const transportUnitOptions = (edge: TwinRouteEdgeDefinition) => edge.conveyorSizeClass === 'large'
+	? [{ label: '木托盘', value: 'wooden-pallet' }, { label: '纸箱', value: 'carton' }]
+	: [{ label: '塑料托盘', value: 'plastic-pallet' }, { label: '纸箱', value: 'carton' }];
+const changeConveyorSizeClass = (edge: TwinRouteEdgeDefinition, synchronizeRuntime = true) => {
+	const allowed = new Set(transportUnitOptions(edge).map((item) => item.value));
+	if (!edge.transportUnitType || !allowed.has(edge.transportUnitType)) edge.transportUnitType = edge.conveyorSizeClass === 'large' ? 'wooden-pallet' : 'plastic-pallet';
+	if (synchronizeRuntime) syncRouteGraph();
+	else refreshDiagnostics();
+};
+const changeRoutePointKind = (point: TwinRoutePointDefinition) => {
+	if (point.kind === 'processStation' && !point.process) point.process = { type: 'scan', cycleSeconds: 2 };
+	if (point.kind !== 'processStation') delete point.process;
+	syncRouteGraph();
+};
 const junctionEdgeOptions = (pointId: string) => route.value.edges
 	.filter((edge) => edge.enabled !== false && (edge.fromPointId === pointId || (edge.bidirectional && edge.toPointId === pointId)))
 	.map((edge) => ({ value: edge.edgeId, label: `${routeEdgeLabel(edge)}${edge.blocked ? '（已封锁）' : ''}`, blocked: edge.blocked === true }));
@@ -569,18 +739,18 @@ const createScene = async () => {
 		const draft = createSilkCakeLineTwinSceneManifest(); draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
 		for (const object of draft.objects) object.assetId = createForm.rootAssetId;
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({ name: draft.name, description: draft.description, rootAssetId: createForm.rootAssetId, draftPayload: draft }));
-		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('丝饼完整工艺 V5、正交回流路线和 80 托盘闭环配置已写入数据库，点击“运行”即可启动');
+		createDialogVisible.value = false; viewportMode.value = 'runtime'; await loadScenes(); await loadScene(detail.id); ElMessage.success('丝饼完整工艺 V6、外检前空托短回流、外检/套袋和 80 托盘闭环配置已写入数据库，点击“运行”即可启动');
 	} finally { creating.value = false; }
 };
 
 const applySilkCakeLineTemplate = async () => {
 	if (!currentScene.value) {
-		createForm.name = '丝饼完整工艺数字孪生 V5';
+		createForm.name = '丝饼完整工艺数字孪生 V6';
 		createForm.description = '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
 		createDialogVisible.value = true;
 		return;
 	}
-	const confirmed = await ElMessageBox.confirm('这会将当前草稿升级为 V5 完整工艺，并替换对象、正交回流路线、80 托盘闭环参数和编辑器快照后立即入库；历史发布版本不受影响。', '应用丝饼完整工艺 V5', { type: 'warning' })
+	const confirmed = await ElMessageBox.confirm('这会将当前草稿升级为 V6 完整工艺，加入外检/套袋正式工位、辊道输送对象属性、右移后的 Gantry 和 80 托盘闭环后立即入库；历史发布版本不受影响。', '应用丝饼完整工艺 V6', { type: 'warning' })
 		.then(() => true)
 		.catch(() => false);
 	if (!confirmed) return;
@@ -598,14 +768,19 @@ const applySilkCakeLineTemplate = async () => {
 	viewportMode.value = 'runtime';
 	await initializeViewport();
 	refreshDiagnostics();
-	if (await saveDraft(true)) ElMessage.success('V5 已生成并入库：点击“运行”观察 80 托盘闭环、1×6 上料、2×3 分层码垛及盖板/贴标/缠膜/入库');
+	if (await saveDraft(true)) ElMessage.success('V6 已生成并入库：点击“运行”观察外检前空托短回流、套袋后 A/B 分流、2×3 分层码垛及完整闭环');
 };
 
 const saveDraft = async (silent = false) => {
 	if (!currentScene.value) { ElMessage.warning('请先新建或选择数据库场景'); return false; }
-	if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
+	try {
+		if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
+	} catch (error: any) {
+		ElMessage.error(apiErrorMessage(error, 'Three Editor 状态提取失败，请切换到运行视图后重试'));
+		return false;
+	}
 	refreshDiagnostics(); const errors = diagnostics.value.filter((item) => item.severity === 'error');
-	if (errors.length) { ElMessage.error(`存在 ${errors.length} 个阻断错误，无法保存`); return false; }
+	if (errors.length) { await showBlockingDiagnostics('草稿校验未通过', errors); return false; }
 	saving.value = true;
 	let detail: DigitalTwinSceneDetail | undefined;
 	try {
@@ -618,7 +793,7 @@ const saveDraft = async (silent = false) => {
 			if (JSON.stringify(normalizeManifest(latest.draftPayload)) === JSON.stringify(normalizeManifest(manifest.value))) detail = latest;
 		} catch { /* 保留原始提交错误 */ }
 		if (!detail) {
-			ElMessage.error(error?.msg || '草稿提交失败，可能存在版本冲突');
+			ElMessage.error(apiErrorMessage(error, '草稿提交失败，可能存在版本冲突'));
 			saving.value = false;
 			return false;
 		}
@@ -651,14 +826,17 @@ const publishScene = async () => {
 	publishing.value = true;
 	try {
 		const validation = apiData<{ valid: boolean; diagnostics: any[] }>(await digitalTwinApi.validateScene(currentScene.value.id, true)); diagnostics.value = validation.diagnostics;
-		if (!validation.valid) { ElMessage.error('发布校验未通过，请检查模型授权和 Device 引用'); return; }
+		if (!validation.valid) {
+			await showBlockingDiagnostics('发布校验未通过', validation.diagnostics.filter((item) => item.severity === 'error'));
+			return;
+		}
 		const summary = `发布于 ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
 		const version = apiData<TwinSceneVersion>(await digitalTwinApi.publishScene(currentScene.value.id, currentScene.value.revision, summary));
 		ElMessage.success(`v${version.version} 已发布，Manifest、绑定和路线版本快照已不可变入库`);
 		try { await loadScene(currentScene.value.id); await loadScenes(); }
 		catch { ElMessage.warning(`v${version.version} 已发布成功，但页面刷新失败；发布结果不受影响`); }
 	} catch (error: any) {
-		ElMessage.error(error?.msg || '发布提交失败');
+		ElMessage.error(apiErrorMessage(error, '发布提交失败'));
 	} finally { publishing.value = false; }
 };
 
@@ -942,7 +1120,8 @@ onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter
 .twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}
 .twin-runtime-detail{max-height:230px;margin:0;padding:9px;border:1px solid rgba(56,189,248,.22);border-radius:8px;background:rgba(2,8,23,.72);overflow:auto;color:#bae6fd;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
 .silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
-.twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
+.twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-route-process-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px;padding:7px;border:1px solid rgba(56,189,248,.26);border-radius:7px}.twin-route-process-grid :deep(.el-input-number){width:100%}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
+.twin-secondary-route{border-color:rgba(168,85,247,.28)}.twin-secondary-route>.twin-inline-control strong{font-size:12px;color:#e9d5ff}.twin-secondary-route>.twin-inline-control small{text-align:right}
 .twin-viewport-shell{position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
 .twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px 1fr;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
 @media(max-width:1200px){.twin-layout{grid-template-columns:260px minmax(360px,1fr) 280px}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(360px,1fr) 280px}.twin-layout.is-right-collapsed{grid-template-columns:260px minmax(360px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(360px,1fr) 0}.twin-toolbar{align-items:flex-start;flex-direction:column}.twin-status-strip{grid-template-columns:repeat(3,1fr)}}

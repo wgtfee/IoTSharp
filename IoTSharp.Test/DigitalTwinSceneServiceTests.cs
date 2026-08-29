@@ -21,6 +21,22 @@ namespace IoTSharp.Test;
 public sealed class DigitalTwinSceneServiceTests
 {
     [Fact]
+    public async Task SceneRevision_IsTheOnlyAggregateConcurrencyToken()
+    {
+        await using var services = BuildServices();
+        await using var scope = services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var sceneRevision = context.Model.FindEntityType(typeof(DigitalTwinScene))!
+            .FindProperty(nameof(DigitalTwinScene.Revision));
+        var routeRevision = context.Model.FindEntityType(typeof(TwinRoute))!
+            .FindProperty(nameof(TwinRoute.Revision));
+
+        Assert.True(sceneRevision!.IsConcurrencyToken);
+        Assert.False(routeRevision!.IsConcurrencyToken);
+    }
+
+    [Fact]
     public async Task SaveAndPublish_AreIdempotent_AndCopyDraftRelationsOnce()
     {
         await using var services = BuildServices();
@@ -109,6 +125,15 @@ public sealed class DigitalTwinSceneServiceTests
         Assert.Equal(2, await context.TwinRoutes.CountAsync());
         Assert.Single(await context.TwinObjectBindings.Where(item => item.SceneVersionId == published.Id).ToListAsync());
         Assert.Single(await context.TwinRoutes.Where(item => item.SceneVersionId == published.Id).ToListAsync());
+
+        await service.DeleteAsync(created.Id, profile, CancellationToken.None);
+
+        Assert.Null(await service.GetAsync(created.Id, profile, CancellationToken.None));
+        Assert.Null(await service.GetRuntimeManifestAsync(created.Id, profile, CancellationToken.None));
+        Assert.True(await context.DigitalTwinScenes.IgnoreQueryFilters().Where(item => item.Id == created.Id).Select(item => item.Deleted).SingleAsync());
+        Assert.Equal(1, await context.DigitalTwinSceneVersions.CountAsync());
+        Assert.Single(await context.TwinObjectBindings.Where(item => item.SceneVersionId == published.Id && !item.Deleted).ToListAsync());
+        Assert.Single(await context.TwinRoutes.Where(item => item.SceneVersionId == published.Id && !item.Deleted).ToListAsync());
     }
 
     private static ServiceProvider BuildServices()

@@ -222,7 +222,24 @@ public sealed class DigitalTwinSceneService
             routeCount = inspection.Routes.Count,
             manifestHash = ComputeSha256(inspection.NormalizedPayload)
         }, "Saved", now);
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            var conflicts = string.Join(", ", exception.Entries.Select(entry =>
+            {
+                var key = string.Join("/", entry.Properties
+                    .Where(property => property.Metadata.IsPrimaryKey())
+                    .Select(property => property.CurrentValue?.ToString() ?? "null"));
+                var tokens = string.Join("/", entry.Properties
+                    .Where(property => property.Metadata.IsConcurrencyToken)
+                    .Select(property => $"{property.Metadata.Name}:{property.OriginalValue}->{property.CurrentValue}"));
+                return $"{entry.Metadata.ClrType.Name}[{key}]({tokens})";
+            }));
+            throw new TwinOperationException(ApiCode.InValidData, $"草稿关联数据发生并发冲突：{conflicts}。请重新加载场景后重试。", exception);
+        }
         return ToSceneDetailDto(scene);
     }
 
@@ -377,23 +394,19 @@ public sealed class DigitalTwinSceneService
     }
 
     /// <summary>
-    /// 软删除未发布场景；已发布场景必须先归档，避免运行清单和模型引用失效。
+    /// 软删除场景并立即下线运行清单；已发布的不可变版本和版本绑定仍保留审计。
     /// </summary>
     public async Task DeleteAsync(Guid id, UserProfile profile, CancellationToken cancellationToken)
     {
         var scene = await FindSceneAsync(id, profile, true, cancellationToken)
             ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景不存在。");
-        if (scene.PublishedVersionId.HasValue)
-        {
-            throw new TwinOperationException(ApiCode.DoNotAllow, "已发布场景不能直接删除，请保留历史版本或先执行归档流程。");
-        }
         var now = DateTime.UtcNow;
         scene.Deleted = true;
         scene.UpdatedAt = now;
         scene.UpdatedBy = ResolveActor(profile);
         foreach (var binding in scene.Bindings.Where(item => item.SceneVersionId == null)) binding.Deleted = true;
         foreach (var route in scene.Routes.Where(item => item.SceneVersionId == null)) route.Deleted = true;
-        AddAudit(profile, scene.Id, scene.Name, "TwinSceneDelete", new { scene.SceneKey }, "Deleted", now);
+        AddAudit(profile, scene.Id, scene.Name, "TwinSceneDelete", new { scene.SceneKey, scene.PublishedVersionId }, "Deleted", now);
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -884,6 +897,7 @@ public sealed class DigitalTwinSceneService
 public sealed class TwinOperationException : Exception
 {
     public TwinOperationException(ApiCode code, string message) : base(message) => Code = code;
+    public TwinOperationException(ApiCode code, string message, Exception innerException) : base(message, innerException) => Code = code;
     public ApiCode Code { get; }
 }
 

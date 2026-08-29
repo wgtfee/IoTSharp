@@ -25,11 +25,28 @@ const coreCommit = '98197115af2318ed20f334873517018509b8e079';
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const isTransientUrl = (value: unknown): value is string => typeof value === 'string' && /^(blob:|data:|https?:)/i.test(value.trim());
+const forbiddenExecutablePropertyNames = new Set(['script', 'scripts', 'function', 'functions', 'javascript']);
+const containsIdentifierToken = (propertyName: string, token: string) => {
+	for (let searchFrom = 0; searchFrom < propertyName.length;) {
+		const index = propertyName.toLowerCase().indexOf(token, searchFrom);
+		if (index < 0) return false;
+		const end = index + token.length;
+		const startsToken = index === 0 || !/[a-z0-9]/i.test(propertyName[index - 1]) || (/[a-z]/.test(propertyName[index - 1]) && /[A-Z]/.test(propertyName[index]));
+		const endsToken = end === propertyName.length || !/[a-z0-9]/i.test(propertyName[end]) || /[A-Z]/.test(propertyName[end]);
+		if (startsToken && endsToken) return true;
+		searchFrom = index + 1;
+	}
+	return false;
+};
+const isForbiddenExecutablePropertyName = (propertyName: string) => forbiddenExecutablePropertyNames.has(propertyName.toLowerCase())
+	|| containsIdentifierToken(propertyName, 'script')
+	|| containsIdentifierToken(propertyName, 'function');
 const sanitizeEditorJson = (value: unknown): unknown => {
 	if (isTransientUrl(value)) return undefined;
 	if (Array.isArray(value)) return value.map(sanitizeEditorJson).filter((item) => item !== undefined);
 	if (value && typeof value === 'object') {
 		return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+			.filter(([key]) => !isForbiddenExecutablePropertyName(key))
 			.map(([key, child]) => [key, sanitizeEditorJson(child)] as const)
 			.filter(([, child]) => child !== undefined));
 	}
@@ -144,6 +161,12 @@ export class ThreeEditorCoreHost {
 		this.manifest = target;
 		this.syncTransformsToManifest();
 		this.editor.saveSceneEditor();
+		// 程序化产线没有由 three editor 管理的 GLB 对象。此时保存其内部
+		// sceneParams 既无法还原运行时场景，还可能携带大体积预览数据。
+		if (this.latestModelParams.length === 0) {
+			delete target.editorExtension;
+			return target;
+		}
 		const snapshot: ThreeEditorSnapshot = {
 			sceneParams: sanitizeEditorJson(cloneJson(this.latestSceneParams)) as Record<string, unknown>,
 			modelParams: cloneJson(this.latestModelParams),

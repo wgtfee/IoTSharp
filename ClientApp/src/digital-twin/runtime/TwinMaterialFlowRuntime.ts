@@ -5,10 +5,11 @@ import {
 	type TwinRouteEdgeDefinition,
 	type TwinRoutePointDefinition,
 	type TwinSectionOccupancyMode,
-} from '/@/digital-twin/contracts';
-import type { TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
+	type TwinTransportUnitType,
+} from '../contracts';
+import type { TwinRouteRoutingContext } from '../routes/RouteEngine';
 
-export type TwinFlowWaitingReason = 'ROUTE_NOT_READY' | 'DIVERTER_NOT_READY' | 'TARGET_SECTION_FULL' | 'TARGET_SECTION_BLOCKED' | 'TARGET_SECTION_SIGNAL_STALE';
+export type TwinFlowWaitingReason = 'ROUTE_NOT_READY' | 'DIVERTER_NOT_READY' | 'TARGET_SECTION_FULL' | 'TARGET_SECTION_BLOCKED' | 'TARGET_SECTION_SIGNAL_STALE' | 'TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED';
 export type TwinSectionState = 'available' | 'full' | 'blocked' | 'signal-stale';
 
 export interface TwinSectionRuntimeSnapshot {
@@ -38,6 +39,7 @@ export interface TwinRouteDecision {
 
 export interface TwinFlowEntitySnapshot {
 	entityId: string;
+	entityType?: TwinTransportUnitType;
 	currentSectionId?: string;
 	state: 'moving' | 'waiting' | 'completed';
 	waitingReason?: TwinFlowWaitingReason;
@@ -102,7 +104,7 @@ interface TwinSectionRecord {
 
 export interface TwinSectionAvailability {
 	canAccept: boolean;
-	reason?: 'full' | 'blocked' | 'signal-stale' | 'not-found';
+	reason?: 'full' | 'blocked' | 'signal-stale' | 'unit-type-not-allowed' | 'not-found';
 }
 
 const isSignalTrue = (value: unknown) => value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
@@ -210,9 +212,11 @@ export class TwinSectionManager {
 		return [...this.sections.keys()].map((sectionId) => this.getSnapshot(sectionId, now)!).filter(Boolean);
 	}
 
-	canAccept(sectionId: string, entityId?: string, now = Date.now()): TwinSectionAvailability {
+	canAccept(sectionId: string, entityId?: string, now = Date.now(), entityType?: TwinTransportUnitType): TwinSectionAvailability {
 		const snapshot = this.getSnapshot(sectionId, now);
+		const record = this.sections.get(sectionId);
 		if (!snapshot) return { canAccept: false, reason: 'not-found' };
+		if (record?.edge.transportUnitType && entityType && record.edge.transportUnitType !== entityType) return { canAccept: false, reason: 'unit-type-not-allowed' };
 		if (snapshot.state === 'signal-stale') return { canAccept: false, reason: 'signal-stale' };
 		if (snapshot.state === 'blocked') return { canAccept: false, reason: 'blocked' };
 		if (entityId && (snapshot.entityIds.includes(entityId) || snapshot.reservationEntityIds.includes(entityId))) return { canAccept: true };
@@ -220,9 +224,9 @@ export class TwinSectionManager {
 		return { canAccept: true };
 	}
 
-	reserve(sectionId: string, entityId: string, now = Date.now()): TwinSectionAvailability {
+	reserve(sectionId: string, entityId: string, now = Date.now(), entityType?: TwinTransportUnitType): TwinSectionAvailability {
 		const record = this.sections.get(sectionId);
-		const availability = this.canAccept(sectionId, entityId, now);
+		const availability = this.canAccept(sectionId, entityId, now, entityType);
 		if (!record || !availability.canAccept) return availability;
 		if (record.entities.has(entityId) || record.reservations.has(entityId) || record.inFlight.has(entityId)) return { canAccept: true };
 		const timeoutMs = Math.max(1000, Number(record.edge.reservationTimeoutSeconds ?? 30) * 1000);
@@ -239,11 +243,11 @@ export class TwinSectionManager {
 		return removed;
 	}
 
-	enter(sectionId: string, entityId: string, now = Date.now()) {
+	enter(sectionId: string, entityId: string, now = Date.now(), entityType?: TwinTransportUnitType) {
 		const record = this.sections.get(sectionId);
 		if (!record) return false;
 		if (!record.reservations.has(entityId) && !record.entities.has(entityId) && !record.inFlight.has(entityId)) {
-			const reserved = this.reserve(sectionId, entityId, now);
+			const reserved = this.reserve(sectionId, entityId, now, entityType);
 			if (!reserved.canAccept) return false;
 		}
 		const reservation = record.reservations.get(entityId);
@@ -268,10 +272,10 @@ export class TwinSectionManager {
 	}
 
 	/** 目标段成功 Enter 后才释放源段；失败时源段状态不变。 */
-	tryTransfer(entityId: string, sourceSectionId: string | undefined, targetSectionId: string, now = Date.now()) {
-		const reserved = this.reserve(targetSectionId, entityId, now);
+	tryTransfer(entityId: string, sourceSectionId: string | undefined, targetSectionId: string, now = Date.now(), entityType?: TwinTransportUnitType) {
+		const reserved = this.reserve(targetSectionId, entityId, now, entityType);
 		if (!reserved.canAccept) return reserved;
-		if (!this.enter(targetSectionId, entityId, now)) {
+		if (!this.enter(targetSectionId, entityId, now, entityType)) {
 			this.releaseReservation(targetSectionId, entityId, now);
 			return { canAccept: false, reason: 'blocked' as const };
 		}
@@ -319,12 +323,15 @@ export class TwinEntityManager {
 
 	constructor(private readonly eventBus = new TwinFlowEventBus()) {}
 
-	ensure(entityId: string, currentSectionId?: string, now = Date.now()) {
+	ensure(entityId: string, currentSectionId?: string, now = Date.now(), entityType?: TwinTransportUnitType) {
 		let entity = this.entities.get(entityId);
 		if (!entity) {
-			entity = { entityId, currentSectionId, state: 'moving', routeTrace: [], updatedAt: now };
+			entity = { entityId, entityType, currentSectionId, state: 'moving', routeTrace: [], updatedAt: now };
 			this.entities.set(entityId, entity);
-		} else if (currentSectionId !== undefined) entity.currentSectionId = currentSectionId;
+		} else {
+			if (currentSectionId !== undefined) entity.currentSectionId = currentSectionId;
+			if (entityType !== undefined) entity.entityType = entityType;
+		}
 		return entity;
 	}
 
@@ -444,7 +451,8 @@ export class TwinJunctionManager {
 		if (decision.expectedActuatorValue !== undefined && point.actuatorBindingId) {
 			if ((context.staleBindingIds || []).includes(point.actuatorBindingId) || !valuesEqual(context.bindingValues?.[point.actuatorBindingId], decision.expectedActuatorValue)) return 'DIVERTER_NOT_READY';
 		}
-		const availability = sections.canAccept(decision.targetSectionId, decision.entityId, now);
+		const availability = sections.canAccept(decision.targetSectionId, decision.entityId, now, this.entities.get(decision.entityId)?.entityType);
+		if (availability.reason === 'unit-type-not-allowed') return 'TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED';
 		if (availability.reason === 'signal-stale') return 'TARGET_SECTION_SIGNAL_STALE';
 		if (availability.reason === 'blocked' || availability.reason === 'not-found') return 'TARGET_SECTION_BLOCKED';
 		if (availability.reason === 'full') return 'TARGET_SECTION_FULL';
@@ -505,9 +513,9 @@ export class TwinMaterialFlowRuntime {
 			this.entities.wait(request.entityId, waitingReason, decisionResult.decision.targetSectionId, now);
 			return { decision: decisionResult.decision, waitingReason };
 		}
-		const transfer = this.sections.tryTransfer(request.entityId, entity.currentSectionId, decisionResult.decision.targetSectionId, now);
+		const transfer = this.sections.tryTransfer(request.entityId, entity.currentSectionId, decisionResult.decision.targetSectionId, now, entity.entityType);
 		if (!transfer.canAccept) {
-			const reason: TwinFlowWaitingReason = transfer.reason === 'signal-stale' ? 'TARGET_SECTION_SIGNAL_STALE' : transfer.reason === 'full' ? 'TARGET_SECTION_FULL' : 'TARGET_SECTION_BLOCKED';
+			const reason: TwinFlowWaitingReason = transfer.reason === 'signal-stale' ? 'TARGET_SECTION_SIGNAL_STALE' : transfer.reason === 'unit-type-not-allowed' ? 'TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED' : transfer.reason === 'full' ? 'TARGET_SECTION_FULL' : 'TARGET_SECTION_BLOCKED';
 			this.entities.wait(request.entityId, reason, decisionResult.decision.targetSectionId, now);
 			return { decision: decisionResult.decision, waitingReason: reason };
 		}

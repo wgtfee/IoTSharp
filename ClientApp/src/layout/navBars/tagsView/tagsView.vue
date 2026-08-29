@@ -426,11 +426,15 @@ export default defineComponent({
 		};
 		// 更新滚动条显示
 		const updateScrollbar = () => {
-			proxy.$refs.scrollbarRef.update();
+			proxy.$refs.scrollbarRef?.update?.();
 		};
 		// 鼠标滚轮滚动
 		const onHandleScroll = (e: any) => {
-			proxy.$refs.scrollbarRef.$refs.wrap$.scrollLeft += e.wheelDelta / 4;
+			const scrollbar = proxy.$refs.scrollbarRef;
+			const wrap = scrollbar?.wrapRef || scrollbar?.$refs?.wrapRef || scrollbar?.$refs?.wrap$;
+			if (!wrap) return;
+			const delta = typeof e.deltaY === 'number' ? -e.deltaY : (e.wheelDelta || 0);
+			wrap.scrollLeft += delta / 4;
 		};
 		// tagsView 横向滚动
 		const tagsViewmoveToCurrentTag = () => {
@@ -447,7 +451,8 @@ export default defineComponent({
 				// 最后 li
 				let liLast: any = tagsRefs.value[tagsRefs.value.length - 1];
 				// 当前滚动条的值
-				let scrollRefs = proxy.$refs.scrollbarRef.$refs.wrapRef;
+				let scrollRefs = proxy.$refs.scrollbarRef?.wrapRef || proxy.$refs.scrollbarRef?.$refs?.wrapRef || proxy.$refs.scrollbarRef?.$refs?.wrap$;
+				if (!scrollRefs || !liDom) return false;
 				// 当前滚动条滚动宽度
 				let scrollS = scrollRefs.scrollWidth;
 				// 当前滚动条偏移宽度
@@ -473,7 +478,7 @@ export default defineComponent({
 					if (liIndex === 0) beforePrevL = liFirst.offsetLeft - 5;
 					else beforePrevL = liPrevTag?.offsetLeft - 5;
 					if (liIndex === liLength) afterNextL = liLast.offsetLeft + liLast.offsetWidth + 5;
-					else afterNextL = liNextTag.offsetLeft + liNextTag.offsetWidth + 5;
+					else afterNextL = liNextTag ? liNextTag.offsetLeft + liNextTag.offsetWidth + 5 : liLast.offsetLeft + liLast.offsetWidth + 5;
 					if (afterNextL > scrollL + offsetW) {
 						scrollRefs.scrollLeft = afterNextL - offsetW;
 					} else if (beforePrevL < scrollL) {

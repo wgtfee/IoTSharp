@@ -154,11 +154,12 @@ export const digitalTwinApi = {
 	updateScene: (id: string, data: { name: string; description?: string; rootAssetId: string }) =>
 		request({ url: `/api/digital-twin/scenes/${id}`, method: 'put', data }),
 	saveDraft: (id: string, revision: number, payload: TwinSceneManifest) =>
-		request({ url: `/api/digital-twin/scenes/${id}/draft`, method: 'put', data: { revision, name: payload.name, description: payload.description, rootAssetId: payload.rootAssetId, payload } }),
+		request({ url: `/api/digital-twin/scenes/${id}/draft`, method: 'put', data: { revision, name: payload.name, description: payload.description, rootAssetId: payload.rootAssetId, payload }, timeout: 120000 }),
 	validateScene: (id: string, forPublish = false) =>
-		request({ url: `/api/digital-twin/scenes/${id}/validate`, method: 'post', params: { forPublish } }),
+		request({ url: `/api/digital-twin/scenes/${id}/validate`, method: 'post', params: { forPublish }, timeout: 120000 }),
 	publishScene: (id: string, revision: number, changeSummary: string) =>
-		request({ url: `/api/digital-twin/scenes/${id}/publish`, method: 'post', data: { revision, changeSummary } }),
+		request({ url: `/api/digital-twin/scenes/${id}/publish`, method: 'post', data: { revision, changeSummary }, timeout: 120000 }),
+	deleteScene: (id: string) => request({ url: `/api/digital-twin/scenes/${id}`, method: 'delete' }),
 	listVersions: (id: string) => request({ url: `/api/digital-twin/scenes/${id}/versions`, method: 'get' }),
 	getVersion: (id: string, version: number) => request({ url: `/api/digital-twin/scenes/${id}/versions/${version}`, method: 'get' }),
 	rollback: (id: string, version: number) => request({ url: `/api/digital-twin/scenes/${id}/rollback/${version}`, method: 'post' }),

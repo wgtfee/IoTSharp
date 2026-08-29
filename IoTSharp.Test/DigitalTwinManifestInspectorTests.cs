@@ -176,6 +176,34 @@ public sealed class DigitalTwinManifestInspectorTests
     }
 
     [Fact]
+    public void Inspect_StripsEditorExecutableProperties()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "编辑器脚本清理",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [], "objects": [], "bindings": [],
+          "routes": [{ "routeId": "main", "defaultSpeed": 1, "points": [{ "position": [0,0,0] }, { "position": [1,0,0] }] }],
+          "editorExtension": {
+            "source": "threejs-editor", "payloadVersion": 2,
+            "threeEditor": {
+              "sceneParams": { "scripts": [], "nested": { "onLoadFunction": "return true", "safe": true } },
+              "modelParams": [{ "rootInfo": { "iotsharpObjectId": "model-1" }, "group": { "function": null, "visible": true } }]
+            }
+          }
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+        Assert.Equal(3, result.Diagnostics.Count(item => item.Code == "twin.editor-executable.stripped"));
+        Assert.DoesNotContain("scripts", result.NormalizedPayload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("onLoadFunction", result.NormalizedPayload, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"safe\":true", result.NormalizedPayload, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Inspect_AcceptsIntersectionGraphAndPersistsBranchDecision()
     {
         using var document = JsonDocument.Parse("""
@@ -292,6 +320,66 @@ public sealed class DigitalTwinManifestInspectorTests
         Assert.Equal("automatic", graph.RootElement.GetProperty("routingMode").GetString());
         Assert.Equal(3, graph.RootElement.GetProperty("edges")[1].GetProperty("capacity").GetInt32());
         Assert.Equal("sku-b", graph.RootElement.GetProperty("decisionRules")[0].GetProperty("ruleId").GetString());
+    }
+
+    [Fact]
+    public void Inspect_ValidatesV6ProcessStationsAndTransportUnitCompatibility()
+    {
+        using var validDocument = JsonDocument.Parse("""
+        {
+          "name": "丝饼完整工艺 V6",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [], "objects": [], "bindings": [],
+          "routes": [{
+            "routeId": "inspection", "name": "外检套袋线", "type": "conveyor", "defaultSpeed": 1,
+            "points": [
+              { "pointId": "inspection", "name": "外检机", "kind": "processStation", "position": [0,0,0],
+                "process": { "type": "external-inspection", "cycleSeconds": 2 } },
+              { "pointId": "bagging", "name": "套袋机", "kind": "processStation", "position": [1,0,0],
+                "process": { "type": "bagging", "cycleSeconds": 3 } }
+            ],
+            "edges": [{
+              "edgeId": "inspection-to-bagging", "fromPointId": "inspection", "toPointId": "bagging",
+              "enabled": true, "capacity": 1, "conveyorSizeClass": "small", "transportUnitType": "plastic-pallet"
+            }]
+          }]
+        }
+        """);
+
+        var validResult = TwinManifestInspector.Inspect(validDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(validResult.Valid, string.Join("; ", validResult.Diagnostics.Select(item => item.Message)));
+        using var graph = JsonDocument.Parse(validResult.Routes.Single().GraphPayload);
+        Assert.Equal("external-inspection", graph.RootElement.GetProperty("points")[0].GetProperty("process").GetProperty("type").GetString());
+        Assert.Equal("plastic-pallet", graph.RootElement.GetProperty("edges")[0].GetProperty("transportUnitType").GetString());
+
+        using var invalidDocument = JsonDocument.Parse("""
+        {
+          "name": "错误 V6 工艺",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [], "objects": [], "bindings": [],
+          "routes": [{
+            "routeId": "invalid-v6", "defaultSpeed": 1,
+            "points": [
+              { "pointId": "p1", "kind": "processStation", "position": [0,0,0],
+                "process": { "type": "unsupported-machine", "cycleSeconds": 0, "completeBindingId": "missing" } },
+              { "pointId": "p2", "position": [1,0,0] }
+            ],
+            "edges": [{
+              "edgeId": "e1", "fromPointId": "p1", "toPointId": "p2", "capacity": 1,
+              "conveyorSizeClass": "small", "transportUnitType": "wooden-pallet"
+            }]
+          }]
+        }
+        """);
+
+        var invalidResult = TwinManifestInspector.Inspect(invalidDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(invalidResult.Valid);
+        Assert.Contains(invalidResult.Diagnostics, item => item.Code == "twin.route.point.process-type.invalid");
+        Assert.Contains(invalidResult.Diagnostics, item => item.Code == "twin.route.point.process-cycle.invalid");
+        Assert.Contains(invalidResult.Diagnostics, item => item.Code == "twin.route.point.process-binding.invalid");
+        Assert.Contains(invalidResult.Diagnostics, item => item.Code == "twin.route.edge.transport-unit-size.invalid");
     }
 
     [Fact]

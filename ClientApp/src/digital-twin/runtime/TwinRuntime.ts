@@ -45,6 +45,13 @@ export interface TwinRuntimeMetrics extends TwinRouteEngineSnapshot {
 		cartRemaining: number;
 		robotState: string;
 		gantryState: string;
+		inspectionState: string;
+		inspectionPassed: number;
+		inspectionNg: number;
+		inspectionProgress: number;
+		baggingState: string;
+		baggingCompleted: number;
+		baggingProgress: number;
 		stackOccupied: number;
 		stackCapacity: number;
 		blockedSections: number;
@@ -52,6 +59,7 @@ export interface TwinRuntimeMetrics extends TwinRouteEngineSnapshot {
 		cartRow: number;
 		cartCapacity: number;
 		robotBatchSize: number;
+		emptyBypassCount: number;
 		loadingBufferReady: number;
 		gantryLaneA: number;
 		gantryLaneB: number;
@@ -427,6 +435,13 @@ export class TwinRuntime {
 					cartRemaining: silkSnapshot.silkCart.remaining,
 					robotState: silkSnapshot.robot.state,
 					gantryState: silkSnapshot.gantry.state,
+					inspectionState: silkSnapshot.preProcess.inspection.state,
+					inspectionPassed: silkSnapshot.preProcess.inspection.passed,
+					inspectionNg: silkSnapshot.preProcess.inspection.ng,
+					inspectionProgress: silkSnapshot.preProcess.inspection.progress,
+					baggingState: silkSnapshot.preProcess.bagging.state,
+					baggingCompleted: silkSnapshot.preProcess.bagging.completed,
+					baggingProgress: silkSnapshot.preProcess.bagging.progress,
 					stackOccupied: silkSnapshot.woodenPallet.silkCakeCount,
 					stackCapacity: silkSnapshot.woodenPallet.maxSilkCakeCount,
 					blockedSections: silkSnapshot.sections.filter((section) => section.state !== 'available').length,
@@ -434,6 +449,7 @@ export class TwinRuntime {
 					cartRow: silkSnapshot.silkCart.currentRow,
 					cartCapacity: silkSnapshot.silkCart.capacity,
 					robotBatchSize: silkSnapshot.robot.batchSize,
+					emptyBypassCount: silkSnapshot.preProcess.emptyBypassCount,
 					loadingBufferReady: silkSnapshot.robot.emptyPalletsReady,
 					gantryLaneA: silkSnapshot.gantry.laneA,
 					gantryLaneB: silkSnapshot.gantry.laneB,
