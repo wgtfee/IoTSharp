@@ -2,13 +2,19 @@
 using IoTSharp.Contracts;
 using IoTSharp.Data;
 using IoTSharp.Extensions;
+using IoTSharp.Models;
 using IoTSharp.Services.DigitalTwin;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace IoTSharp.Controllers;
 
@@ -128,9 +134,10 @@ public sealed class TwinComponentResourcesController : ControllerBase
             return new ApiResult<List<TwinModelResourceDto>>(ApiCode.InValidData, "注册清单中存在重复 resourceKey。", []);
         }
 
-        var existing = await _context.TwinModelResources
+        var existingRows = await _context.TwinModelResources
             .Where(item => !item.Deleted && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer && keys.Contains(item.ResourceKey))
-            .ToDictionaryAsync(item => item.ResourceKey, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            .ToListAsync(cancellationToken);
+        var existing = existingRows.ToDictionary(item => item.ResourceKey, StringComparer.OrdinalIgnoreCase);
         var result = new List<TwinModelResourceDto>(requests.Count);
 
         foreach (var request in requests)
