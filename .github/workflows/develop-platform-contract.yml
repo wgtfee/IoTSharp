@@ -8,18 +8,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   statuses: write
 
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: Develop
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
       - name: Validate IoT IAM and traffic-health contract
         shell: python
@@ -54,28 +51,6 @@ jobs:
               assert critical in health, f'Missing critical database family classification: {critical}'
           assert 'DependencyCriticality.Degradable' in health
           print('IoTSharp Develop IAM/traffic-health contract OK')
-
-      - name: Apply remaining V7 integration
-        run: python scripts/v7_finish_patch.py
-
-      - name: Verify Node runtime
-        run: |
-          node --version
-          npm --version
-
-      - name: Verify V7 frontend build
-        working-directory: ClientApp
-        run: |
-          npm install --no-audit --no-fund
-          npm run build
-
-      - name: Commit V7 integration
-        run: |
-          git config user.name "wgtfee"
-          git config user.email "57023277+wgtfee@users.noreply.github.com"
-          git add ClientApp/src/digital-twin IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs
-          git commit -m "feat(twin-v7): finish snap connections properties and silk migration"
-          git push origin Develop
 
       - name: Publish validation status
         if: always()
