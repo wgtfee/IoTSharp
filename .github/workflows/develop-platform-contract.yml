@@ -8,35 +8,49 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   statuses: write
 
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: Develop
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Apply V7 workbench integration
-        run: python scripts/v7_workbench_finish.py
-
-      - name: Verify V7 frontend build
-        working-directory: ClientApp
+      - name: Validate IoT IAM and traffic-health contract
+        shell: python
         run: |
-          npm install --no-audit --no-fund
-          npm run build
+          from pathlib import Path
 
-      - name: Commit final V7 workbench integration and cleanup
-        run: |
-          git config user.name "wgtfee"
-          git config user.email "57023277+wgtfee@users.noreply.github.com"
-          git add -A
-          git commit -m "fix(twin-v7): wire V7 components into workbench"
-          git push origin Develop
+          startup = Path('IoTSharp/Startup.cs').read_text(encoding='utf-8-sig')
+          health = Path('IoTSharp/Health/V071HealthEndpoints.cs').read_text(encoding='utf-8-sig')
+          oidc = Path('ClientApp/src/security/oidc.ts').read_text(encoding='utf-8-sig')
+
+          for marker in [
+              'AddIndustrialSecurity(Configuration)',
+              'UseIndustrialSecurity()',
+              'MapIndustrialSecurityCacheInvalidation()',
+              'MapIndustrialLocalUserManagementInfo()',
+              'MapIndustrialEmergencyValidation()',
+              'MapV071Health("iotsharp")',
+          ]:
+              assert marker in startup, f'Missing IoT security/health contract: {marker}'
+
+          for marker in [
+              "VITE_IAM_CLIENT_ID || 'industrial-iot-web'",
+              "url.searchParams.set('code_challenge_method', 'S256')",
+              "'/connect/token'",
+              "'/account/login'",
+          ]:
+              assert marker in oidc, f'Missing IoT web OIDC contract: {marker}'
+
+          assert 'endpoints.MapGet("/health/traffic"' in health
+          assert 'StatusCodes.Status503ServiceUnavailable' in health
+          for critical in ['"oracle"', '"clickhouse"', '"sonnet"', '"sql"']:
+              assert critical in health, f'Missing critical database family classification: {critical}'
+          assert 'DependencyCriticality.Degradable' in health
+          print('IoTSharp Develop IAM/traffic-health contract OK')
 
       - name: Publish validation status
         if: always()

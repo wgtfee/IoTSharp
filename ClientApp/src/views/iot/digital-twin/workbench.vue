@@ -281,7 +281,7 @@ import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
-import { builtInComponentTemplates } from '/@/digital-twin/components';
+import { builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 
@@ -336,7 +336,7 @@ const route = computed(() => manifest.value.routes[0]);
 const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).filter((item) => item.edges.length > 0));
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
-const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));
+const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || (item as any).kind === 'component'));
 const componentTemplates = builtInComponentTemplates;
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
 const selectedRuntimeData = computed(() => selected.value?.runtimeData ? JSON.stringify(selected.value.runtimeData, null, 2) : '');
@@ -588,12 +588,14 @@ const normalizeManifest = (value: TwinSceneManifest): TwinSceneManifest => {
 	normalized.bindings = value.bindings || [];
 	normalized.resources = value.resources || [];
 	normalized.objects = value.objects || [];
+	normalized.connections = value.connections || [];
 	normalized.routes = (value.routes?.length ? value.routes : createDefaultTwinSceneManifest().routes).map(normalizeTwinRoute);
 	normalized.editorExtension = value.editorExtension || { source: 'threejs-editor', payloadVersion: 2 };
 	upgradeLegacySilkRouteLayout(normalized);
+	migrateSilkLineInfrastructureToV7(normalized);
 	return normalized;
 };
-const refreshDiagnostics = () => { diagnostics.value = validateTwinSceneManifest(manifest.value); };
+const refreshDiagnostics = () => { diagnostics.value = [...validateTwinSceneManifest(manifest.value), ...validateV7ComponentManifest(manifest.value)]; };
 const routePointName = (pointId: string) => route.value.points.find((point) => point.pointId === pointId)?.name || pointId;
 const routeEdgeLabel = (edge: TwinRouteEdgeDefinition) => `${routePointName(edge.fromPointId)} ${edge.bidirectional ? '↔' : '→'} ${routePointName(edge.toPointId)}`;
 const transportUnitOptions = (edge: TwinRouteEdgeDefinition) => edge.conveyorSizeClass === 'large'
@@ -883,30 +885,17 @@ const placeComponentTemplate = async (resourceKey: string) => {
 	const objectId = createId('component');
 	const sectionId = `section-${objectId}`;
 	const registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');
-	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) {
-		manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
-	}
-	(manifest.value.objects as any[]).push({
-		objectId,
-		name: template.name,
-		kind: 'component',
-		resourceId: registered?.id,
-		assetId: manifest.value.rootAssetId || undefined,
-		component: {
-			resourceKey: template.resourceKey,
-			componentType: template.componentType,
-			generator: template.generator,
-			generatorVersion: template.generatorVersion,
-			properties: structuredClone(template.defaultProperties),
-			sectionId,
-		},
-		transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
-	});
+	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
+	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] } });
+	manifest.value.connections ||= [];
+	upsertGeneratedComponentRoute(manifest.value);
 	resourceDrawerVisible.value = false;
-	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
-	else adapter.value?.loadManifest(manifest.value);
+	if (viewportMode.value === 'editor') {
+		professionalEditor.value?.reloadComponent(objectId);
+		professionalEditor.value?.selectObject(objectId);
+	} else adapter.value?.loadManifest(manifest.value);
 	refreshDiagnostics();
-	ElMessage.success(`${template.name} 已放入场景；参数随草稿保存，不需要修改场景代码。`);
+	ElMessage.success(`${template.name} 已放入场景；右侧 V7 属性面板可直接改参数、吸附端口并生成 Section / Route。`);
 };
 
 const placeModel = async (model: TwinModelResource) => {
@@ -930,6 +919,7 @@ const placeModel = async (model: TwinModelResource) => {
 	catch { removeModelObject(objectId); ElMessage.error('模型内容下载或解析失败'); }
 };
 const removeModelObject = (objectId: string) => {
+	removeConnectionsForObject(manifest.value, objectId);
 	if (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);
 	const index = manifest.value.objects.findIndex((item) => item.objectId === objectId); if (index >= 0) manifest.value.objects.splice(index, 1);
 	manifest.value.bindings = manifest.value.bindings.filter((item) => item.objectId !== objectId);
