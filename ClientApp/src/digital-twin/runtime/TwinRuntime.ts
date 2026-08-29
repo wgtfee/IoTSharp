@@ -506,7 +506,8 @@ export class TwinRuntime {
 		const silkLineDefinition = this.manifest.objects.find((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
 		if (silkLineDefinition) {
 			const palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;
-			this.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation);
+			const hasV7Infrastructure = (this.manifest.objects as any[]).some((item) => item.kind === 'component' && item.component?.properties?.silkV7Infrastructure === true);
+			this.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation, { renderLegacyPlasticConveyors: !hasV7Infrastructure, renderLegacyPreProcessStations: !hasV7Infrastructure });
 			this.packagingLine.setRoutingContext(this.routingContext);
 			this.packagingLine.group.userData.twinObjectId = silkLineDefinition.objectId;
 			this.applyTransform(this.packagingLine.group, silkLineDefinition);

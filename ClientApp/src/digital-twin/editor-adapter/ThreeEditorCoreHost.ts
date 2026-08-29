@@ -1,7 +1,7 @@
 import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinSceneManifest, TwinSceneObjectDefinition } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
-import { defaultComponentRegistry, isComponentSceneObject, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
 // @ts-ignore -- vendored JavaScript intentionally has no TypeScript declarations.
@@ -115,6 +115,16 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
 			if (!dragging) {
 				this.syncTransformsToManifest();
+				const selectedId = this.selectedObjectId;
+				const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);
+				if (selectedId && isComponentSceneObject(selected)) {
+					const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });
+					if (snapped) {
+						const root = this.loadedModels.get(selectedId)?.root;
+						if (root) { root.position.set(...selected.transform.position); root.rotation.set(...selected.transform.rotation); root.scale.set(...selected.transform.scale); root.updateMatrixWorld?.(true); }
+						this.selectObject(selectedId);
+					}
+				}
 				this.events.onChanged?.();
 			}
 		};
@@ -191,7 +201,6 @@ export class ThreeEditorCoreHost {
 	}
 
 	reloadAllComponents() {
-		this.syncTransformsToManifest();
 		for (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);
 		this.loadManifestComponents();
 		this.events.onChanged?.();

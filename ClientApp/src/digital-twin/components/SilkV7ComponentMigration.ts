@@ -94,9 +94,10 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	if (!route || !hasSilkRuntime) return { migrated: false, componentCount: 0 };
 
 	const objects = manifest.objects as TwinV7SceneObjectDefinition[];
-	for (let index = objects.length - 1; index >= 0; index -= 1) {
-		const candidate = objects[index];
-		if (candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true) objects.splice(index, 1);
+	const existing = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true);
+	if (existing.length > 0) {
+		manifest.connections ||= [];
+		return { migrated: false, componentCount: existing.length };
 	}
 
 	const migrated: TwinV7SceneObjectDefinition[] = [];

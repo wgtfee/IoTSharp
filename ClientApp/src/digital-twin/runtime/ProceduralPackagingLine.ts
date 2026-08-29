@@ -357,7 +357,7 @@ export class ProceduralPackagingLine {
 		returning?: string;
 	};
 
-	constructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}) {
+	constructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}, visualOptions: { renderLegacyPlasticConveyors?: boolean; renderLegacyPreProcessStations?: boolean } = {}) {
 		this.options = {
 			robotCycleSeconds: options.robotCycleSeconds ?? 5,
 			emptyPalletBatchRate: THREE.MathUtils.clamp(options.emptyPalletBatchRate ?? 0, 0, 1),
@@ -383,8 +383,8 @@ export class ProceduralPackagingLine {
 		this.processStations = this.createProcessStations();
 		this.group.name = '丝饼包装与立库入库数字孪生线';
 		this.buildFloorLabels();
-		this.buildPlasticConveyors();
-		this.buildPreProcessStations();
+		if (visualOptions.renderLegacyPlasticConveyors !== false) this.buildPlasticConveyors();
+		if (visualOptions.renderLegacyPreProcessStations !== false) this.buildPreProcessStations();
 		this.buildRotaryTableAndSilkCart();
 		this.buildRobot();
 		this.buildGantryCell();

@@ -63,6 +63,7 @@ internal static class TwinManifestInspector
         root["rootAssetId"] = rootAssetId.ToString("D");
         root["resources"] ??= new JsonArray();
         root["objects"] ??= new JsonArray();
+        root["connections"] ??= new JsonArray();
         root["bindings"] ??= new JsonArray();
         root["routes"] ??= new JsonArray();
         root["runtime"] ??= new JsonObject
@@ -87,6 +88,7 @@ internal static class TwinManifestInspector
         ValidateUntrustedValues(manifest, "$", result.Diagnostics);
         InspectResources(manifest, result);
         var objectIds = InspectObjects(manifest, rootAssetId, result);
+        InspectConnections(manifest, objectIds, result);
         InspectBindings(manifest, objectIds, result);
         InspectRoutes(manifest, objectIds, result);
         return result;
@@ -282,6 +284,37 @@ internal static class TwinManifestInspector
         }
 
         return objectIds;
+    }
+
+    private static void InspectConnections(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)
+    {
+        if (!manifest.TryGetProperty("connections", out var connections) || connections.ValueKind != JsonValueKind.Array)
+        {
+            result.Diagnostics.Add(Error("twin.connections.invalid", "connections 必须是数组。", "connections"));
+            return;
+        }
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var occupiedPorts = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+        foreach (var connection in connections.EnumerateArray())
+        {
+            var path = $"connections[{index}]";
+            if (!TryGetNonEmptyString(connection, "connectionId", out var id) || !ids.Add(id))
+                result.Diagnostics.Add(Error("twin.connection.id.invalid", "connectionId 不能为空且必须唯一。", $"{path}.connectionId"));
+            foreach (var endpointName in new[] { "from", "to" })
+            {
+                if (!connection.TryGetProperty(endpointName, out var endpoint) || endpoint.ValueKind != JsonValueKind.Object ||
+                    !TryGetNonEmptyString(endpoint, "objectId", out var objectId) || !objectIds.Contains(objectId) ||
+                    !TryGetNonEmptyString(endpoint, "portId", out var portId))
+                {
+                    result.Diagnostics.Add(Error("twin.connection.endpoint.invalid", "Connection 端点必须引用已存在对象和非空 portId。", $"{path}.{endpointName}"));
+                    continue;
+                }
+                if (!occupiedPorts.Add($"{objectId}::{portId}"))
+                    result.Diagnostics.Add(Error("twin.connection.port.duplicate", "同一个物理端口不能同时连接多个端点。", $"{path}.{endpointName}"));
+            }
+            index += 1;
+        }
     }
 
     private static void InspectBindings(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)

@@ -268,7 +268,7 @@ const resolveObjectProperties = (object: TwinV7SceneObjectDefinition) => isCompo
 
 /** connections 描述物理端口；Section/RouteEdge 描述组件内部可占用输送段。 */
 export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult => {
-	const objects = asV7Objects(manifest).filter(isComponentSceneObject);
+	const objects = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
 	const portsByObject = new Map<string, TwinComponentPortRef[]>();
 	const portIndex = new Map<string, TwinComponentPortRef>();
 	const union = new UnionFind();
@@ -345,7 +345,7 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 };
 
 export const upsertGeneratedComponentRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult | undefined => {
-	const components = asV7Objects(manifest).filter(isComponentSceneObject);
+	const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
 	const existingIndex = manifest.routes.findIndex((item) => item.generatedBy === 'component-connections' || item.routeId === GENERATED_ROUTE_ID);
 	if (!components.length) { if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1); return undefined; }
 	const result = buildComponentGraphRoute(manifest);
