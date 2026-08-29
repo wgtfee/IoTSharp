@@ -13,3 +13,4 @@ export * from './BuiltInComponentCatalog';
 export * from './ComponentTemplateFactory';
 export * from './ComponentResourceRegistration';
 export * from './ComponentConnectionEngine';
+export * from './SilkV7ComponentMigration';
