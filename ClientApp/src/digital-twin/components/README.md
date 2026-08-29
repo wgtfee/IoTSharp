@@ -31,49 +31,66 @@ BuiltInComponentCatalog.ts
 ComponentResourceRegistration.ts
 ```
 
-后端模型资源库可以直接使用 `builtInComponentResourceRegistrations` 作为 Seed / API Payload 来源。
+Workbench 的“模型资源库”现在会直接显示这些内置模板；点击“放入场景”后创建 `kind=component` 实例，TwinRuntime 通过 `ComponentRegistry` 生成 Three.js 对象。
 
-## 推荐注册到现有模型资源库的字段
+## 现有 ModelResource 数据库如何存组件
 
-现有 ModelResource 建议增加：
-
-```text
-ResourceType
-ComponentType
-Generator
-GeneratorVersion
-Category
-TagsJson
-CapabilitiesJson
-DefaultPropertiesJson
-ComponentSchemaJson
-```
-
-普通 GLB：
+V7 不要求新增数据库列。参数化/智能组件继续复用 `TwinModelResources`：
 
 ```text
-ResourceType = gltf-model
+RuntimeFormat = application/vnd.iotsharp.twin-component+json
+SourceType = ModelLibrary
+ModelMetadata = 组件定义 JSON
+FileSize = 0
+StoragePath = 空
+ProcessingStatus = Ready
 ```
 
-标准小辊道：
+组件定义 JSON 包含：
 
 ```text
-ResourceType = procedural-component
-ComponentType = roller-conveyor
-Generator = roller-conveyor-v1
+resourceType
+componentType
+generator
+generatorVersion
+category
+tags
+capabilities
+defaultProperties
+componentSchema
 ```
 
-外检机：
+普通 GLB 仍保持：
 
 ```text
-ResourceType = smart-model
-ComponentType = external-inspection
-Generator = external-inspection-v1
+RuntimeFormat = model/gltf-binary
 ```
 
-## 推荐后端 Seed 流程
+## 注册 API
 
-启动 / Migration Seed 时按 `resourceKey` 做 Upsert：
+后端已提供：
+
+```http
+POST /api/digital-twin/model-resources/components/upsert
+```
+
+注册单个组件。
+
+批量注册：
+
+```http
+POST /api/digital-twin/model-resources/components/batch
+```
+
+两者都要求：
+
+```text
+CustomerAdmin / TenantAdmin / SystemAdmin
+```
+
+按 `resourceKey` Upsert，所以重复调用不会重复插入。
+
+## 内置 resourceKey
 
 ```text
 builtin-small-roller-conveyor
@@ -86,18 +103,6 @@ builtin-turntable
 builtin-external-inspection
 builtin-bagging-machine
 ```
-
-不要每次启动重复插入；`resourceKey` 应设置唯一索引。
-
-## 推荐 API
-
-```http
-POST /api/digital-twin/model-resources/components/seed-builtins
-```
-
-仅管理员可调用，服务端内部使用与 `BuiltInComponentCatalog` 对应的 Seed 数据进行 Upsert。
-
-或者直接在数据库 Migration / Seed 中注册，不暴露 Seed API。
 
 ## 场景实例化
 
@@ -123,34 +128,46 @@ createComponentDefinitionFromTemplate(
 defaultComponentRegistry.create(definition)
 ```
 
-即可得到 Three.js `Group + Ports + Bounds`。
+得到 Three.js `Group + Ports + Bounds`。
 
-## 下一步接入 Workbench
+Workbench 已经封装了这一步：打开“模型资源库” → “内置参数化 / 智能模型” → 点击“放入场景”。
 
-1. 模型资源库列表同时展示 GLB 和 Component Resource。
-2. 拖 `gltf-model` 时继续走现有 GLB Loader。
-3. 拖 `procedural-component / smart-model` 时走 `ComponentTemplateFactory`。
-4. 将实例属性保存到 Scene Manifest。
-5. 点击组件时根据 `propertySchema` 动态生成属性编辑器。
-6. 后续实现 Input/Output Port 的自动吸附和 Connection。
-7. 再由 Connection 推导 TwinSection / Route。
+## 注册到数据库后的行为
+
+如果某个内置模板已经通过 Component Resource API 注册进当前租户的模型资源库，Workbench 放入组件时会按 `resourceKey` 找到数据库资源，并同时写入：
+
+```text
+manifest.resources[].resourceId
+object.resourceId
+```
+
+这样发布版本可以追踪到数据库模型资源记录。
+
+如果尚未注册，内置模板仍能在 Draft/Runtime 中使用，因为生成器和完整实例参数都在前端 Component Registry / Manifest 中；正式生产建议先注册，再发布。
+
+## 当前已完成的 Workbench / Runtime 接入
+
+- 模型资源库显示 9 个内置参数化/智能模板。
+- 点击模板可直接放入场景。
+- 组件实例随 Manifest 保存。
+- TwinRuntime 可加载 `kind=component` 对象。
+- 组件带 Input/Output Port 定义和 Bounds。
+- GLB 上传/下载流程保持不变。
+
+## 后续增强
+
+尚未在 V7 P0 中自动完成的能力：
+
+1. Input/Output Port 可视化编辑。
+2. 拖拽靠近后的自动 Snap。
+3. Connection 写入 Manifest。
+4. Connection 自动推导 TwinSection / Route。
+5. 根据 `propertySchema` 自动生成完整动态属性面板。
+
+这些属于 V7 后续拓扑编辑阶段，不影响当前模板生成、放置、保存和运行时显示。
 
 ## 迁移现有 ProceduralPackagingLine
 
-目前 `ProceduralPackagingLine.addRollerLane()` 仍然存在。迁移时不要复制生成逻辑，而应逐步替换成 `RollerConveyorComponent`。
+当前丝饼 V6 示例场景中的旧 `addRollerLane()` 仍用于兼容已有模板。新场景应优先使用模型资源库中的组件；后续再逐步把示例模板内部辊道也替换为 `RollerConveyorComponent`。
 
-建议顺序：
-
-```text
-小直线辊道
-→ 大直线辊道
-→ 90°转弯
-→ 分流
-→ 汇流
-→ 提升机
-→ 旋转台
-→ 外检机
-→ 套袋机
-```
-
-最终 `ProceduralPackagingLine` 只作为丝饼产线示例模板组合器，而不再自行实现每种设备的 Three.js 几何。
+最终 `ProceduralPackagingLine` 只作为丝饼产线示例模板组合器，而不再承担每个项目的真实设备几何实现。
