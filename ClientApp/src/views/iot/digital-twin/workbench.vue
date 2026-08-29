@@ -205,9 +205,9 @@
 			<section class="twin-viewport-shell">
 				<el-button class="twin-panel-toggle twin-panel-toggle--left" circle size="small" :title="leftPanelCollapsed ? '展开场景与路线' : '收起场景与路线'" @click="leftPanelCollapsed = !leftPanelCollapsed">{{ leftPanelCollapsed ? '›' : '‹' }}</el-button>
 				<el-button class="twin-panel-toggle twin-panel-toggle--right" circle size="small" :title="rightPanelCollapsed ? '展开对象与数据绑定' : '收起对象与数据绑定'" @click="rightPanelCollapsed = !rightPanelCollapsed">{{ rightPanelCollapsed ? '‹' : '›' }}</el-button>
-				<ThreeJsEditorHost v-if="viewportMode === 'editor'" :key="editorInstanceKey" ref="professionalEditor" :manifest="manifest" @selection-change="selected = $event" @changed="markEditorChanged" @error="ElMessage.error($event)" />
+				<ThreeJsEditorHost v-if="viewportMode === 'editor'" :key="editorInstanceKey" ref="professionalEditor" :manifest="manifest" @selection-change="selected = $event" @route-change="applyRuntimeRoute" @changed="markEditorChanged" @error="ElMessage.error($event)" />
 				<div v-else ref="viewport" class="twin-viewport"></div>
-				<div class="twin-viewport__hint"><template v-if="viewportMode === 'editor'">threejs-editor 专业模式：模型变换、节点/材质、灯光、相机和后期处理会随草稿入库。</template><template v-else-if="routeDrawMode">点击地面添加控制点；蓝色为途经点，橙色为分流器，紫色为汇流器，绿色为工位。</template><template v-else>绿色曲线是当前选路，红色输送段不可用；自动模式会按物料、Device 信号和容量选路。</template></div>
+				<div class="twin-viewport__hint"><template v-if="viewportMode === 'editor'">专业编辑是唯一工程坐标场景：模型、V7组件、Port、Connection、Section 与 Route 同图编辑；路线点可直接选择和拖动。</template><template v-else>运行预览只负责仿真/实时状态；工程位置以专业编辑场景为准。</template></div>
 				<div class="twin-progress"><i :style="{ width: `${Math.round(metrics.progress * 100)}%` }"></i></div>
 			</section>
 
@@ -361,7 +361,7 @@ const routePointKindOptions = [{ label: '途经点', value: 'waypoint' }, { labe
 const processTypeOptions = [{ label: '机器人上料', value: 'robot-loading' }, { label: '外检机', value: 'external-inspection' }, { label: '套袋机', value: 'bagging' }, { label: '桁架码垛', value: 'gantry-stacking' }, { label: '扫码工位', value: 'scan' }];
 const conveyorSizeOptions = [{ label: '小辊道', value: 'small' }, { label: '大辊道', value: 'large' }];
 const ruleOperatorOptions = [{ label: '等于', value: 'equals' }, { label: '不等于', value: 'notEquals' }, { label: '大于', value: 'greaterThan' }, { label: '大于等于', value: 'greaterThanOrEqual' }, { label: '小于', value: 'lessThan' }, { label: '小于等于', value: 'lessThanOrEqual' }, { label: '包含', value: 'contains' }, { label: '为真', value: 'truthy' }, { label: '为假', value: 'falsy' }];
-const viewportModeOptions = [{ label: '专业编辑', value: 'editor' }, { label: '路线运行', value: 'runtime' }];
+const viewportModeOptions = [{ label: '专业编辑', value: 'editor' }, { label: '运行预览', value: 'runtime' }];
 const metrics = reactive<TwinRuntimeMetrics>({ state: 'paused', distanceMeters: 0, lengthMeters: 0, progress: 0, speed: 1.2, activePointIds: [], activeEdgeIds: [], unavailableEdgeIds: [], fps: 0, drawCalls: 0, triangles: 0, geometries: 0, textures: 0 });
 
 const apiData = <T,>(response: any): T => response.data as T;
@@ -982,8 +982,10 @@ const togglePlaying = async () => {
 	playing.value = !playing.value; adapter.value?.setRunning(playing.value);
 };
 const toggleRouteDrawMode = async () => {
-	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
-	routeDrawMode.value = !routeDrawMode.value; adapter.value?.setRouteDrawMode(routeDrawMode.value);
+	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
+	routeDrawMode.value = !routeDrawMode.value;
+	professionalEditor.value?.setRouteEditMode(routeDrawMode.value);
+	professionalEditor.value?.setRouteDrawMode(routeDrawMode.value);
 };
 const changeSpeed = (value: number | number[]) => adapter.value?.setSpeed(Array.isArray(value) ? value[0] : value);
 const applySilkSimulationOptions = async () => {
@@ -996,14 +998,26 @@ const applySilkSimulationOptions = async () => {
 	else await switchViewportMode('runtime');
 	refreshDiagnostics();
 };
-const changeCurveKind = (value: string | number | boolean) => adapter.value?.setRouteCurveKind(value as TwinRouteDefinition['curveKind']);
-const changeLoop = (value: string | number | boolean) => adapter.value?.setRouteLoop(Boolean(value));
+const changeCurveKind = async (value: string | number | boolean) => {
+	route.value.curveKind = value as TwinRouteDefinition['curveKind'];
+	await syncRouteGraph();
+};
+const changeLoop = async (value: string | number | boolean) => {
+	route.value.loop = Boolean(value);
+	await syncRouteGraph();
+};
 const ensureRuntimeViewport = async () => {
 	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 };
 const syncRouteGraph = async () => {
-	await ensureRuntimeViewport();
-	adapter.value?.setRoute(cloneTwinManifest({ ...manifest.value, routes: [route.value] }).routes[0]);
+	const nextRoute = cloneTwinManifest({ ...manifest.value, routes: [route.value] }).routes[0];
+	if (viewportMode.value === 'editor') {
+		professionalEditor.value?.setRoute(nextRoute);
+		professionalEditor.value?.refreshRouteOverlay();
+		refreshDiagnostics();
+		return;
+	}
+	adapter.value?.setRoute(nextRoute);
 	const payload = parsePreviewPayload(false);
 	if (payload) adapter.value?.setRouteRoutingContext({ payload, edgeOccupancy: { ...previewOccupancy } });
 	refreshDiagnostics();
@@ -1095,18 +1109,21 @@ const removeDecisionRule = async (ruleId: string) => {
 	await syncRouteGraph();
 };
 const updateRoutePoint = async (index: number) => {
-	await ensureRuntimeViewport();
 	const point = route.value.points[index];
-	if (point) adapter.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
+	if (!point) return;
+	if (viewportMode.value === 'editor') professionalEditor.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
+	else adapter.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
 };
-const addRoutePoint = async () => { await ensureRuntimeViewport(); adapter.value?.addRoutePoint(); };
+const addRoutePoint = async () => {
+	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
+	professionalEditor.value?.setRouteEditMode(true);
+	professionalEditor.value?.addRoutePoint();
+};
 const removeRoutePoint = async (index: number) => {
-	await ensureRuntimeViewport();
 	const point = route.value.points[index];
-	const currentAdapter = adapter.value;
-	if (!point || !currentAdapter) return;
+	if (!point) return;
 
-	// 控制点删除会同时删除相邻路线边。页面表单持有的是 ID，必须一起清理，否则 Element Plus 会继续显示旧标签。
+	// 路线编辑统一在专业场景中；删除节点时仍同步清理页面上按 ID 持有的表单状态。
 	const removedEdgeIds = new Set(route.value.edges
 		.filter((edge) => edge.fromPointId === point.pointId || edge.toPointId === point.pointId)
 		.map((edge) => edge.edgeId));
@@ -1119,8 +1136,15 @@ const removeRoutePoint = async (index: number) => {
 	for (const edgeId of removedEdgeIds) delete previewOccupancy[edgeId];
 	if (selected.value?.kind === 'route-point') selected.value = null;
 
+	if (viewportMode.value === 'editor') {
+		professionalEditor.value?.removeRoutePoint(index);
+		const currentRoute = professionalEditor.value?.getRoute();
+		if (currentRoute) applyRuntimeRoute(currentRoute);
+		return;
+	}
+	const currentAdapter = adapter.value;
+	if (!currentAdapter) return;
 	currentAdapter.removeRoutePoint(index);
-	// 事件回调会同步 Manifest；这里再从运行时读取一次，避免任何视图切换时序导致左侧列表保留旧数组。
 	applyRuntimeRoute(currentAdapter.getRoute());
 };
 const focusSelected = () => viewportMode.value === 'editor' ? professionalEditor.value?.focusSelected() : adapter.value?.focusSelected();
