@@ -58,16 +58,15 @@ jobs:
       - name: Apply remaining V7 integration
         run: python scripts/v7_finish_patch.py
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ClientApp/package-lock.json
+      - name: Verify Node runtime
+        run: |
+          node --version
+          npm --version
 
       - name: Verify V7 frontend build
         working-directory: ClientApp
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Commit V7 integration
