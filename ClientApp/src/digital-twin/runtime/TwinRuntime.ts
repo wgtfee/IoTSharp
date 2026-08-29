@@ -8,6 +8,7 @@ import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDe
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
 import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
+import { defaultComponentRegistry, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 export interface TwinSelectionInfo {
 	name: string;
@@ -110,6 +111,7 @@ export class TwinRuntime {
 	private manifest: TwinSceneManifest;
 	private readonly objectIndex = new Map<string, any>();
 	private readonly loadedModels = new Map<string, any>();
+	private readonly componentModels = new Map<string, { root: THREE.Group; dispose: () => void }>();
 	private readonly bindingEngine: BindingEngine;
 	private route: TwinRouteDefinition;
 	private routeEngine: RouteEngine;
@@ -182,6 +184,7 @@ export class TwinRuntime {
 
 		this.createEnvironment(manifest.runtime.showGrid);
 		this.createProceduralConveyor();
+		this.rebuildComponents();
 		this.createMovingObject();
 		this.rebuildRouteVisuals();
 
@@ -312,6 +315,7 @@ export class TwinRuntime {
 			const object = this.objectIndex.get(objectDefinition.objectId);
 			if (object) this.applyTransform(object, objectDefinition);
 		}
+		this.rebuildComponents();
 		this.applyRouteChange();
 	}
 
@@ -388,6 +392,8 @@ export class TwinRuntime {
 		this.scene.remove(this.transformControls);
 		this.orbitControls.dispose();
 		this.bindingEngine.dispose();
+		for (const component of this.componentModels.values()) { this.scene.remove(component.root); component.dispose(); }
+		this.componentModels.clear();
 		this.objectIndex.clear();
 		this.loadedModels.clear();
 		this.scene.traverse((object: any) => {
@@ -553,6 +559,40 @@ export class TwinRuntime {
 		motor.castShadow = true;
 		group.add(motor);
 		this.scene.add(group);
+	}
+
+	private rebuildComponents() {
+		for (const [objectId, component] of this.componentModels) {
+			this.scene.remove(component.root);
+			component.dispose();
+			this.objectIndex.delete(objectId);
+		}
+		this.componentModels.clear();
+		for (const objectDefinition of this.manifest.objects as any[]) {
+			if (objectDefinition.kind !== 'component') continue;
+			const component = objectDefinition.component;
+			if (!component?.componentType) continue;
+			try {
+				const definition = {
+					objectId: objectDefinition.objectId,
+					name: objectDefinition.name,
+					componentType: component.componentType,
+					resourceId: objectDefinition.resourceId || component.resourceKey,
+					resourceVersion: component.generatorVersion,
+					properties: component.properties || {},
+					transform: objectDefinition.transform,
+					sectionId: component.sectionId,
+					routeEdgeId: component.routeEdgeId,
+				} as TwinComponentDefinition;
+				const built = defaultComponentRegistry.create(definition);
+				built.root.userData.componentResourceKey = component.resourceKey;
+				this.scene.add(built.root);
+				this.objectIndex.set(objectDefinition.objectId, built.root);
+				this.componentModels.set(objectDefinition.objectId, { root: built.root, dispose: built.dispose });
+			} catch (error) {
+				this.events.onError?.(`组件 ${objectDefinition.name || objectDefinition.objectId} 加载失败：${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
 	}
 
 	private createMovingObject() {

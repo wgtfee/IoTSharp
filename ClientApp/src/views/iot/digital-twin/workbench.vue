@@ -249,7 +249,16 @@
 		<el-drawer v-model="resourceDrawerVisible" title="模型资源库" size="520px">
 			<input ref="uploadInput" class="is-hidden" type="file" accept=".glb,model/gltf-binary" @change="uploadModel" />
 			<div class="resource-actions"><el-button type="success" @click="router.push('/iot/digital-twin/model-generator')">图片生成模型</el-button><el-button type="primary" :loading="uploading" @click="uploadInput?.click()">上传 GLB</el-button><el-button @click="loadModels">刷新</el-button></div>
-			<el-alert title="GLB、节点索引、Hash 和授权信息保存在 IoTSharp；场景只引用 resourceId。发布要求已确认商业使用授权。" type="info" :closable="false" />
+			<el-alert title="GLB 继续来自数据库模型资源；内置参数化/智能模型由 Component Registry 生成，实例参数随场景草稿和发布版本保存。" type="info" :closable="false" />
+			<el-divider>内置参数化 / 智能模型</el-divider>
+			<div class="resource-grid">
+				<div v-for="template in componentTemplates" :key="template.resourceKey" class="resource-card">
+					<div><strong>{{ template.name }}</strong><small>{{ template.resourceType }} · {{ template.componentType }}</small><small>{{ template.tags.join(' · ') }}</small></div>
+					<el-tag size="small" type="success">Built-in</el-tag>
+					<el-button type="primary" plain @click="placeComponentTemplate(template.resourceKey)">放入场景</el-button>
+				</div>
+			</div>
+			<el-divider>GLB 模型资源</el-divider>
 			<div class="resource-grid">
 				<div v-for="model in models" :key="model.id" class="resource-card"><div><strong>{{ model.name }}</strong><small>{{ model.originalFileName }} · {{ formatBytes(model.fileSize) }}</small><small>{{ model.modelMetadata.meshCount || 0 }} Mesh · {{ formatNumber(model.modelMetadata.triangleCount || 0) }} triangles</small></div><el-tag size="small" :type="model.processingStatus === 'Ready' ? 'success' : 'warning'">{{ model.processingStatus }}</el-tag><el-button type="primary" plain :disabled="model.processingStatus !== 'Ready'" @click="placeModel(model)">放入场景</el-button></div>
 			</div>
@@ -272,6 +281,7 @@ import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
+import { builtInComponentTemplates } from '/@/digital-twin/components';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 
@@ -327,6 +337,7 @@ const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).fi
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));
+const componentTemplates = builtInComponentTemplates;
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
 const selectedRuntimeData = computed(() => selected.value?.runtimeData ? JSON.stringify(selected.value.runtimeData, null, 2) : '');
 const canAddBinding = computed(() => Boolean(selected.value?.objectId && bindingForm.deviceId && (bindingForm.key || bindingForm.sourceKind === 'connectivity')));
@@ -864,6 +875,38 @@ const uploadModel = async (event: Event) => {
 		data.append('sourceType', 'Upload'); data.append('licenseType', uploadForm.licenseType); data.append('author', uploadForm.author); data.append('sourceUrl', uploadForm.sourceUrl); data.append('commercialUseAllowed', String(uploadForm.commercialUseAllowed));
 		await digitalTwinApi.uploadModel(data); await loadModels(); ElMessage.success('GLB 已校验、计算 Hash 并存入租户模型资源库');
 	} finally { uploading.value = false; }
+};
+
+const placeComponentTemplate = async (resourceKey: string) => {
+	const template = componentTemplates.find((item) => item.resourceKey === resourceKey);
+	if (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
+	const objectId = createId('component');
+	const sectionId = `section-${objectId}`;
+	const registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');
+	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) {
+		manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
+	}
+	(manifest.value.objects as any[]).push({
+		objectId,
+		name: template.name,
+		kind: 'component',
+		resourceId: registered?.id,
+		assetId: manifest.value.rootAssetId || undefined,
+		component: {
+			resourceKey: template.resourceKey,
+			componentType: template.componentType,
+			generator: template.generator,
+			generatorVersion: template.generatorVersion,
+			properties: structuredClone(template.defaultProperties),
+			sectionId,
+		},
+		transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
+	});
+	resourceDrawerVisible.value = false;
+	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
+	else adapter.value?.loadManifest(manifest.value);
+	refreshDiagnostics();
+	ElMessage.success(`${template.name} 已放入场景；参数随草稿保存，不需要修改场景代码。`);
 };
 
 const placeModel = async (model: TwinModelResource) => {
