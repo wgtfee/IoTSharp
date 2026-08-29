@@ -1,5 +1,7 @@
 import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinSceneManifest, TwinSceneObjectDefinition } from '/@/digital-twin/contracts';
+import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
+import { defaultComponentRegistry, isComponentSceneObject, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
 // @ts-ignore -- vendored JavaScript intentionally has no TypeScript declarations.
@@ -17,13 +19,13 @@ interface LoadedEditorModel {
 	objectId: string;
 	resourceId?: string;
 	root: any;
+	dispose?: () => void;
+	kind: 'model' | 'component';
 }
 
 const editorCommit = 'd7e2ddf6cc1fa8c626356a3606167abff68daaed';
 const coreCommit = '98197115af2318ed20f334873517018509b8e079';
-
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-
 const isTransientUrl = (value: unknown): value is string => typeof value === 'string' && /^(blob:|data:|https?:)/i.test(value.trim());
 const forbiddenExecutablePropertyNames = new Set(['script', 'scripts', 'function', 'functions', 'javascript']);
 const containsIdentifierToken = (propertyName: string, token: string) => {
@@ -52,7 +54,6 @@ const sanitizeEditorJson = (value: unknown): unknown => {
 	}
 	return value;
 };
-
 const sanitizeModelSnapshot = (value: any): ThreeEditorModelSnapshot | null => {
 	const objectId = value?.rootInfo?.iotsharpObjectId;
 	if (typeof objectId !== 'string' || !objectId) return null;
@@ -67,10 +68,7 @@ const sanitizeModelSnapshot = (value: any): ThreeEditorModelSnapshot | null => {
 	};
 };
 
-/**
- * threejs-editor 专业编辑内核与 IoTSharp Manifest 的稳定边界。
- * 二进制模型永远从 IoTSharp resourceId 加载，编辑器快照不保存 blob/http/data URL。
- */
+/** threejs-editor 专业编辑内核与 IoTSharp Manifest 的稳定边界。 */
 export class ThreeEditorCoreHost {
 	private readonly container: HTMLDivElement;
 	private readonly events: ThreeEditorCoreHostEvents;
@@ -105,7 +103,8 @@ export class ThreeEditorCoreHost {
 			meshListParams: [],
 			saveEditorCallBack: (sceneParams: Record<string, unknown>, modelParams: unknown[]) => {
 				this.latestSceneParams = sanitizeEditorJson(cloneJson(sceneParams || {})) as Record<string, unknown>;
-				this.latestModelParams = (modelParams || []).map(sanitizeModelSnapshot).filter(Boolean) as ThreeEditorModelSnapshot[];
+				const glbIds = new Set((this.manifest.objects || []).filter((item) => item.kind === 'model').map((item) => item.objectId));
+				this.latestModelParams = (modelParams || []).map(sanitizeModelSnapshot).filter((item): item is ThreeEditorModelSnapshot => Boolean(item && glbIds.has(item.rootInfo.iotsharpObjectId)));
 			},
 		});
 
@@ -122,6 +121,7 @@ export class ThreeEditorCoreHost {
 		this.container.addEventListener('click', this.handleSceneClick);
 		this.resizeObserver = new ResizeObserver(() => this.editor?.viewer?.renderSceneResize?.());
 		this.resizeObserver.observe(container);
+		this.loadManifestComponents();
 	}
 
 	async loadGlbBuffer(object: TwinSceneObjectDefinition, fileName: string, buffer: ArrayBuffer) {
@@ -130,14 +130,7 @@ export class ThreeEditorCoreHost {
 		const objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'model/gltf-binary' }));
 		this.objectUrls.add(objectUrl);
 		const stored = this.latestModelParams.find((item) => item.rootInfo.iotsharpObjectId === object.objectId);
-		const rootInfo = {
-			type: 'GLTF',
-			url: objectUrl,
-			name: fileName,
-			iotsharpObjectId: object.objectId,
-			iotsharpResourceId: object.resourceId,
-		};
-
+		const rootInfo = { type: 'GLTF', url: objectUrl, name: fileName, iotsharpObjectId: object.objectId, iotsharpResourceId: object.resourceId };
 		await new Promise<void>((resolve) => {
 			const { loaderService } = this.editor.setModelFromInfo(rootInfo, stored?.group);
 			loaderService.complete = (root: any) => {
@@ -147,7 +140,7 @@ export class ThreeEditorCoreHost {
 					root.position.set(...object.transform.position);
 					root.rotation.set(...object.transform.rotation);
 					root.scale.set(...object.transform.scale);
-					this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root });
+					this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root, kind: 'model' });
 					this.editor.setOutlinePass([root]);
 					this.editor.viewer.transformControls.attach(root);
 					this.selectRoot(root);
@@ -157,12 +150,59 @@ export class ThreeEditorCoreHost {
 		});
 	}
 
+	loadComponent(object: TwinV7SceneObjectDefinition) {
+		if (this.disposed || !isComponentSceneObject(object)) return;
+		this.removeObject(object.objectId, false);
+		try {
+			const definition: TwinComponentDefinition = {
+				objectId: object.objectId,
+				name: object.name,
+				componentType: object.component.componentType as TwinComponentDefinition['componentType'],
+				resourceId: object.resourceId || object.component.resourceKey,
+				resourceVersion: object.component.generatorVersion,
+				properties: object.component.properties || {},
+				transform: object.transform,
+				sectionId: object.component.sectionId,
+				routeEdgeId: object.component.routeEdgeId,
+			};
+			const built = defaultComponentRegistry.create(definition);
+			const root: any = built.root;
+			root.name = object.name;
+			root.userData = { ...root.userData, iotsharpObjectId: object.objectId, componentResourceKey: object.component.resourceKey };
+			root.rootInfo = { type: 'IOTSHARP_COMPONENT', name: object.name, iotsharpObjectId: object.objectId, iotsharpResourceId: object.resourceId };
+			root.position.set(...object.transform.position);
+			root.rotation.set(...object.transform.rotation);
+			root.scale.set(...object.transform.scale);
+			this.editor.viewer.scene.add(root);
+			this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root, dispose: built.dispose, kind: 'component' });
+			this.editor.viewer.renderScene?.();
+		} catch (error) {
+			this.events.onError?.(`V7 组件 ${object.name} 加载失败：${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	reloadComponent(objectId: string) {
+		this.syncTransformsToManifest();
+		const object = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === objectId);
+		if (!isComponentSceneObject(object)) return;
+		this.loadComponent(object);
+		this.selectObject(objectId);
+		this.events.onChanged?.();
+	}
+
+	reloadAllComponents() {
+		this.syncTransformsToManifest();
+		for (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);
+		this.loadManifestComponents();
+		this.events.onChanged?.();
+	}
+
 	captureManifest(target: TwinSceneManifest): TwinSceneManifest {
 		this.manifest = target;
 		this.syncTransformsToManifest();
 		this.editor.saveSceneEditor();
-		// 程序化产线没有由 three editor 管理的 GLB 对象。此时保存其内部
-		// sceneParams 既无法还原运行时场景，还可能携带大体积预览数据。
+		const glbObjectIds = new Set(target.objects.filter((item) => item.kind === 'model').map((item) => item.objectId));
+		this.latestModelParams = this.latestModelParams.filter((item) => glbObjectIds.has(item.rootInfo.iotsharpObjectId));
 		if (this.latestModelParams.length === 0) {
 			delete target.editorExtension;
 			return target;
@@ -170,55 +210,20 @@ export class ThreeEditorCoreHost {
 		const snapshot: ThreeEditorSnapshot = {
 			sceneParams: sanitizeEditorJson(cloneJson(this.latestSceneParams)) as Record<string, unknown>,
 			modelParams: cloneJson(this.latestModelParams),
-			upstream: {
-				repository: 'z2586300277/threejs-editor',
-				editorCommit,
-				coreRepository: 'z2586300277/three-editor-cores',
-				coreCommit,
-				license: 'Apache-2.0',
-			},
+			upstream: { repository: 'z2586300277/threejs-editor', editorCommit, coreRepository: 'z2586300277/three-editor-cores', coreCommit, license: 'Apache-2.0' },
 		};
 		target.editorExtension = { source: 'threejs-editor', payloadVersion: 2, threeEditor: snapshot };
 		return target;
 	}
 
-	setSelectionMode(mode: 'select' | 'root' | 'transform') {
-		this.editor.setSceneControlMode(mode === 'select' ? '选择' : mode === 'root' ? '根选择' : '变换');
-	}
-
-	setTransformMode(mode: 'translate' | 'rotate' | 'scale') {
-		this.editor.setSceneControlMode('变换');
-		this.editor.setTransformControlsProperty('mode', mode);
-	}
-
-	setTransformChildren(enabled: boolean) {
-		this.editor.viewer.handler.isTransformChildren = enabled;
-	}
-
-	setGrid(visible: boolean) {
-		this.editor.setOperateOption('grid', visible);
-		this.manifest.runtime.showGrid = visible;
-	}
-
-	setAxes(visible: boolean) {
-		this.editor.setOperateOption('axes', visible);
-	}
-
-	setKeyboard(enabled: boolean) {
-		this.editor.setOperateOption('openKey', enabled);
-	}
-
-	undo() {
-		restoreHistoryHandler('z');
-		this.syncTransformsToManifest();
-		this.events.onChanged?.();
-	}
-
-	redo() {
-		restoreHistoryHandler('y');
-		this.syncTransformsToManifest();
-		this.events.onChanged?.();
-	}
+	setSelectionMode(mode: 'select' | 'root' | 'transform') { this.editor.setSceneControlMode(mode === 'select' ? '选择' : mode === 'root' ? '根选择' : '变换'); }
+	setTransformMode(mode: 'translate' | 'rotate' | 'scale') { this.editor.setSceneControlMode('变换'); this.editor.setTransformControlsProperty('mode', mode); }
+	setTransformChildren(enabled: boolean) { this.editor.viewer.handler.isTransformChildren = enabled; }
+	setGrid(visible: boolean) { this.editor.setOperateOption('grid', visible); this.manifest.runtime.showGrid = visible; }
+	setAxes(visible: boolean) { this.editor.setOperateOption('axes', visible); }
+	setKeyboard(enabled: boolean) { this.editor.setOperateOption('openKey', enabled); }
+	undo() { restoreHistoryHandler('z'); this.syncTransformsToManifest(); this.events.onChanged?.(); }
+	redo() { restoreHistoryHandler('y'); this.syncTransformsToManifest(); this.events.onChanged?.(); }
 
 	selectObject(objectId: string) {
 		const root = this.loadedModels.get(objectId)?.root;
@@ -242,14 +247,16 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.transformControls.detach();
 		this.editor.setOutlinePass([]);
 		model.root.parent?.remove(model.root);
-		model.root.disposeRoot?.();
+		if (model.dispose) model.dispose();
+		else model.root.disposeRoot?.();
 		this.loadedModels.delete(objectId);
 		this.latestModelParams = this.latestModelParams.filter((item) => item.rootInfo.iotsharpObjectId !== objectId);
-		if (this.selectedObjectId === objectId) {
-			this.selectedObjectId = undefined;
-			this.events.onSelectionChange?.(null);
-		}
+		if (this.selectedObjectId === objectId) { this.selectedObjectId = undefined; this.events.onSelectionChange?.(null); }
 		if (notify) this.events.onChanged?.();
+	}
+
+	private loadManifestComponents() {
+		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) if (isComponentSceneObject(object)) this.loadComponent(object);
 	}
 
 	private readonly handleSceneClick = (event: MouseEvent) => {
@@ -257,7 +264,7 @@ export class ThreeEditorCoreHost {
 		try {
 			this.editor.getSceneEvent(event, (info: any) => {
 				const root = info?.currentRootModel;
-				if (root?.rootInfo?.iotsharpObjectId) this.selectRoot(root, info.currentModel);
+				if (root?.rootInfo?.iotsharpObjectId || root?.userData?.iotsharpObjectId) this.selectRoot(root, info.currentModel);
 			});
 		} catch {
 			this.events.onError?.('threejs-editor 未能选中该对象，请切换“根选择”后重试。');
@@ -275,14 +282,7 @@ export class ThreeEditorCoreHost {
 			segments.unshift(current.name || `${current.type}[${index}]`);
 			current = current.parent;
 		}
-		this.events.onSelectionChange?.({
-			name: node.name || root.name || '未命名对象',
-			uuid: node.uuid,
-			path: `${this.manifest.name}/${root.name || objectId}`,
-			kind: 'scene-object',
-			objectId,
-			nodePath: segments.join('/'),
-		});
+		this.events.onSelectionChange?.({ name: node.name || root.name || '未命名对象', uuid: node.uuid, path: `${this.manifest.name}/${root.name || objectId}`, kind: 'scene-object', objectId, nodePath: segments.join('/') });
 	}
 
 	private syncTransformsToManifest() {
@@ -301,10 +301,9 @@ export class ThreeEditorCoreHost {
 		this.disposed = true;
 		this.container.removeEventListener('click', this.handleSceneClick);
 		this.resizeObserver.disconnect();
+		for (const model of this.loadedModels.values()) model.dispose?.();
 		this.editor?.viewer?.destroySceneRender?.();
 		for (const objectUrl of this.objectUrls) URL.revokeObjectURL(objectUrl);
-		this.objectUrls.clear();
-		this.loadedModels.clear();
-		this.editor = undefined;
+		this.objectUrls.clear(); this.loadedModels.clear(); this.editor = undefined;
 	}
 }
