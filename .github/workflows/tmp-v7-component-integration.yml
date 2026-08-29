@@ -1,0 +1,98 @@
+name: Temporary V7 Component Integration
+
+on:
+  push:
+    branches: [Develop]
+    paths:
+      - '.github/workflows/tmp-v7-component-integration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: Develop
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch Workbench and TwinRuntime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workbench = Path('ClientApp/src/views/iot/digital-twin/workbench.vue')
+          text = workbench.read_text(encoding='utf-8')
+
+          old = "import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';"
+          new = "import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';\nimport { builtInComponentTemplates } from '/@/digital-twin/components';"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));"
+          new = old + "\nconst componentTemplates = builtInComponentTemplates;"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = '''\t\t\t<el-alert title="GLB、节点索引、Hash 和授权信息保存在 IoTSharp；场景只引用 resourceId。发布要求已确认商业使用授权。" type="info" :closable="false" />\n\t\t\t<div class="resource-grid">'''
+          new = '''\t\t\t<el-alert title="GLB 继续来自数据库模型资源；内置参数化/智能模型由 Component Registry 生成，实例参数随场景草稿和发布版本保存。" type="info" :closable="false" />\n\t\t\t<el-divider>内置参数化 / 智能模型</el-divider>\n\t\t\t<div class="resource-grid">\n\t\t\t\t<div v-for="template in componentTemplates" :key="template.resourceKey" class="resource-card">\n\t\t\t\t\t<div><strong>{{ template.name }}</strong><small>{{ template.resourceType }} · {{ template.componentType }}</small><small>{{ template.tags.join(' · ') }}</small></div>\n\t\t\t\t\t<el-tag size="small" type="success">Built-in</el-tag>\n\t\t\t\t\t<el-button type="primary" plain @click="placeComponentTemplate(template.resourceKey)">放入场景</el-button>\n\t\t\t\t</div>\n\t\t\t</div>\n\t\t\t<el-divider>GLB 模型资源</el-divider>\n\t\t\t<div class="resource-grid">'''
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          marker = "const placeModel = async (model: TwinModelResource) => {"
+          assert marker in text
+          insert = '''const placeComponentTemplate = async (resourceKey: string) => {\n\tconst template = componentTemplates.find((item) => item.resourceKey === resourceKey);\n\tif (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }\n\tconst objectId = createId('component');\n\tconst sectionId = `section-${objectId}`;\n\tconst registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');\n\tif (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) {\n\t\tmanifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });\n\t}\n\t(manifest.value.objects as any[]).push({\n\t\tobjectId,\n\t\tname: template.name,\n\t\tkind: 'component',\n\t\tresourceId: registered?.id,\n\t\tassetId: manifest.value.rootAssetId || undefined,\n\t\tcomponent: {\n\t\t\tresourceKey: template.resourceKey,\n\t\t\tcomponentType: template.componentType,\n\t\t\tgenerator: template.generator,\n\t\t\tgeneratorVersion: template.generatorVersion,\n\t\t\tproperties: structuredClone(template.defaultProperties),\n\t\t\tsectionId,\n\t\t},\n\t\ttransform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },\n\t});\n\tresourceDrawerVisible.value = false;\n\tif (viewportMode.value !== 'runtime') await switchViewportMode('runtime');\n\telse adapter.value?.loadManifest(manifest.value);\n\trefreshDiagnostics();\n\tElMessage.success(`${template.name} 已放入场景；参数随草稿保存，不需要修改场景代码。`);\n};\n\n'''
+          text = text.replace(marker, insert + marker, 1)
+          workbench.write_text(text, encoding='utf-8')
+
+          runtime = Path('ClientApp/src/digital-twin/runtime/TwinRuntime.ts')
+          text = runtime.read_text(encoding='utf-8')
+
+          old = "import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';"
+          new = old + "\nimport { defaultComponentRegistry, type TwinComponentDefinition } from '/@/digital-twin/components';"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "\tprivate readonly loadedModels = new Map<string, any>();"
+          new = old + "\n\tprivate readonly componentModels = new Map<string, { root: THREE.Group; dispose: () => void }>();"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "\t\tthis.createProceduralConveyor();\n\t\tthis.createMovingObject();"
+          new = "\t\tthis.createProceduralConveyor();\n\t\tthis.rebuildComponents();\n\t\tthis.createMovingObject();"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "\t\tfor (const objectDefinition of manifest.objects) {\n\t\t\tconst object = this.objectIndex.get(objectDefinition.objectId);\n\t\t\tif (object) this.applyTransform(object, objectDefinition);\n\t\t}\n\t\tthis.applyRouteChange();"
+          new = "\t\tfor (const objectDefinition of manifest.objects) {\n\t\t\tconst object = this.objectIndex.get(objectDefinition.objectId);\n\t\t\tif (object) this.applyTransform(object, objectDefinition);\n\t\t}\n\t\tthis.rebuildComponents();\n\t\tthis.applyRouteChange();"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = "\t\tthis.bindingEngine.dispose();\n\t\tthis.objectIndex.clear();"
+          new = "\t\tthis.bindingEngine.dispose();\n\t\tfor (const component of this.componentModels.values()) { this.scene.remove(component.root); component.dispose(); }\n\t\tthis.componentModels.clear();\n\t\tthis.objectIndex.clear();"
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          marker = "\tprivate createMovingObject() {"
+          assert marker in text
+          method = '''\tprivate rebuildComponents() {\n\t\tfor (const [objectId, component] of this.componentModels) {\n\t\t\tthis.scene.remove(component.root);\n\t\t\tcomponent.dispose();\n\t\t\tthis.objectIndex.delete(objectId);\n\t\t}\n\t\tthis.componentModels.clear();\n\t\tfor (const objectDefinition of this.manifest.objects as any[]) {\n\t\t\tif (objectDefinition.kind !== 'component') continue;\n\t\t\tconst component = objectDefinition.component;\n\t\t\tif (!component?.componentType) continue;\n\t\t\ttry {\n\t\t\t\tconst definition = {\n\t\t\t\t\tobjectId: objectDefinition.objectId,\n\t\t\t\t\tname: objectDefinition.name,\n\t\t\t\t\tcomponentType: component.componentType,\n\t\t\t\t\tresourceId: objectDefinition.resourceId || component.resourceKey,\n\t\t\t\t\tresourceVersion: component.generatorVersion,\n\t\t\t\t\tproperties: component.properties || {},\n\t\t\t\t\ttransform: objectDefinition.transform,\n\t\t\t\t\tsectionId: component.sectionId,\n\t\t\t\t\trouteEdgeId: component.routeEdgeId,\n\t\t\t\t} as TwinComponentDefinition;\n\t\t\t\tconst built = defaultComponentRegistry.create(definition);\n\t\t\t\tbuilt.root.userData.componentResourceKey = component.resourceKey;\n\t\t\t\tthis.scene.add(built.root);\n\t\t\t\tthis.objectIndex.set(objectDefinition.objectId, built.root);\n\t\t\t\tthis.componentModels.set(objectDefinition.objectId, { root: built.root, dispose: built.dispose });\n\t\t\t} catch (error) {\n\t\t\t\tthis.events.onError?.(`组件 ${objectDefinition.name || objectDefinition.objectId} 加载失败：${error instanceof Error ? error.message : String(error)}`);\n\t\t\t}\n\t\t}\n\t}\n\n'''
+          text = text.replace(marker, method + marker, 1)
+          runtime.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ClientApp/src/views/iot/digital-twin/workbench.vue ClientApp/src/digital-twin/runtime/TwinRuntime.ts
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "feat(twin): integrate reusable components into workbench runtime"
+          git push origin Develop
