@@ -5,15 +5,11 @@ on:
     branches: [Develop]
     paths:
       - 'ClientApp/**'
-      - 'scripts/unify_professional_route_editor.py'
       - '.github/workflows/develop-digital-twin-build.yml'
   pull_request:
     branches: [Develop]
     paths:
       - 'ClientApp/**'
-
-permissions:
-  contents: write
 
 jobs:
   build-client:
@@ -21,13 +17,6 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: Develop
-          fetch-depth: 0
-
-      - name: Apply professional route editor integration
-        if: ${{ hashFiles('scripts/unify_professional_route_editor.py') != '' }}
-        run: python scripts/unify_professional_route_editor.py
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -41,13 +30,3 @@ jobs:
       - name: Build ClientApp
         working-directory: ClientApp
         run: npm run build
-
-      - name: Commit professional route editor integration
-        if: ${{ hashFiles('scripts/unify_professional_route_editor.py') != '' }}
-        run: |
-          git config user.name "wgtfee"
-          git config user.email "57023277+wgtfee@users.noreply.github.com"
-          git rm scripts/unify_professional_route_editor.py
-          git add ClientApp/src/views/iot/digital-twin/workbench.vue
-          git commit -m "fix(twin): unify route editing with professional scene"
-          git push origin Develop
