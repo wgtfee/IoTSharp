@@ -1,0 +1,54 @@
+import * as THREE from 'three';
+import { applyComponentIdentity, createComponentResult, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
+import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
+
+export class RollerConveyorComponent implements TwinComponentGenerator {
+	readonly componentType = 'roller-conveyor' as const;
+	readonly generator = 'roller-conveyor-v1';
+
+	create(context: TwinComponentBuildContext) {
+		const { definition } = context;
+		const props = definition.properties;
+		const sizeClass = props.conveyorSizeClass === 'large' ? 'large' : 'small';
+		const length = resolveNumber(props, 'length', sizeClass === 'large' ? 4 : 3, 0.5, 100);
+		const width = resolveNumber(props, 'width', sizeClass === 'large' ? 2.4 : 1.6, 0.5, 8);
+		const height = resolveNumber(props, 'height', sizeClass === 'large' ? 0.82 : 0.9, 0.2, 3);
+		const rollerDiameter = resolveNumber(props, 'rollerDiameter', sizeClass === 'large' ? 0.18 : 0.14, 0.05, 0.6);
+		const rollerPitch = resolveNumber(props, 'rollerPitch', sizeClass === 'large' ? 0.6 : 0.55, rollerDiameter * 1.1, 2);
+		const root = new THREE.Group();
+		root.name = definition.name;
+		root.add(createStraightRollerGeometry({
+			length,
+			width,
+			height,
+			rollerDiameter,
+			rollerPitch,
+			frameHeight: resolveNumber(props, 'frameHeight', 0.16, 0.08, 0.8),
+			frameThickness: resolveNumber(props, 'frameThickness', 0.1, 0.04, 0.5),
+			supportSpacing: resolveNumber(props, 'supportSpacing', 2, 0.8, 8),
+			frameColor: sizeClass === 'large' ? 0x475569 : 0x334155,
+			rollerColor: 0x94a3b8,
+		}));
+		const ports: TwinComponentPortDefinition[] = [
+			{
+				portId: 'input',
+				name: '入口',
+				type: 'material-input',
+				localPosition: [-length / 2, height, 0],
+				localDirection: [-1, 0, 0],
+			},
+			{
+				portId: 'output',
+				name: '出口',
+				type: 'material-output',
+				localPosition: [length / 2, height, 0],
+				localDirection: [1, 0, 0],
+			},
+		];
+		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
+		root.userData.generator = this.generator;
+		root.userData.properties = { ...props, length, width, height, rollerDiameter, rollerPitch };
+		setTransform(root, definition.transform);
+		return createComponentResult(root, ports);
+	}
+}
