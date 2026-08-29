@@ -1,7 +1,8 @@
-import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinSceneManifest, TwinSceneObjectDefinition } from '/@/digital-twin/contracts';
+import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
-import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
 // @ts-ignore -- vendored JavaScript intentionally has no TypeScript declarations.
@@ -11,6 +12,7 @@ import { restoreHistoryHandler } from '/@/digital-twin/vendor/three-editor-cores
 
 export interface ThreeEditorCoreHostEvents {
 	onSelectionChange?: (selection: TwinSelectionInfo | null) => void;
+	onRouteChange?: (route: TwinRouteDefinition) => void;
 	onChanged?: () => void;
 	onError?: (message: string) => void;
 }
@@ -75,9 +77,13 @@ export class ThreeEditorCoreHost {
 	private readonly resizeObserver: ResizeObserver;
 	private readonly objectUrls = new Set<string>();
 	private readonly loadedModels = new Map<string, LoadedEditorModel>();
+	private readonly routeOverlay: ThreeEditorRouteOverlay;
 	private manifest: TwinSceneManifest;
 	private editor: any;
 	private selectedObjectId?: string;
+	private selectedRoutePointId?: string;
+	private routeEditMode = false;
+	private routeDrawMode = false;
 	private latestSceneParams: Record<string, unknown> = {};
 	private latestModelParams: ThreeEditorModelSnapshot[] = [];
 	private disposed = false;
@@ -112,21 +118,38 @@ export class ThreeEditorCoreHost {
 		this.editor.setSceneControlMode('变换');
 		this.editor.setOperateOption('openKey', false);
 		this.editor.setOperateOption('grid', manifest.runtime.showGrid);
+		this.routeOverlay = new ThreeEditorRouteOverlay(this.editor.viewer.scene, this.manifest);
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
-			if (!dragging) {
-				this.syncTransformsToManifest();
-				const selectedId = this.selectedObjectId;
-				const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);
-				if (selectedId && isComponentSceneObject(selected)) {
-					const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });
-					if (snapped) {
-						const root = this.loadedModels.get(selectedId)?.root;
-						if (root) { root.position.set(...selected.transform.position); root.rotation.set(...selected.transform.rotation); root.scale.set(...selected.transform.scale); root.updateMatrixWorld?.(true); }
-						this.selectObject(selectedId);
-					}
+			if (dragging) return;
+
+			if (this.selectedRoutePointId) {
+				const route = this.routeOverlay.updatePointFromMesh(this.selectedRoutePointId);
+				if (route) {
+					this.events.onRouteChange?.(cloneJson(route));
+					this.events.onChanged?.();
+					return;
 				}
-				this.events.onChanged?.();
 			}
+
+			this.syncTransformsToManifest();
+			const selectedId = this.selectedObjectId;
+			const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);
+			if (selectedId && isComponentSceneObject(selected)) {
+				const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });
+				if (snapped) {
+					const root = this.loadedModels.get(selectedId)?.root;
+					if (root) {
+						root.position.set(...selected.transform.position);
+						root.rotation.set(...selected.transform.rotation);
+						root.scale.set(...selected.transform.scale);
+						root.updateMatrixWorld?.(true);
+					}
+					this.selectObject(selectedId);
+				}
+				upsertGeneratedComponentRoute(this.manifest);
+			}
+			this.routeOverlay.rebuild(this.manifest);
+			this.events.onChanged?.();
 		};
 		this.container.addEventListener('click', this.handleSceneClick);
 		this.resizeObserver = new ResizeObserver(() => this.editor?.viewer?.renderSceneResize?.());
@@ -196,6 +219,8 @@ export class ThreeEditorCoreHost {
 		const object = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === objectId);
 		if (!isComponentSceneObject(object)) return;
 		this.loadComponent(object);
+		upsertGeneratedComponentRoute(this.manifest);
+		this.routeOverlay.rebuild(this.manifest);
 		this.selectObject(objectId);
 		this.events.onChanged?.();
 	}
@@ -203,12 +228,87 @@ export class ThreeEditorCoreHost {
 	reloadAllComponents() {
 		for (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);
 		this.loadManifestComponents();
+		upsertGeneratedComponentRoute(this.manifest);
+		this.routeOverlay.rebuild(this.manifest);
 		this.events.onChanged?.();
+	}
+
+	refreshRouteOverlay() {
+		this.routeOverlay.setManifest(this.manifest);
+		this.editor.viewer.renderScene?.();
+	}
+
+	setRouteOverlayVisible(visible: boolean) {
+		this.routeOverlay.setVisible(visible);
+		this.editor.viewer.renderScene?.();
+	}
+
+	setRouteEditMode(enabled: boolean) {
+		this.routeEditMode = enabled;
+		if (!enabled) {
+			this.routeDrawMode = false;
+			this.clearRoutePointSelection();
+		}
+		this.routeOverlay.setVisible(true);
+	}
+
+	setRouteDrawMode(enabled: boolean) {
+		this.routeDrawMode = enabled;
+		if (enabled) this.routeEditMode = true;
+		this.routeOverlay.setVisible(true);
+	}
+
+	getRoute() {
+		return this.manifest.routes?.[0] ? cloneJson(this.manifest.routes[0]) : undefined;
+	}
+
+	setRoute(route: TwinRouteDefinition) {
+		if (this.manifest.routes.length) this.manifest.routes.splice(0, 1, cloneJson(route));
+		else this.manifest.routes.push(cloneJson(route));
+		this.routeOverlay.rebuild(this.manifest);
+	}
+
+	updateRoutePoint(index: number, position: TwinVector3) {
+		const route = this.routeOverlay.updatePoint(0, index, position);
+		if (!route) return;
+		this.events.onRouteChange?.(cloneJson(route));
+		this.events.onChanged?.();
+	}
+
+	addRoutePoint(position?: TwinVector3) {
+		const created = this.routeOverlay.addPoint(position, 0);
+		if (!created) return;
+		this.selectRoutePoint(created.point.pointId);
+		this.events.onRouteChange?.(cloneJson(created.route));
+		this.events.onChanged?.();
+	}
+
+	removeRoutePoint(index: number) {
+		const route = this.manifest.routes?.[0];
+		const point = route?.points?.[index];
+		if (!route || !point) return;
+		const changed = this.routeOverlay.removePoint(point.pointId);
+		if (!changed) return;
+		this.clearRoutePointSelection();
+		this.events.onRouteChange?.(cloneJson(changed));
+		this.events.onChanged?.();
+	}
+
+	removeSelectedRoutePoint() {
+		if (!this.selectedRoutePointId) return false;
+		const route = this.routeOverlay.removePoint(this.selectedRoutePointId);
+		if (!route) return false;
+		this.clearRoutePointSelection();
+		this.events.onRouteChange?.(cloneJson(route));
+		this.events.onChanged?.();
+		return true;
 	}
 
 	captureManifest(target: TwinSceneManifest): TwinSceneManifest {
 		this.manifest = target;
 		this.syncTransformsToManifest();
+		upsertGeneratedComponentRoute(this.manifest);
+		this.routeOverlay.setManifest(this.manifest);
 		this.editor.saveSceneEditor();
 		const glbObjectIds = new Set(target.objects.filter((item) => item.kind === 'model').map((item) => item.objectId));
 		this.latestModelParams = this.latestModelParams.filter((item) => glbObjectIds.has(item.rootInfo.iotsharpObjectId));
@@ -231,18 +331,28 @@ export class ThreeEditorCoreHost {
 	setGrid(visible: boolean) { this.editor.setOperateOption('grid', visible); this.manifest.runtime.showGrid = visible; }
 	setAxes(visible: boolean) { this.editor.setOperateOption('axes', visible); }
 	setKeyboard(enabled: boolean) { this.editor.setOperateOption('openKey', enabled); }
-	undo() { restoreHistoryHandler('z'); this.syncTransformsToManifest(); this.events.onChanged?.(); }
-	redo() { restoreHistoryHandler('y'); this.syncTransformsToManifest(); this.events.onChanged?.(); }
+	undo() { restoreHistoryHandler('z'); this.syncTransformsToManifest(); this.routeOverlay.rebuild(this.manifest); this.events.onChanged?.(); }
+	redo() { restoreHistoryHandler('y'); this.syncTransformsToManifest(); this.routeOverlay.rebuild(this.manifest); this.events.onChanged?.(); }
 
 	selectObject(objectId: string) {
 		const root = this.loadedModels.get(objectId)?.root;
 		if (!root) return;
+		this.clearRoutePointSelection(false);
 		this.editor.setOutlinePass([root]);
 		this.editor.viewer.transformControls.attach(root);
 		this.selectRoot(root);
 	}
 
 	focusSelected() {
+		if (this.selectedRoutePointId) {
+			const point = this.routeOverlay.getPointMesh(this.selectedRoutePointId);
+			if (!point) return;
+			const target = point.position.clone();
+			const position = target.clone().add({ x: 4, y: 4, z: 4 } as any);
+			this.editor.setGsapAnimation(this.editor.viewer.camera.position, position, { duration: 0.45 });
+			this.editor.setGsapAnimation(this.editor.viewer.controls.target, target, { duration: 0.45 });
+			return;
+		}
 		const root = this.selectedObjectId ? this.loadedModels.get(this.selectedObjectId)?.root : undefined;
 		if (!root) return;
 		const { position, target } = this.editor.getObjectViews(root);
@@ -261,15 +371,34 @@ export class ThreeEditorCoreHost {
 		this.loadedModels.delete(objectId);
 		this.latestModelParams = this.latestModelParams.filter((item) => item.rootInfo.iotsharpObjectId !== objectId);
 		if (this.selectedObjectId === objectId) { this.selectedObjectId = undefined; this.events.onSelectionChange?.(null); }
-		if (notify) this.events.onChanged?.();
+		if (notify) {
+			upsertGeneratedComponentRoute(this.manifest);
+			this.routeOverlay.rebuild(this.manifest);
+			this.events.onChanged?.();
+		}
 	}
 
 	private loadManifestComponents() {
 		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) if (isComponentSceneObject(object)) this.loadComponent(object);
+		this.routeOverlay.rebuild(this.manifest);
 	}
 
 	private readonly handleSceneClick = (event: MouseEvent) => {
 		if (this.disposed || event.defaultPrevented) return;
+		if (this.routeEditMode) {
+			const hit = this.routeOverlay.pickPoint(event, this.editor.viewer.camera, this.container);
+			if (hit?.pointId) {
+				this.selectRoutePoint(hit.pointId);
+				return;
+			}
+			if (this.routeDrawMode) {
+				const worldPoint = this.routeOverlay.worldPointFromEvent(event, this.editor.viewer.camera, this.container, this.routeOverlay.getPreferredDrawHeight());
+				if (worldPoint) {
+					this.addRoutePoint([worldPoint.x, worldPoint.y, worldPoint.z]);
+					return;
+				}
+			}
+		}
 		try {
 			this.editor.getSceneEvent(event, (info: any) => {
 				const root = info?.currentRootModel;
@@ -280,9 +409,39 @@ export class ThreeEditorCoreHost {
 		}
 	};
 
+	private selectRoutePoint(pointId: string) {
+		const mesh = this.routeOverlay.getPointMesh(pointId);
+		if (!mesh) return;
+		this.selectedObjectId = undefined;
+		this.selectedRoutePointId = pointId;
+		this.routeOverlay.setSelectedPoint(pointId);
+		this.editor.setOutlinePass([]);
+		this.editor.viewer.transformControls.attach(mesh);
+		const route = this.manifest.routes.find((candidate) => candidate.points.some((point) => point.pointId === pointId));
+		const index = route?.points.findIndex((point) => point.pointId === pointId) ?? -1;
+		const point = route?.points[index];
+		if (!point || !route) return;
+		this.events.onSelectionChange?.({
+			name: point.name,
+			uuid: mesh.uuid,
+			path: `${this.manifest.name}/${route.name}/${point.name}`,
+			kind: 'route-point',
+			routePointIndex: index,
+			routePointId: point.pointId,
+		});
+	}
+
+	private clearRoutePointSelection(detach = true) {
+		if (!this.selectedRoutePointId) return;
+		this.selectedRoutePointId = undefined;
+		this.routeOverlay.setSelectedPoint(undefined);
+		if (detach) this.editor.viewer.transformControls.detach();
+	}
+
 	private selectRoot(root: any, node = root) {
 		const objectId = root.rootInfo?.iotsharpObjectId || root.userData?.iotsharpObjectId;
 		if (!objectId) return;
+		this.clearRoutePointSelection(false);
 		this.selectedObjectId = objectId;
 		const segments: string[] = [];
 		let current = node;
@@ -310,6 +469,7 @@ export class ThreeEditorCoreHost {
 		this.disposed = true;
 		this.container.removeEventListener('click', this.handleSceneClick);
 		this.resizeObserver.disconnect();
+		this.routeOverlay.dispose();
 		for (const model of this.loadedModels.values()) model.dispose?.();
 		this.editor?.viewer?.destroySceneRender?.();
 		for (const objectUrl of this.objectUrls) URL.revokeObjectURL(objectUrl);
