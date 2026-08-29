@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import type {
-	TwinComponentConnectionDefinition,
 	TwinRouteDefinition,
 	TwinRouteEdgeDefinition,
 	TwinRoutePointDefinition,
 	TwinSceneManifest,
-	TwinSceneObjectDefinition,
 	TwinTransform,
 } from '/@/digital-twin/contracts';
+import type {
+	TwinComponentConnectionDefinition,
+	TwinV7SceneObjectDefinition,
+} from '/@/digital-twin/contracts/v7-components';
 import { defaultComponentRegistry } from './ComponentRegistry';
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 import type {
@@ -33,7 +35,6 @@ export interface TwinComponentSnapCandidate {
 
 export interface TwinComponentSnapOptions {
 	maxDistance?: number;
-	/** 水平端口夹角仅用于排序；实际吸附时会自动旋转移动组件。 */
 	preferFacingPorts?: boolean;
 }
 
@@ -46,7 +47,7 @@ export interface TwinComponentGraphBuildResult {
 const DEFAULT_SNAP_DISTANCE = 1.5;
 const GENERATED_ROUTE_ID = 'component-auto-route';
 const GENERATED_ROUTE_NAME = 'V7 组件自动路线';
-
+const asV7Objects = (manifest: TwinSceneManifest) => manifest.objects as TwinV7SceneObjectDefinition[];
 const portKey = (objectId: string, portId: string) => `${objectId}::${portId}`;
 const clampCapacity = (value: unknown) => Math.max(1, Math.min(9999, Math.floor(Number(value) || 1)));
 const safeNumber = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -66,10 +67,12 @@ const stableHash = (value: string) => {
 	return (hash >>> 0).toString(16).padStart(8, '0');
 };
 
-export const isComponentSceneObject = (object: TwinSceneObjectDefinition | undefined | null): object is TwinSceneObjectDefinition & { component: NonNullable<TwinSceneObjectDefinition['component']> } =>
+export const isComponentSceneObject = (
+	object: TwinV7SceneObjectDefinition | undefined | null,
+): object is TwinV7SceneObjectDefinition & { component: NonNullable<TwinV7SceneObjectDefinition['component']> } =>
 	Boolean(object && object.kind === 'component' && object.component?.componentType);
 
-const toComponentDefinition = (object: TwinSceneObjectDefinition): TwinComponentDefinition => {
+const toComponentDefinition = (object: TwinV7SceneObjectDefinition): TwinComponentDefinition => {
 	if (!isComponentSceneObject(object)) throw new Error(`对象 ${object.objectId} 不是 V7 Component`);
 	return {
 		objectId: object.objectId,
@@ -84,7 +87,7 @@ const toComponentDefinition = (object: TwinSceneObjectDefinition): TwinComponent
 	};
 };
 
-export const resolveComponentPorts = (object: TwinSceneObjectDefinition): TwinComponentPortRef[] => {
+export const resolveComponentPorts = (object: TwinV7SceneObjectDefinition): TwinComponentPortRef[] => {
 	const definition = toComponentDefinition(object);
 	const built = defaultComponentRegistry.create(definition);
 	try {
@@ -106,7 +109,6 @@ const canConnectPortTypes = (left: TwinComponentPortType, right: TwinComponentPo
 	if (left === 'material-bidirectional' || right === 'material-bidirectional') return true;
 	return (left === 'material-output' && right === 'material-input') || (left === 'material-input' && right === 'material-output');
 };
-
 const connectionUsesEndpoint = (connection: TwinComponentConnectionDefinition, objectId: string, portId: string) =>
 	(connection.from.objectId === objectId && connection.from.portId === portId)
 	|| (connection.to.objectId === objectId && connection.to.portId === portId);
@@ -116,7 +118,7 @@ export const findBestComponentSnap = (
 	movingObjectId: string,
 	options: TwinComponentSnapOptions = {},
 ): TwinComponentSnapCandidate | undefined => {
-	const movingObject = manifest.objects.find((item) => item.objectId === movingObjectId);
+	const movingObject = asV7Objects(manifest).find((item) => item.objectId === movingObjectId);
 	if (!isComponentSceneObject(movingObject)) return undefined;
 	const maxDistance = Math.max(0.05, options.maxDistance ?? DEFAULT_SNAP_DISTANCE);
 	const connections = manifest.connections || [];
@@ -125,7 +127,7 @@ export const findBestComponentSnap = (
 	if (!movingPorts.length) return undefined;
 
 	const candidates: TwinComponentSnapCandidate[] = [];
-	for (const targetObject of manifest.objects) {
+	for (const targetObject of asV7Objects(manifest)) {
 		if (targetObject.objectId === movingObjectId || !isComponentSceneObject(targetObject)) continue;
 		for (const target of resolveComponentPorts(targetObject)) {
 			if (connections.some((connection) => connectionUsesEndpoint(connection, target.objectId, target.portId))) continue;
@@ -133,12 +135,7 @@ export const findBestComponentSnap = (
 				if (!canConnectPortTypes(moving.type, target.type)) continue;
 				const distance = moving.worldPosition.distanceTo(target.worldPosition);
 				if (distance > maxDistance) continue;
-				candidates.push({
-					moving,
-					target,
-					distance,
-					directionDot: moving.worldDirection.dot(target.worldDirection),
-				});
+				candidates.push({ moving, target, distance, directionDot: moving.worldDirection.dot(target.worldDirection) });
 			}
 		}
 	}
@@ -156,9 +153,7 @@ export const findBestComponentSnap = (
 const orientConnection = (candidate: TwinComponentSnapCandidate): TwinComponentConnectionDefinition => {
 	const movingIsOutput = candidate.moving.type === 'material-output';
 	const targetIsOutput = candidate.target.type === 'material-output';
-	const from = movingIsOutput || (!targetIsOutput && candidate.moving.type === 'material-bidirectional')
-		? candidate.moving
-		: candidate.target;
+	const from = movingIsOutput || (!targetIsOutput && candidate.moving.type === 'material-bidirectional') ? candidate.moving : candidate.target;
 	const to = from === candidate.moving ? candidate.target : candidate.moving;
 	return {
 		connectionId: `connection-${stableHash(`${from.objectId}:${from.portId}->${to.objectId}:${to.portId}`)}`,
@@ -168,27 +163,22 @@ const orientConnection = (candidate: TwinComponentSnapCandidate): TwinComponentC
 	};
 };
 
-/**
- * 旋转移动组件使端口方向与目标端口相反，再做精确平移；不使用 Box3 碰撞或安全距离作为正常输送逻辑。
- */
+/** 仅处理编辑器几何吸附；运行时物料阻塞仍由 Capacity + Occupancy + Reserved 决定。 */
 export const applyComponentSnap = (
 	manifest: TwinSceneManifest,
 	movingObjectId: string,
 	candidate: TwinComponentSnapCandidate,
 ): TwinComponentConnectionDefinition | undefined => {
-	const movingObject = manifest.objects.find((item) => item.objectId === movingObjectId);
+	const movingObject = asV7Objects(manifest).find((item) => item.objectId === movingObjectId);
 	if (!isComponentSceneObject(movingObject)) return undefined;
-
 	const desiredDirection = candidate.target.worldDirection.clone().multiplyScalar(-1).setY(0);
 	const currentDirection = candidate.moving.worldDirection.clone().setY(0);
 	if (desiredDirection.lengthSq() > 0.00001 && currentDirection.lengthSq() > 0.00001) {
-		desiredDirection.normalize();
-		currentDirection.normalize();
+		desiredDirection.normalize(); currentDirection.normalize();
 		const currentAngle = Math.atan2(currentDirection.z, currentDirection.x);
 		const desiredAngle = Math.atan2(desiredDirection.z, desiredDirection.x);
 		movingObject.transform.rotation[1] = normalizeYaw(movingObject.transform.rotation[1] + normalizeYaw(desiredAngle - currentAngle));
 	}
-
 	const refreshedPort = resolveComponentPorts(movingObject).find((port) => port.portId === candidate.moving.portId);
 	if (!refreshedPort) return undefined;
 	const delta = candidate.target.worldPosition.clone().sub(refreshedPort.worldPosition);
@@ -197,7 +187,6 @@ export const applyComponentSnap = (
 		movingObject.transform.position[1] + delta.y,
 		movingObject.transform.position[2] + delta.z,
 	];
-
 	const connection = orientConnection(candidate);
 	manifest.connections ||= [];
 	const duplicate = manifest.connections.some((item) =>
@@ -207,17 +196,12 @@ export const applyComponentSnap = (
 	return connection;
 };
 
-export const snapAndConnectNearestComponent = (
-	manifest: TwinSceneManifest,
-	movingObjectId: string,
-	options: TwinComponentSnapOptions = {},
-) => {
+export const snapAndConnectNearestComponent = (manifest: TwinSceneManifest, movingObjectId: string, options: TwinComponentSnapOptions = {}) => {
 	const candidate = findBestComponentSnap(manifest, movingObjectId, options);
 	if (!candidate) return undefined;
 	const connection = applyComponentSnap(manifest, movingObjectId, candidate);
 	if (!connection) return undefined;
-	const graph = upsertGeneratedComponentRoute(manifest);
-	return { candidate, connection, graph };
+	return { candidate, connection, graph: upsertGeneratedComponentRoute(manifest) };
 };
 
 export const removeComponentConnection = (manifest: TwinSceneManifest, connectionId: string) => {
@@ -226,7 +210,6 @@ export const removeComponentConnection = (manifest: TwinSceneManifest, connectio
 	if (before !== manifest.connections.length) upsertGeneratedComponentRoute(manifest);
 	return before !== manifest.connections.length;
 };
-
 export const removeConnectionsForObject = (manifest: TwinSceneManifest, objectId: string) => {
 	manifest.connections = (manifest.connections || []).filter((item) => item.from.objectId !== objectId && item.to.objectId !== objectId);
 	upsertGeneratedComponentRoute(manifest);
@@ -236,16 +219,12 @@ class UnionFind {
 	private readonly parent = new Map<string, string>();
 	add(value: string) { if (!this.parent.has(value)) this.parent.set(value, value); }
 	find(value: string): string {
-		this.add(value);
-		const parent = this.parent.get(value)!;
+		this.add(value); const parent = this.parent.get(value)!;
 		if (parent === value) return value;
-		const root = this.find(parent);
-		this.parent.set(value, root);
-		return root;
+		const root = this.find(parent); this.parent.set(value, root); return root;
 	}
 	union(left: string, right: string) {
-		const a = this.find(left), b = this.find(right);
-		if (a === b) return;
+		const a = this.find(left), b = this.find(right); if (a === b) return;
 		this.parent.set(a < b ? b : a, a < b ? a : b);
 	}
 }
@@ -259,17 +238,14 @@ const flowPairsFor = (componentType: TwinComponentType, ports: TwinComponentPort
 		{ fromPortId: 'input-lower', toPortId: 'output-upper' },
 		{ fromPortId: 'input-upper', toPortId: 'output-lower' },
 	].filter((pair) => has(pair.fromPortId) && has(pair.toPortId));
-	if (componentType === 'turntable') {
-		const pairs: FlowPair[] = [
-			{ fromPortId: 'input', toPortId: 'output' },
-			{ fromPortId: 'input', toPortId: 'side-a', bidirectional: true },
-			{ fromPortId: 'input', toPortId: 'side-b', bidirectional: true },
-			{ fromPortId: 'side-a', toPortId: 'output', bidirectional: true },
-			{ fromPortId: 'side-b', toPortId: 'output', bidirectional: true },
-			{ fromPortId: 'side-a', toPortId: 'side-b', bidirectional: true },
-		];
-		return pairs.filter((pair) => has(pair.fromPortId) && has(pair.toPortId));
-	}
+	if (componentType === 'turntable') return [
+		{ fromPortId: 'input', toPortId: 'output' },
+		{ fromPortId: 'input', toPortId: 'side-a', bidirectional: true },
+		{ fromPortId: 'input', toPortId: 'side-b', bidirectional: true },
+		{ fromPortId: 'side-a', toPortId: 'output', bidirectional: true },
+		{ fromPortId: 'side-b', toPortId: 'output', bidirectional: true },
+		{ fromPortId: 'side-a', toPortId: 'side-b', bidirectional: true },
+	].filter((pair) => has(pair.fromPortId) && has(pair.toPortId));
 	const inputs = ports.filter((port) => port.type === 'material-input');
 	const outputs = ports.filter((port) => port.type === 'material-output');
 	if (inputs.length && outputs.length) return inputs.flatMap((input) => outputs.map((output) => ({ fromPortId: input.portId, toPortId: output.portId })));
@@ -277,9 +253,7 @@ const flowPairsFor = (componentType: TwinComponentType, ports: TwinComponentPort
 	return bidirectional.slice(1).map((port) => ({ fromPortId: bidirectional[0].portId, toPortId: port.portId, bidirectional: true }));
 };
 
-const pointKindForMembers = (
-	members: TwinComponentPortRef[],
-): Pick<TwinRoutePointDefinition, 'kind' | 'process'> => {
+const pointKindForMembers = (members: TwinComponentPortRef[]): Pick<TwinRoutePointDefinition, 'kind' | 'process'> => {
 	for (const member of members) {
 		if (member.componentType === 'diverter-conveyor' && member.portId === 'input') return { kind: 'diverter' };
 		if (member.componentType === 'merger-conveyor' && member.portId === 'output') return { kind: 'merger' };
@@ -290,40 +264,25 @@ const pointKindForMembers = (
 	}
 	return { kind: 'buffer' };
 };
+const resolveObjectProperties = (object: TwinV7SceneObjectDefinition) => isComponentSceneObject(object) ? object.component.properties || {} : {};
 
-const resolveObjectProperties = (object: TwinSceneObjectDefinition) => isComponentSceneObject(object) ? object.component.properties || {} : {};
-
-/**
- * connections 只描述物理端口相连。路线采用“连接端口节点合并 + 组件内部 Section Edge”的方式生成，
- * 因此两个已吸附端口不会额外产生零长度缓存段。
- */
+/** connections 描述物理端口；Section/RouteEdge 描述组件内部可占用输送段。 */
 export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult => {
-	const objects = manifest.objects.filter(isComponentSceneObject);
+	const objects = asV7Objects(manifest).filter(isComponentSceneObject);
 	const portsByObject = new Map<string, TwinComponentPortRef[]>();
 	const portIndex = new Map<string, TwinComponentPortRef>();
 	const union = new UnionFind();
 	for (const object of objects) {
-		const ports = resolveComponentPorts(object);
-		portsByObject.set(object.objectId, ports);
-		for (const port of ports) {
-			const key = portKey(object.objectId, port.portId);
-			portIndex.set(key, port);
-			union.add(key);
-		}
+		const ports = resolveComponentPorts(object); portsByObject.set(object.objectId, ports);
+		for (const port of ports) { const key = portKey(object.objectId, port.portId); portIndex.set(key, port); union.add(key); }
 	}
 	for (const connection of manifest.connections || []) {
 		const fromKey = portKey(connection.from.objectId, connection.from.portId);
 		const toKey = portKey(connection.to.objectId, connection.to.portId);
 		if (portIndex.has(fromKey) && portIndex.has(toKey)) union.union(fromKey, toKey);
 	}
-
 	const groups = new Map<string, TwinComponentPortRef[]>();
-	for (const [key, port] of portIndex) {
-		const root = union.find(key);
-		const members = groups.get(root) || [];
-		members.push(port);
-		groups.set(root, members);
-	}
+	for (const [key, port] of portIndex) { const root = union.find(key); groups.set(root, [...(groups.get(root) || []), port]); }
 	const pointIdByPort = new Map<string, string>();
 	const points: TwinRoutePointDefinition[] = [];
 	for (const members of groups.values()) {
@@ -332,41 +291,35 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 		for (const member of members) pointIdByPort.set(portKey(member.objectId, member.portId), pointId);
 		const position = members.reduce((sum, member) => sum.add(member.worldPosition), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, members.length));
 		const kind = pointKindForMembers(members);
-		const process = kind.process ? { ...kind.process } : undefined;
-		if (process) {
-			const sourceObject = objects.find((item) => item.objectId === members[0]?.objectId);
-			const cycleSeconds = safeNumber(resolveObjectProperties(sourceObject!).cycleSeconds, 2);
-			process.cycleSeconds = Math.max(0.1, cycleSeconds);
-		}
-		points.push({
+		const point: TwinRoutePointDefinition = {
 			pointId,
 			name: members.length > 1 ? members.map((member) => `${member.objectName}.${member.name}`).join(' ↔ ') : `${members[0].objectName}.${members[0].name}`,
 			position: [position.x, position.y, position.z],
 			kind: kind.kind,
-			process,
+			process: kind.process ? { ...kind.process } : undefined,
 			componentObjectId: members[0]?.objectId,
 			componentPortId: members[0]?.portId,
-		});
+		};
+		if (point.process) {
+			const source = objects.find((item) => item.objectId === members[0]?.objectId);
+			point.process.cycleSeconds = Math.max(0.1, safeNumber(source ? resolveObjectProperties(source).cycleSeconds : undefined, 2));
+		}
+		points.push(point);
 	}
-
 	const edges: TwinRouteEdgeDefinition[] = [];
 	for (const object of objects) {
 		const ports = portsByObject.get(object.objectId) || [];
 		const properties = resolveObjectProperties(object);
-		const pairs = flowPairsFor(object.component.componentType as TwinComponentType, ports);
-		for (const pair of pairs) {
+		for (const pair of flowPairsFor(object.component.componentType as TwinComponentType, ports)) {
 			const fromPointId = pointIdByPort.get(portKey(object.objectId, pair.fromPortId));
 			const toPointId = pointIdByPort.get(portKey(object.objectId, pair.toPortId));
 			if (!fromPointId || !toPointId || fromPointId === toPointId) continue;
-			const edgeId = `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(pair.fromPortId)}-${safeIdPart(pair.toPortId)}`;
 			edges.push({
-				edgeId,
-				fromPointId,
-				toPointId,
+				edgeId: `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(pair.fromPortId)}-${safeIdPart(pair.toPortId)}`,
+				fromPointId, toPointId,
 				name: `${object.name} · ${pair.fromPortId} → ${pair.toPortId}`,
 				bidirectional: pair.bidirectional === true,
-				enabled: true,
-				priority: 0,
+				enabled: true, priority: 0,
 				capacity: clampCapacity(properties.capacity),
 				occupancyMode: properties.occupancyMode === 'live' ? 'live' : properties.occupancyMode === 'calculated' ? 'calculated' : 'simulation',
 				reservationTimeoutSeconds: Math.max(1, safeNumber(properties.reservationTimeoutSeconds, 30)),
@@ -379,42 +332,26 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 			});
 		}
 	}
-
 	const incoming = new Set(edges.map((edge) => edge.toPointId));
-	const startPointId = points.find((point) => !incoming.has(point.pointId))?.pointId || points[0]?.pointId;
 	const route: TwinRouteDefinition = {
 		routeId: GENERATED_ROUTE_ID,
 		name: GENERATED_ROUTE_NAME,
-		type: 'conveyor',
-		curveKind: 'line',
-		defaultSpeed: 1.2,
-		loop: false,
-		orientToPath: true,
-		points,
-		edges,
-		startPointId,
-		junctionDecisions: {},
-		routingMode: 'automatic',
-		decisionRules: [],
-		generatedBy: 'component-connections',
+		type: 'conveyor', curveKind: 'line', defaultSpeed: 1.2, loop: false, orientToPath: true,
+		points, edges,
+		startPointId: points.find((point) => !incoming.has(point.pointId))?.pointId || points[0]?.pointId,
+		junctionDecisions: {}, routingMode: 'automatic', decisionRules: [], generatedBy: 'component-connections',
 	};
 	return { route, componentObjectIds: objects.map((item) => item.objectId), connectionCount: manifest.connections?.length || 0 };
 };
 
 export const upsertGeneratedComponentRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult | undefined => {
-	const components = manifest.objects.filter(isComponentSceneObject);
+	const components = asV7Objects(manifest).filter(isComponentSceneObject);
 	const existingIndex = manifest.routes.findIndex((item) => item.generatedBy === 'component-connections' || item.routeId === GENERATED_ROUTE_ID);
-	if (!components.length) {
-		if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1);
-		return undefined;
-	}
+	if (!components.length) { if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1); return undefined; }
 	const result = buildComponentGraphRoute(manifest);
 	if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1, result.route);
-	else {
-		const hasProcedural = manifest.objects.some((item) => item.kind === 'procedural');
-		if (hasProcedural) manifest.routes.push(result.route);
-		else manifest.routes.unshift(result.route);
-	}
+	else if (asV7Objects(manifest).some((item) => item.kind === 'procedural')) manifest.routes.push(result.route);
+	else manifest.routes.unshift(result.route);
 	for (const object of components) {
 		const firstEdge = result.route.edges.find((edge) => edge.componentObjectId === object.objectId);
 		object.component.sectionId ||= `section-${object.objectId}`;
@@ -423,11 +360,8 @@ export const upsertGeneratedComponentRoute = (manifest: TwinSceneManifest): Twin
 	return result;
 };
 
-export const getComponentTemplateForObject = (object: TwinSceneObjectDefinition | undefined) =>
+export const getComponentTemplateForObject = (object: TwinV7SceneObjectDefinition | undefined) =>
 	isComponentSceneObject(object) ? getBuiltInComponentTemplate(object.component.resourceKey) : undefined;
-
 export const cloneTransform = (transform: TwinTransform): TwinTransform => ({
-	position: [...transform.position],
-	rotation: [...transform.rotation],
-	scale: [...transform.scale],
+	position: [...transform.position], rotation: [...transform.rotation], scale: [...transform.scale],
 });
