@@ -17,7 +17,7 @@ jobs:
         with:
           ref: Develop
           fetch-depth: 0
-      - name: Apply narrow V7 integration patches
+      - name: Apply remaining V7 integration patches
         shell: python
         run: |
           from pathlib import Path
@@ -26,11 +26,10 @@ jobs:
               p = Path(path)
               text = p.read_text(encoding='utf-8')
               if old not in text:
-                  raise SystemExit(f'PATCH TARGET NOT FOUND: {path}\n{old[:240]}')
-              text = text.replace(old, new, count)
-              p.write_text(text, encoding='utf-8')
+                  raise SystemExit(f'PATCH TARGET NOT FOUND: {path}\n{old[:300]}')
+              p.write_text(text.replace(old, new, count), encoding='utf-8')
 
-          # Component graph: old V6 migrated visuals use the existing V6 route as authority.
+          # Migrated V6 visual components keep the already verified V6 silk route as authority.
           path = 'ClientApp/src/digital-twin/components/ComponentConnectionEngine.ts'
           replace(path,
               "const objects = asV7Objects(manifest).filter(isComponentSceneObject);",
@@ -39,13 +38,13 @@ jobs:
               "const components = asV7Objects(manifest).filter(isComponentSceneObject);",
               "const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);")
 
-          # Silk migration must preserve user-edited V7 component instances after first migration.
+          # Do not recreate V7 migrated objects on every normalization: preserve user edits/transforms.
           path = 'ClientApp/src/digital-twin/components/SilkV7ComponentMigration.ts'
           replace(path,
               "\tconst objects = manifest.objects as TwinV7SceneObjectDefinition[];\n\tfor (let index = objects.length - 1; index >= 0; index -= 1) {\n\t\tconst candidate = objects[index];\n\t\tif (candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true) objects.splice(index, 1);\n\t}\n\n\tconst migrated: TwinV7SceneObjectDefinition[] = [];",
               "\tconst objects = manifest.objects as TwinV7SceneObjectDefinition[];\n\tconst existing = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true);\n\tif (existing.length > 0) {\n\t\tmanifest.connections ||= [];\n\t\treturn { migrated: false, componentCount: existing.length };\n\t}\n\n\tconst migrated: TwinV7SceneObjectDefinition[] = [];")
 
-          # Workbench: preserve V7 connection graph, validate it, keep components in editor mode, clean connections on delete.
+          # Workbench integration: persistence, diagnostics, editor placement, delete cleanup.
           path = 'ClientApp/src/views/iot/digital-twin/workbench.vue'
           replace(path,
               "import { builtInComponentTemplates } from '/@/digital-twin/components';",
@@ -62,6 +61,7 @@ jobs:
           replace(path,
               "const refreshDiagnostics = () => { diagnostics.value = validateTwinSceneManifest(manifest.value); };",
               "const refreshDiagnostics = () => { diagnostics.value = [...validateTwinSceneManifest(manifest.value), ...validateV7ComponentManifest(manifest.value)]; };")
+
           old_place = """const placeComponentTemplate = async (resourceKey: string) => {
 \tconst template = componentTemplates.find((item) => item.resourceKey === resourceKey);
 \tif (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
@@ -116,7 +116,7 @@ jobs:
               "const removeModelObject = (objectId: string) => {\n\tif (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);",
               "const removeModelObject = (objectId: string) => {\n\tremoveConnectionsForObject(manifest.value, objectId);\n\tif (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);")
 
-          # Procedural silk runtime: when V7 infrastructure exists, do not draw the legacy duplicate conveyors/stations.
+          # Silk procedural runtime keeps mechanics/entities but does not draw duplicate V6 conveyors/stations.
           path = 'ClientApp/src/digital-twin/runtime/ProceduralPackagingLine.ts'
           replace(path,
               "\tconstructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}) {",
@@ -125,22 +125,25 @@ jobs:
               "\t\tthis.buildFloorLabels();\n\t\tthis.buildPlasticConveyors();\n\t\tthis.buildPreProcessStations();",
               "\t\tthis.buildFloorLabels();\n\t\tif (visualOptions.renderLegacyPlasticConveyors !== false) this.buildPlasticConveyors();\n\t\tif (visualOptions.renderLegacyPreProcessStations !== false) this.buildPreProcessStations();")
 
-          # Twin runtime detects migrated V7 infrastructure and only keeps procedural mechanics/entities.
           path = 'ClientApp/src/digital-twin/runtime/TwinRuntime.ts'
           replace(path,
               "\t\t\tconst palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;\n\t\t\tthis.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation);",
               "\t\t\tconst palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;\n\t\t\tconst hasV7Infrastructure = (this.manifest.objects as any[]).some((item) => item.kind === 'component' && item.component?.properties?.silkV7Infrastructure === true);\n\t\t\tthis.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation, { renderLegacyPlasticConveyors: !hasV7Infrastructure, renderLegacyPreProcessStations: !hasV7Infrastructure });")
 
-          # Three editor: auto-snap on transform release, not only via explicit button.
+          # Professional editor: snap automatically when transform drag is released.
+          # Apply snapped manifest transform directly to the current root; do not resync stale root back over it.
           path = 'ClientApp/src/digital-twin/editor-adapter/ThreeEditorCoreHost.ts'
           replace(path,
               "import { defaultComponentRegistry, isComponentSceneObject, type TwinComponentDefinition } from '/@/digital-twin/components';",
               "import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, type TwinComponentDefinition } from '/@/digital-twin/components';")
           replace(path,
               "\t\tthis.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {\n\t\t\tif (!dragging) {\n\t\t\t\tthis.syncTransformsToManifest();\n\t\t\t\tthis.events.onChanged?.();\n\t\t\t}\n\t\t};",
-              "\t\tthis.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {\n\t\t\tif (!dragging) {\n\t\t\t\tthis.syncTransformsToManifest();\n\t\t\t\tconst selectedId = this.selectedObjectId;\n\t\t\t\tconst selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);\n\t\t\t\tif (selectedId && isComponentSceneObject(selected)) {\n\t\t\t\t\tconst snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });\n\t\t\t\t\tif (snapped) { this.reloadAllComponents(); this.selectObject(selectedId); }\n\t\t\t\t}\n\t\t\t\tthis.events.onChanged?.();\n\t\t\t}\n\t\t};")
+              "\t\tthis.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {\n\t\t\tif (!dragging) {\n\t\t\t\tthis.syncTransformsToManifest();\n\t\t\t\tconst selectedId = this.selectedObjectId;\n\t\t\t\tconst selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);\n\t\t\t\tif (selectedId && isComponentSceneObject(selected)) {\n\t\t\t\t\tconst snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });\n\t\t\t\t\tif (snapped) {\n\t\t\t\t\t\tconst root = this.loadedModels.get(selectedId)?.root;\n\t\t\t\t\t\tif (root) { root.position.set(...selected.transform.position); root.rotation.set(...selected.transform.rotation); root.scale.set(...selected.transform.scale); root.updateMatrixWorld?.(true); }\n\t\t\t\t\t\tthis.selectObject(selectedId);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tthis.events.onChanged?.();\n\t\t\t}\n\t\t};")
+          replace(path,
+              "\treloadAllComponents() {\n\t\tthis.syncTransformsToManifest();\n\t\tfor (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);",
+              "\treloadAllComponents() {\n\t\tfor (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);")
 
-          # Backend keeps and minimally validates V7 physical connection endpoints inside immutable Manifest JSON.
+          # Backend persists/validates V7 connection graph as part of the immutable Manifest JSON.
           path = 'IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs'
           replace(path,
               "        root[\"objects\"] ??= new JsonArray();\n        root[\"bindings\"] ??= new JsonArray();",
@@ -182,6 +185,7 @@ jobs:
 
 '''
           replace(path, marker, method + marker)
+
       - name: Commit patches
         run: |
           git config user.name "wgtfee"
