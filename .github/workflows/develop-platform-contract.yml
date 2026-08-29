@@ -14,9 +14,12 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: Develop
+          fetch-depth: 0
 
       - name: Validate IoT IAM and traffic-health contract
         shell: python
@@ -52,6 +55,29 @@ jobs:
           assert 'DependencyCriticality.Degradable' in health
           print('IoTSharp Develop IAM/traffic-health contract OK')
 
+      - name: Apply remaining V7 integration
+        run: python scripts/v7_finish_patch.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ClientApp/package-lock.json
+
+      - name: Verify V7 frontend build
+        working-directory: ClientApp
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit V7 integration
+        run: |
+          git config user.name "wgtfee"
+          git config user.email "57023277+wgtfee@users.noreply.github.com"
+          git add ClientApp/src/digital-twin IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs
+          git commit -m "feat(twin-v7): finish snap connections properties and silk migration"
+          git push origin Develop
+
       - name: Publish validation status
         if: always()
         uses: actions/github-script@v7
@@ -67,189 +93,3 @@ jobs:
               description: passed ? 'IoT platform contract passed' : 'IoT platform contract failed',
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
-
-  v7-finish:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, 'execute V7 remaining integration')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: Develop
-          fetch-depth: 0
-
-      - name: Apply V7 remaining integration patches
-        shell: python
-        run: |
-          from pathlib import Path
-
-          def replace(path, old, new, count=1):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              if old not in text:
-                  raise SystemExit(f'PATCH TARGET NOT FOUND: {path}\n{old[:320]}')
-              p.write_text(text.replace(old, new, count), encoding='utf-8')
-
-          path = 'ClientApp/src/digital-twin/components/ComponentConnectionEngine.ts'
-          replace(path,
-              "const objects = asV7Objects(manifest).filter(isComponentSceneObject);",
-              "const objects = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);")
-          replace(path,
-              "const components = asV7Objects(manifest).filter(isComponentSceneObject);",
-              "const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);")
-
-          path = 'ClientApp/src/digital-twin/components/SilkV7ComponentMigration.ts'
-          replace(path,
-              "\tconst objects = manifest.objects as TwinV7SceneObjectDefinition[];\n\tfor (let index = objects.length - 1; index >= 0; index -= 1) {\n\t\tconst candidate = objects[index];\n\t\tif (candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true) objects.splice(index, 1);\n\t}\n\n\tconst migrated: TwinV7SceneObjectDefinition[] = [];",
-              "\tconst objects = manifest.objects as TwinV7SceneObjectDefinition[];\n\tconst existing = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true);\n\tif (existing.length > 0) {\n\t\tmanifest.connections ||= [];\n\t\treturn { migrated: false, componentCount: existing.length };\n\t}\n\n\tconst migrated: TwinV7SceneObjectDefinition[] = [];")
-
-          path = 'ClientApp/src/views/iot/digital-twin/workbench.vue'
-          replace(path,
-              "import { builtInComponentTemplates } from '/@/digital-twin/components';",
-              "import { builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';")
-          replace(path,
-              "const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model'));",
-              "const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || (item as any).kind === 'component'));")
-          replace(path,
-              "\tnormalized.objects = value.objects || [];\n\tnormalized.routes = (value.routes?.length ? value.routes : createDefaultTwinSceneManifest().routes).map(normalizeTwinRoute);",
-              "\tnormalized.objects = value.objects || [];\n\tnormalized.connections = value.connections || [];\n\tnormalized.routes = (value.routes?.length ? value.routes : createDefaultTwinSceneManifest().routes).map(normalizeTwinRoute);")
-          replace(path,
-              "\tupgradeLegacySilkRouteLayout(normalized);\n\treturn normalized;",
-              "\tupgradeLegacySilkRouteLayout(normalized);\n\tmigrateSilkLineInfrastructureToV7(normalized);\n\treturn normalized;")
-          replace(path,
-              "const refreshDiagnostics = () => { diagnostics.value = validateTwinSceneManifest(manifest.value); };",
-              "const refreshDiagnostics = () => { diagnostics.value = [...validateTwinSceneManifest(manifest.value), ...validateV7ComponentManifest(manifest.value)]; };")
-
-          old_place = """const placeComponentTemplate = async (resourceKey: string) => {
-\tconst template = componentTemplates.find((item) => item.resourceKey === resourceKey);
-\tif (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
-\tconst objectId = createId('component');
-\tconst sectionId = `section-${objectId}`;
-\tconst registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');
-\tif (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) {
-\t\tmanifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
-\t}
-\t(manifest.value.objects as any[]).push({
-\t\tobjectId,
-\t\tname: template.name,
-\t\tkind: 'component',
-\t\tresourceId: registered?.id,
-\t\tassetId: manifest.value.rootAssetId || undefined,
-\t\tcomponent: {
-\t\t\tresourceKey: template.resourceKey,
-\t\t\tcomponentType: template.componentType,
-\t\t\tgenerator: template.generator,
-\t\t\tgeneratorVersion: template.generatorVersion,
-\t\t\tproperties: structuredClone(template.defaultProperties),
-\t\t\tsectionId,
-\t\t},
-\t\ttransform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] },
-\t});
-\tresourceDrawerVisible.value = false;
-\tif (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
-\telse adapter.value?.loadManifest(manifest.value);
-\trefreshDiagnostics();
-\tElMessage.success(`${template.name} 已放入场景；参数随草稿保存，不需要修改场景代码。`);
-};"""
-          new_place = """const placeComponentTemplate = async (resourceKey: string) => {
-\tconst template = componentTemplates.find((item) => item.resourceKey === resourceKey);
-\tif (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
-\tconst objectId = createId('component');
-\tconst sectionId = `section-${objectId}`;
-\tconst registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');
-\tif (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
-\t(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] } });
-\tmanifest.value.connections ||= [];
-\tupsertGeneratedComponentRoute(manifest.value);
-\tresourceDrawerVisible.value = false;
-\tif (viewportMode.value === 'editor') {
-\t\tprofessionalEditor.value?.reloadComponent(objectId);
-\t\tprofessionalEditor.value?.selectObject(objectId);
-\t} else adapter.value?.loadManifest(manifest.value);
-\trefreshDiagnostics();
-\tElMessage.success(`${template.name} 已放入场景；右侧 V7 属性面板可直接改参数、吸附端口并生成 Section / Route。`);
-};"""
-          replace(path, old_place, new_place)
-          replace(path,
-              "const removeModelObject = (objectId: string) => {\n\tif (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);",
-              "const removeModelObject = (objectId: string) => {\n\tremoveConnectionsForObject(manifest.value, objectId);\n\tif (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);")
-
-          path = 'ClientApp/src/digital-twin/runtime/ProceduralPackagingLine.ts'
-          replace(path,
-              "\tconstructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}) {",
-              "\tconstructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}, visualOptions: { renderLegacyPlasticConveyors?: boolean; renderLegacyPreProcessStations?: boolean } = {}) {")
-          replace(path,
-              "\t\tthis.buildFloorLabels();\n\t\tthis.buildPlasticConveyors();\n\t\tthis.buildPreProcessStations();",
-              "\t\tthis.buildFloorLabels();\n\t\tif (visualOptions.renderLegacyPlasticConveyors !== false) this.buildPlasticConveyors();\n\t\tif (visualOptions.renderLegacyPreProcessStations !== false) this.buildPreProcessStations();")
-
-          path = 'ClientApp/src/digital-twin/runtime/TwinRuntime.ts'
-          replace(path,
-              "\t\t\tconst palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;\n\t\t\tthis.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation);",
-              "\t\t\tconst palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;\n\t\t\tconst hasV7Infrastructure = (this.manifest.objects as any[]).some((item) => item.kind === 'component' && item.component?.properties?.silkV7Infrastructure === true);\n\t\t\tthis.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation, { renderLegacyPlasticConveyors: !hasV7Infrastructure, renderLegacyPreProcessStations: !hasV7Infrastructure });")
-
-          path = 'ClientApp/src/digital-twin/editor-adapter/ThreeEditorCoreHost.ts'
-          replace(path,
-              "import { defaultComponentRegistry, isComponentSceneObject, type TwinComponentDefinition } from '/@/digital-twin/components';",
-              "import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, type TwinComponentDefinition } from '/@/digital-twin/components';")
-          replace(path,
-              "\t\tthis.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {\n\t\t\tif (!dragging) {\n\t\t\t\tthis.syncTransformsToManifest();\n\t\t\t\tthis.events.onChanged?.();\n\t\t\t}\n\t\t};",
-              "\t\tthis.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {\n\t\t\tif (!dragging) {\n\t\t\t\tthis.syncTransformsToManifest();\n\t\t\t\tconst selectedId = this.selectedObjectId;\n\t\t\t\tconst selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);\n\t\t\t\tif (selectedId && isComponentSceneObject(selected)) {\n\t\t\t\t\tconst snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });\n\t\t\t\t\tif (snapped) {\n\t\t\t\t\t\tconst root = this.loadedModels.get(selectedId)?.root;\n\t\t\t\t\t\tif (root) { root.position.set(...selected.transform.position); root.rotation.set(...selected.transform.rotation); root.scale.set(...selected.transform.scale); root.updateMatrixWorld?.(true); }\n\t\t\t\t\t\tthis.selectObject(selectedId);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tthis.events.onChanged?.();\n\t\t\t}\n\t\t};")
-          replace(path,
-              "\treloadAllComponents() {\n\t\tthis.syncTransformsToManifest();\n\t\tfor (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);",
-              "\treloadAllComponents() {\n\t\tfor (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);")
-
-          path = 'IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs'
-          replace(path,
-              "        root[\"objects\"] ??= new JsonArray();\n        root[\"bindings\"] ??= new JsonArray();",
-              "        root[\"objects\"] ??= new JsonArray();\n        root[\"connections\"] ??= new JsonArray();\n        root[\"bindings\"] ??= new JsonArray();")
-          replace(path,
-              "        var objectIds = InspectObjects(manifest, rootAssetId, result);\n        InspectBindings(manifest, objectIds, result);",
-              "        var objectIds = InspectObjects(manifest, rootAssetId, result);\n        InspectConnections(manifest, objectIds, result);\n        InspectBindings(manifest, objectIds, result);")
-          marker = "    private static void InspectBindings(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)\n"
-          method = r'''    private static void InspectConnections(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)
-    {
-        if (!manifest.TryGetProperty("connections", out var connections) || connections.ValueKind != JsonValueKind.Array)
-        {
-            result.Diagnostics.Add(Error("twin.connections.invalid", "connections 必须是数组。", "connections"));
-            return;
-        }
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var occupiedPorts = new HashSet<string>(StringComparer.Ordinal);
-        var index = 0;
-        foreach (var connection in connections.EnumerateArray())
-        {
-            var path = $"connections[{index}]";
-            if (!TryGetNonEmptyString(connection, "connectionId", out var id) || !ids.Add(id))
-                result.Diagnostics.Add(Error("twin.connection.id.invalid", "connectionId 不能为空且必须唯一。", $"{path}.connectionId"));
-            foreach (var endpointName in new[] { "from", "to" })
-            {
-                if (!connection.TryGetProperty(endpointName, out var endpoint) || endpoint.ValueKind != JsonValueKind.Object ||
-                    !TryGetNonEmptyString(endpoint, "objectId", out var objectId) || !objectIds.Contains(objectId) ||
-                    !TryGetNonEmptyString(endpoint, "portId", out var portId))
-                {
-                    result.Diagnostics.Add(Error("twin.connection.endpoint.invalid", "Connection 端点必须引用已存在对象和非空 portId。", $"{path}.{endpointName}"));
-                    continue;
-                }
-                if (!occupiedPorts.Add($"{objectId}::{portId}"))
-                    result.Diagnostics.Add(Error("twin.connection.port.duplicate", "同一个物理端口不能同时连接多个端点。", $"{path}.{endpointName}"));
-            }
-            index += 1;
-        }
-    }
-
-'''
-          replace(path, marker, method + marker)
-
-      - name: Verify V7 frontend build
-        working-directory: ClientApp
-        run: |
-          npm ci
-          npm run build
-
-      - name: Commit V7 integration
-        run: |
-          git config user.name "wgtfee"
-          git config user.email "57023277+wgtfee@users.noreply.github.com"
-          git add ClientApp/src/digital-twin IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs
-          git commit -m "feat(twin-v7): finish snap connections properties and silk migration"
-          git push origin Develop
