@@ -191,6 +191,7 @@ public sealed class TwinComponentResourcesController : ControllerBase
 
     private static object BuildMetadata(TwinComponentResourceRegistrationRequest request) => new
     {
+        resourceKey = NormalizeKey(request.ResourceKey),
         resourceType = request.ResourceType,
         componentType = request.ComponentType,
         generator = request.Generator,
@@ -200,6 +201,7 @@ public sealed class TwinComponentResourcesController : ControllerBase
         capabilities = request.Capabilities ?? [],
         defaultProperties = request.DefaultProperties,
         componentSchema = request.ComponentSchema,
+        ports = request.Ports,
         builtIn = true,
         metadataVersion = 1
     };
@@ -215,6 +217,7 @@ public sealed class TwinComponentResourcesController : ControllerBase
         if (request.GeneratorVersion <= 0) return "generatorVersion 必须大于 0。";
         if (request.DefaultProperties.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "defaultProperties 不能为空。";
         if (request.ComponentSchema.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "componentSchema 不能为空。";
+        if (request.Ports.ValueKind != JsonValueKind.Array || request.Ports.GetArrayLength() == 0) return "ports 必须是非空数组。";
         return null;
     }
 
@@ -250,4 +253,5 @@ public sealed class TwinComponentResourceRegistrationRequest
     public List<string>? Capabilities { get; set; }
     public JsonElement DefaultProperties { get; set; }
     public JsonElement ComponentSchema { get; set; }
+    public JsonElement Ports { get; set; }
 }

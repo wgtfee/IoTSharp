@@ -87,6 +87,7 @@ import type { TwinComponentConnectionEndpoint, TwinV7SceneObjectDefinition } fro
 import {
 	getBuiltInComponentTemplate,
 	isComponentSceneObject,
+	revalidateComponentConnections,
 	removeComponentConnection,
 	resolveComponentPorts,
 	snapAndConnectNearestComponent,
@@ -134,9 +135,11 @@ const updateProperty = (key: string, value: unknown) => {
 	if (!object.value) return;
 	object.value.component.properties ||= {};
 	object.value.component.properties[key] = value;
+	const removed = revalidateComponentConnections(props.manifest);
 	upsertGeneratedComponentRoute(props.manifest);
 	emit('reload-component', object.value.objectId);
 	emit('changed');
+	if (removed.length) ElMessage.warning(`参数变化后 ${removed.length} 条端口连接已失效，请重新吸附`);
 };
 const isPortConnected = (portId: string) => connections.value.some((item) =>
 	(item.from.objectId === props.objectId && item.from.portId === portId)
@@ -147,8 +150,8 @@ const endpointLabel = (endpoint: TwinComponentConnectionEndpoint) => {
 };
 const snapNearest = () => {
 	if (!object.value) return;
-	const result = snapAndConnectNearestComponent(props.manifest, object.value.objectId, { maxDistance: 2, preferFacingPorts: true });
-	if (!result) { ElMessage.warning('2 米范围内没有可用且兼容的空闲端口'); return; }
+	const result = snapAndConnectNearestComponent(props.manifest, object.value.objectId, { maxDistance: 0.5, maxAngleDegrees: 15, preferFacingPorts: true });
+	if (!result) { ElMessage.warning('0.5 米范围内没有方向相向且输送对象兼容的空闲端口'); return; }
 	emit('reload-all');
 	emit('changed');
 	ElMessage.success(`已吸附：${result.candidate.moving.name} ↔ ${result.candidate.target.objectName}.${result.candidate.target.name}`);

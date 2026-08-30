@@ -238,13 +238,20 @@ internal static class TwinManifestInspector
 
             var resourceId = TryGetGuid(sceneObject, "resourceId", out var parsedResourceId) ? parsedResourceId : (Guid?)null;
             var assetId = TryGetGuid(sceneObject, "assetId", out var parsedAssetId) ? parsedAssetId : rootAssetId;
-            if (TryGetNonEmptyString(sceneObject, "kind", out var kind) && kind.Equals("model", StringComparison.OrdinalIgnoreCase) && resourceId == null)
+            var hasKind = TryGetNonEmptyString(sceneObject, "kind", out var kind);
+            var requiresDatabaseResource = hasKind && (kind.Equals("model", StringComparison.OrdinalIgnoreCase) || kind.Equals("component", StringComparison.OrdinalIgnoreCase));
+            if (requiresDatabaseResource && resourceId == null)
             {
-                result.Diagnostics.Add(Error("twin.object.resource.required", "模型对象必须引用已入库的 resourceId。", $"{path}.resourceId"));
+                result.Diagnostics.Add(Error("twin.object.resource.required", "模型或参数化组件必须引用已入库的 resourceId。", $"{path}.resourceId"));
             }
             else if (resourceId.HasValue && !result.ResourceIds.Contains(resourceId.Value))
             {
                 result.Diagnostics.Add(Error("twin.object.resource.unlisted", "对象引用的模型必须同时出现在 resources 列表中。", $"{path}.resourceId"));
+            }
+
+            if (kind?.Equals("component", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                InspectComponentObject(sceneObject, objectId, resourceId, path, result);
             }
 
             if (kind?.Equals("procedural", StringComparison.OrdinalIgnoreCase) == true &&
@@ -286,6 +293,60 @@ internal static class TwinManifestInspector
         return objectIds;
     }
 
+    /// <summary>
+    /// 校验 V7 参数化组件的版本快照和不可缩放约束，并记录后续数据库资源一致性检查所需字段。
+    /// </summary>
+    private static void InspectComponentObject(
+        JsonElement sceneObject,
+        string objectId,
+        Guid? resourceId,
+        string path,
+        TwinManifestInspection result)
+    {
+        if (!sceneObject.TryGetProperty("component", out var component) || component.ValueKind != JsonValueKind.Object)
+        {
+            result.Diagnostics.Add(Error("twin.component.definition.required", "参数化组件必须包含 component 定义。", $"{path}.component"));
+            return;
+        }
+
+        var resourceKey = GetString(component, "resourceKey");
+        var componentType = GetString(component, "componentType");
+        var generator = GetString(component, "generator");
+        var generatorVersion = GetInt(component, "generatorVersion", 0);
+        if (string.IsNullOrWhiteSpace(resourceKey))
+            result.Diagnostics.Add(Error("twin.component.resource-key.required", "组件 resourceKey 不能为空。", $"{path}.component.resourceKey"));
+        if (string.IsNullOrWhiteSpace(componentType))
+            result.Diagnostics.Add(Error("twin.component.type.required", "组件 componentType 不能为空。", $"{path}.component.componentType"));
+        if (string.IsNullOrWhiteSpace(generator))
+            result.Diagnostics.Add(Error("twin.component.generator.required", "组件 generator 不能为空。", $"{path}.component.generator"));
+        if (generatorVersion <= 0)
+            result.Diagnostics.Add(Error("twin.component.generator-version.invalid", "组件 generatorVersion 必须是正整数。", $"{path}.component.generatorVersion"));
+        if (!component.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
+            result.Diagnostics.Add(Error("twin.component.properties.invalid", "组件 properties 必须是对象。", $"{path}.component.properties"));
+
+        if (sceneObject.TryGetProperty("transform", out var transform) && transform.ValueKind == JsonValueKind.Object &&
+            transform.TryGetProperty("scale", out var scale) && IsFiniteVector(scale) &&
+            scale.EnumerateArray().Any(value => Math.Abs(value.GetDouble() - 1d) > 0.000001d))
+        {
+            result.Diagnostics.Add(Error("twin.component.scale.locked", "参数化组件 Scale 必须保持 1,1,1；实际尺寸只能通过 properties 修改。", $"{path}.transform.scale"));
+        }
+
+        if (resourceId.HasValue && !string.IsNullOrWhiteSpace(resourceKey) && !string.IsNullOrWhiteSpace(componentType) &&
+            !string.IsNullOrWhiteSpace(generator) && generatorVersion > 0)
+        {
+            result.Components.Add(new TwinComponentReferenceDraft
+            {
+                ObjectId = objectId,
+                ResourceId = resourceId.Value,
+                ResourceKey = resourceKey,
+                ComponentType = componentType,
+                Generator = generator,
+                GeneratorVersion = generatorVersion,
+                Path = path
+            });
+        }
+    }
+
     private static void InspectConnections(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)
     {
         if (!manifest.TryGetProperty("connections", out var connections) || connections.ValueKind != JsonValueKind.Array)
@@ -299,8 +360,13 @@ internal static class TwinManifestInspector
         foreach (var connection in connections.EnumerateArray())
         {
             var path = $"connections[{index}]";
-            if (!TryGetNonEmptyString(connection, "connectionId", out var id) || !ids.Add(id))
+            var validConnectionId = TryGetNonEmptyString(connection, "connectionId", out var id) && ids.Add(id);
+            if (!validConnectionId)
                 result.Diagnostics.Add(Error("twin.connection.id.invalid", "connectionId 不能为空且必须唯一。", $"{path}.connectionId"));
+            string? fromObjectId = null;
+            string? fromPortId = null;
+            string? toObjectId = null;
+            string? toPortId = null;
             foreach (var endpointName in new[] { "from", "to" })
             {
                 if (!connection.TryGetProperty(endpointName, out var endpoint) || endpoint.ValueKind != JsonValueKind.Object ||
@@ -312,6 +378,28 @@ internal static class TwinManifestInspector
                 }
                 if (!occupiedPorts.Add($"{objectId}::{portId}"))
                     result.Diagnostics.Add(Error("twin.connection.port.duplicate", "同一个物理端口不能同时连接多个端点。", $"{path}.{endpointName}"));
+                if (endpointName == "from")
+                {
+                    fromObjectId = objectId;
+                    fromPortId = portId;
+                }
+                else
+                {
+                    toObjectId = objectId;
+                    toPortId = portId;
+                }
+            }
+            if (validConnectionId && fromObjectId != null && fromPortId != null && toObjectId != null && toPortId != null)
+            {
+                result.Connections.Add(new TwinConnectionReferenceDraft
+                {
+                    ConnectionId = id,
+                    FromObjectId = fromObjectId,
+                    FromPortId = fromPortId,
+                    ToObjectId = toObjectId,
+                    ToPortId = toPortId,
+                    Path = path
+                });
             }
             index += 1;
         }
@@ -952,7 +1040,30 @@ internal sealed class TwinManifestInspection
     public List<Guid> ResourceIds { get; } = [];
     public List<TwinBindingDraft> Bindings { get; } = [];
     public List<TwinRouteDraft> Routes { get; } = [];
+    public List<TwinComponentReferenceDraft> Components { get; } = [];
+    public List<TwinConnectionReferenceDraft> Connections { get; } = [];
     public bool Valid => Diagnostics.All(item => !string.Equals(item.Severity, "error", StringComparison.OrdinalIgnoreCase));
+}
+
+internal sealed class TwinComponentReferenceDraft
+{
+    public string ObjectId { get; set; } = string.Empty;
+    public Guid ResourceId { get; set; }
+    public string ResourceKey { get; set; } = string.Empty;
+    public string ComponentType { get; set; } = string.Empty;
+    public string Generator { get; set; } = string.Empty;
+    public int GeneratorVersion { get; set; }
+    public string Path { get; set; } = string.Empty;
+}
+
+internal sealed class TwinConnectionReferenceDraft
+{
+    public string ConnectionId { get; set; } = string.Empty;
+    public string FromObjectId { get; set; } = string.Empty;
+    public string FromPortId { get; set; } = string.Empty;
+    public string ToObjectId { get; set; } = string.Empty;
+    public string ToPortId { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
 }
 
 internal sealed class TwinBindingDraft

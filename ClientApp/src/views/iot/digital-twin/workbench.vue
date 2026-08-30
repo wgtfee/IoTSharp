@@ -16,7 +16,7 @@
 				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V6</el-button>
 				<el-button @click="router.push('/iot/digital-twin/model-generator')">生成模型</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
-				<el-button :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
+				<el-button :type="routeDrawMode ? 'warning' : 'default'" :disabled="routeIsGenerated" @click="toggleRouteDrawMode">{{ routeDrawMode ? '结束绘制' : '绘制路线' }}</el-button>
 				<el-button :type="playing ? 'danger' : 'primary'" @click="togglePlaying">{{ playing ? '暂停' : '运行' }}</el-button>
 				<el-button :loading="saving" :disabled="!currentScene" @click="saveDraft()">保存草稿</el-button>
 				<el-button type="success" :loading="publishing" :disabled="!currentScene" @click="publishScene">发布</el-button>
@@ -59,6 +59,7 @@
 					<el-switch v-model="liveMode" active-text="实时" inline-prompt @change="toggleLiveMode" />
 				</div>
 				<div class="twin-card">
+					<el-alert v-if="routeIsGenerated" type="info" :closable="false" show-icon title="当前路线由 V7 组件端口 Connection 自动生成；请移动组件或修改连接，路线控制点只读。" />
 					<label>场景名称</label><el-input v-model="manifest.name" maxlength="80" />
 					<label>根 Asset（场景业务边界）</label>
 					<el-select v-model="manifest.rootAssetId" filterable clearable placeholder="未绑定，请选择资产" @change="changeRootAsset">
@@ -96,10 +97,10 @@
 					<small v-if="modelObjects.length === 0">尚未从资源库放置模型。</small>
 				</div>
 
-				<div class="twin-panel__subheading"><strong>路线控制点</strong><el-button size="small" text type="primary" @click="addRoutePoint">新增</el-button></div>
+				<div class="twin-panel__subheading"><strong>路线控制点</strong><el-button size="small" text type="primary" :disabled="routeIsGenerated" @click="addRoutePoint">新增</el-button></div>
 				<div class="twin-route-points">
-					<div v-for="(point, index) in route.points" :key="point.pointId" class="twin-route-point" :class="{ 'is-selected': selected?.routePointIndex === index }">
-						<div class="twin-route-point__title"><span>{{ index + 1 }}</span><el-input v-model="point.name" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" :disabled="route.points.length <= 2" @click="removeRoutePoint(index)">×</el-button></div>
+					<div v-for="(point, index) in route.points" :key="point.pointId" class="twin-route-point" :class="{ 'is-selected': selected?.routeId === route.routeId && selected?.routePointIndex === index }">
+						<div class="twin-route-point__title"><span>{{ index + 1 }}</span><el-input v-model="point.name" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" :disabled="routeIsGenerated || route.points.length <= 2" @click="removeRoutePoint(index)">×</el-button></div>
 						<div class="twin-route-point__meta">
 							<el-select v-model="point.kind" size="small" @change="changeRoutePointKind(point)"><el-option v-for="option in routePointKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-radio v-model="route.startPointId" :value="point.pointId" size="small" @change="syncRouteGraph">运行起点</el-radio>
@@ -127,7 +128,7 @@
 					</div>
 				</div>
 
-				<div class="twin-panel__subheading"><strong>交叉口与分支</strong><el-button size="small" text type="primary" @click="addStandaloneRoutePoint">新增分支节点</el-button></div>
+				<div class="twin-panel__subheading"><strong>交叉口与分支</strong><el-button size="small" text type="primary" :disabled="routeIsGenerated" @click="addStandaloneRoutePoint">新增分支节点</el-button></div>
 				<div class="twin-card twin-route-graph-editor">
 					<small>先放置节点，再连接路线边。连接数达到 3 的节点会自动标记为交叉口。</small>
 					<div class="twin-route-edge-form">
@@ -248,19 +249,19 @@
 
 		<el-drawer v-model="resourceDrawerVisible" title="模型资源库" size="520px">
 			<input ref="uploadInput" class="is-hidden" type="file" accept=".glb,model/gltf-binary" @change="uploadModel" />
-			<div class="resource-actions"><el-button type="success" @click="router.push('/iot/digital-twin/model-generator')">图片生成模型</el-button><el-button type="primary" :loading="uploading" @click="uploadInput?.click()">上传 GLB</el-button><el-button @click="loadModels">刷新</el-button></div>
+			<div class="resource-actions"><el-button type="success" @click="router.push('/iot/digital-twin/model-generator')">图片生成模型</el-button><el-button type="primary" :loading="uploading" @click="uploadInput?.click()">上传 GLB</el-button><el-button type="warning" plain :loading="registeringComponents" @click="registerAllBuiltInComponents">组件入库</el-button><el-button @click="loadModels">刷新</el-button></div>
 			<el-alert title="GLB 继续来自数据库模型资源；内置参数化/智能模型由 Component Registry 生成，实例参数随场景草稿和发布版本保存。" type="info" :closable="false" />
 			<el-divider>内置参数化 / 智能模型</el-divider>
 			<div class="resource-grid">
 				<div v-for="template in componentTemplates" :key="template.resourceKey" class="resource-card">
 					<div><strong>{{ template.name }}</strong><small>{{ template.resourceType }} · {{ template.componentType }}</small><small>{{ template.tags.join(' · ') }}</small></div>
-					<el-tag size="small" type="success">Built-in</el-tag>
+					<el-tag size="small" :type="registeredComponentResource(template.resourceKey) ? 'success' : 'warning'">{{ registeredComponentResource(template.resourceKey) ? '数据库已注册' : '待注册' }}</el-tag>
 					<el-button type="primary" plain @click="placeComponentTemplate(template.resourceKey)">放入场景</el-button>
 				</div>
 			</div>
 			<el-divider>GLB 模型资源</el-divider>
 			<div class="resource-grid">
-				<div v-for="model in models" :key="model.id" class="resource-card"><div><strong>{{ model.name }}</strong><small>{{ model.originalFileName }} · {{ formatBytes(model.fileSize) }}</small><small>{{ model.modelMetadata.meshCount || 0 }} Mesh · {{ formatNumber(model.modelMetadata.triangleCount || 0) }} triangles</small></div><el-tag size="small" :type="model.processingStatus === 'Ready' ? 'success' : 'warning'">{{ model.processingStatus }}</el-tag><el-button type="primary" plain :disabled="model.processingStatus !== 'Ready'" @click="placeModel(model)">放入场景</el-button></div>
+				<div v-for="model in glbModels" :key="model.id" class="resource-card"><div><strong>{{ model.name }}</strong><small>{{ model.originalFileName }} · {{ formatBytes(model.fileSize) }}</small><small>{{ model.modelMetadata.meshCount || 0 }} Mesh · {{ formatNumber(model.modelMetadata.triangleCount || 0) }} triangles</small></div><el-tag size="small" :type="model.processingStatus === 'Ready' ? 'success' : 'warning'">{{ model.processingStatus }}</el-tag><el-button type="primary" plain :disabled="model.processingStatus !== 'Ready'" @click="placeModel(model)">放入场景</el-button></div>
 			</div>
 			<el-divider>本次上传授权信息</el-divider>
 			<el-form label-position="top"><el-form-item label="许可证"><el-input v-model="uploadForm.licenseType" /></el-form-item><el-form-item label="作者/来源方"><el-input v-model="uploadForm.author" /></el-form-item><el-form-item label="来源链接"><el-input v-model="uploadForm.sourceUrl" /></el-form-item><el-form-item><el-checkbox v-model="uploadForm.commercialUseAllowed">已确认允许当前项目商业使用</el-checkbox></el-form-item></el-form>
@@ -281,7 +282,7 @@ import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
-import { builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
+import { builtInComponentResourceRegistrations, builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 
@@ -307,7 +308,7 @@ const models = ref<TwinModelResource[]>([]);
 const versions = ref<TwinSceneVersion[]>([]);
 const selected = ref<TwinSelectionInfo | null>(null);
 const diagnostics = ref(validateTwinSceneManifest(manifest.value));
-const pageLoading = ref(false), saving = ref(false), creating = ref(false), publishing = ref(false), uploading = ref(false);
+const pageLoading = ref(false), saving = ref(false), creating = ref(false), publishing = ref(false), uploading = ref(false), registeringComponents = ref(false);
 const playing = ref(false), liveMode = ref(false), routeDrawMode = ref(false);
 const viewportMode = ref<'editor' | 'runtime'>('editor');
 const editorInstanceKey = ref(0);
@@ -333,10 +334,12 @@ const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' a
 const routingPayloadText = ref('{"sku":"A","weight":1}');
 const previewOccupancy = reactive<Record<string, number>>({});
 const route = computed(() => manifest.value.routes[0]);
+const routeIsGenerated = computed(() => route.value?.generatedBy === 'component-connections');
 const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).filter((item) => item.edges.length > 0));
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || (item as any).kind === 'component'));
+const glbModels = computed(() => models.value.filter((item) => item.runtimeFormat !== 'application/vnd.iotsharp.twin-component+json'));
 const componentTemplates = builtInComponentTemplates;
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
 const selectedRuntimeData = computed(() => selected.value?.runtimeData ? JSON.stringify(selected.value.runtimeData, null, 2) : '');
@@ -658,8 +661,11 @@ const reconcileRouteEditorState = (value: TwinRouteDefinition) => {
 };
 
 const applyRuntimeRoute = (value: TwinRouteDefinition) => {
-	manifest.value.routes.splice(0, 1, value);
-	reconcileRouteEditorState(value);
+	const routeIndex = manifest.value.routes.findIndex((item) => item.routeId === value.routeId);
+	if (routeIndex >= 0) manifest.value.routes.splice(routeIndex, 1, value);
+	else if (manifest.value.routes.length) manifest.value.routes.splice(0, 1, value);
+	else manifest.value.routes.push(value);
+	if (value.routeId === route.value?.routeId) reconcileRouteEditorState(value);
 	refreshDiagnostics();
 };
 
@@ -711,6 +717,61 @@ const changeRootAsset = async (assetId: string | number | boolean) => {
 	await loadAssetDevices(nextAssetId); adapter.value?.loadManifest(manifest.value); refreshDiagnostics();
 };
 const loadModels = async () => { models.value = apiData<TwinModelResource[]>(await digitalTwinApi.listModels({})); };
+const registeredComponentResource = (resourceKey: string) => {
+	const registration = builtInComponentResourceRegistrations.find((item) => item.resourceKey === resourceKey);
+	return models.value.find((item) => item.resourceKey === resourceKey
+		&& item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json'
+		&& item.modelMetadata?.resourceKey === resourceKey
+		&& item.modelMetadata?.componentType === registration?.componentType
+		&& item.modelMetadata?.generator === registration?.generator
+		&& item.modelMetadata?.generatorVersion === registration?.generatorVersion
+		&& Array.isArray(item.modelMetadata?.ports)
+		&& item.modelMetadata.ports.length > 0);
+};
+const bindRegisteredComponentResources = () => {
+	const listedResourceIds = new Set(manifest.value.resources.map((item) => item.resourceId));
+	const replacedResourceIds = new Set<string>();
+	for (const object of manifest.value.objects as any[]) {
+		if (object.kind !== 'component' || !object.component?.resourceKey) continue;
+		const resource = registeredComponentResource(object.component.resourceKey);
+		if (!resource) continue;
+		if (object.resourceId && object.resourceId !== resource.id) replacedResourceIds.add(object.resourceId);
+		object.resourceId = resource.id;
+		if (!listedResourceIds.has(resource.id)) {
+			manifest.value.resources.push({ resourceId: resource.id, name: resource.name, status: 'ready' });
+			listedResourceIds.add(resource.id);
+		}
+	}
+	if (replacedResourceIds.size) {
+		const referencedResourceIds = new Set(manifest.value.objects.map((item) => item.resourceId).filter((value): value is string => Boolean(value)));
+		manifest.value.resources = manifest.value.resources.filter((item) => !replacedResourceIds.has(item.resourceId) || referencedResourceIds.has(item.resourceId));
+	}
+};
+const ensureManifestComponentResourcesRegistered = async () => {
+	const requiredKeys = new Set((manifest.value.objects as any[])
+		.filter((item) => item.kind === 'component' && item.component?.resourceKey)
+		.map((item) => String(item.component.resourceKey)));
+	const missing = builtInComponentResourceRegistrations.filter((item) => requiredKeys.has(item.resourceKey) && !registeredComponentResource(item.resourceKey));
+	if (missing.length) {
+		await digitalTwinApi.registerComponentResources(missing);
+		await loadModels();
+	}
+	bindRegisteredComponentResources();
+	const unresolved = (manifest.value.objects as any[]).filter((item) => item.kind === 'component' && !item.resourceId);
+	if (unresolved.length) throw new Error(`以下组件尚未注册到数据库模型资源库：${unresolved.map((item) => item.name || item.objectId).join('、')}`);
+};
+const registerAllBuiltInComponents = async () => {
+	registeringComponents.value = true;
+	try {
+		await digitalTwinApi.registerComponentResources(builtInComponentResourceRegistrations);
+		await loadModels();
+		bindRegisteredComponentResources();
+		refreshDiagnostics();
+		ElMessage.success(`${builtInComponentResourceRegistrations.length} 个内置组件已注册到当前租户数据库模型资源库`);
+	} catch (error: any) {
+		ElMessage.error(apiErrorMessage(error, '组件资源注册失败，请确认当前账号具有管理员权限'));
+	} finally { registeringComponents.value = false; }
+};
 const loadScenes = async () => { scenes.value = apiData<DigitalTwinSceneSummary[]>(await digitalTwinApi.listScenes()); };
 
 const loadScene = async (sceneId: string | number | boolean) => {
@@ -719,6 +780,7 @@ const loadScene = async (sceneId: string | number | boolean) => {
 	try {
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.getScene(sceneId));
 		currentScene.value = detail; selectedSceneId.value = detail.id; manifest.value = normalizeManifest(detail.draftPayload);
+		bindRegisteredComponentResources();
 		for (const key of Object.keys(previewOccupancy)) delete previewOccupancy[key];
 		for (const edge of route.value.edges) previewOccupancy[edge.edgeId] = 0;
 		await loadAssetDevices(detail.rootAssetId); await initializeViewport(); refreshDiagnostics();
@@ -729,6 +791,7 @@ const loadScene = async (sceneId: string | number | boolean) => {
 
 const loadReferencedModels = async () => {
 	for (const object of modelObjects.value) {
+		if (object.kind !== 'model') continue;
 		const model = models.value.find((item) => item.id === object.resourceId); if (!model) continue;
 		try {
 			let cached = modelBufferCache.get(model.id);
@@ -787,9 +850,10 @@ const applySilkCakeLineTemplate = async () => {
 const saveDraft = async (silent = false) => {
 	if (!currentScene.value) { ElMessage.warning('请先新建或选择数据库场景'); return false; }
 	try {
+		await ensureManifestComponentResourcesRegistered();
 		if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
 	} catch (error: any) {
-		ElMessage.error(apiErrorMessage(error, 'Three Editor 状态提取失败，请切换到运行视图后重试'));
+		ElMessage.error(apiErrorMessage(error, '组件资源入库或 Three Editor 状态提取失败，请检查权限与场景数据'));
 		return false;
 	}
 	refreshDiagnostics(); const errors = diagnostics.value.filter((item) => item.severity === 'error');
@@ -863,6 +927,7 @@ const rollbackVersion = async (version: number) => {
 	const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.rollback(currentScene.value.id, version));
 	currentScene.value = detail;
 	manifest.value = normalizeManifest(detail.draftPayload);
+	bindRegisteredComponentResources();
 	await initializeViewport();
 	await openVersions();
 	ElMessage.success(`已从 v${version} 创建草稿 r${detail.revision}；当前发布版本保持不变`);
@@ -882,9 +947,20 @@ const uploadModel = async (event: Event) => {
 const placeComponentTemplate = async (resourceKey: string) => {
 	const template = componentTemplates.find((item) => item.resourceKey === resourceKey);
 	if (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
+	let registered = registeredComponentResource(template.resourceKey);
+	if (!registered) {
+		const registration = builtInComponentResourceRegistrations.find((item) => item.resourceKey === template.resourceKey);
+		if (!registration) { ElMessage.error(`组件注册数据不存在：${template.resourceKey}`); return; }
+		try {
+			registered = apiData<TwinModelResource>(await digitalTwinApi.upsertComponentResource(registration));
+			models.value = [...models.value.filter((item) => item.id !== registered!.id), registered];
+		} catch (error: any) {
+			ElMessage.error(apiErrorMessage(error, '组件必须先注册到数据库；请确认当前账号具有管理员权限'));
+			return;
+		}
+	}
 	const objectId = createId('component');
 	const sectionId = `section-${objectId}`;
-	const registered = models.value.find((item) => item.resourceKey === template.resourceKey && item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json');
 	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
 	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] } });
 	manifest.value.connections ||= [];
@@ -981,7 +1057,21 @@ const togglePlaying = async () => {
 	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 	playing.value = !playing.value; adapter.value?.setRunning(playing.value);
 };
+const restoreGeneratedRoute = (notify = true) => {
+	upsertGeneratedComponentRoute(manifest.value);
+	routeDrawMode.value = false;
+	professionalEditor.value?.setRouteDrawMode(false);
+	professionalEditor.value?.refreshRouteOverlay();
+	refreshDiagnostics();
+	if (notify) ElMessage.warning('自动路线只读，请通过移动参数化组件或修改端口 Connection 调整路线。');
+};
+const ensureManualRouteEditing = () => {
+	if (!routeIsGenerated.value) return true;
+	restoreGeneratedRoute();
+	return false;
+};
 const toggleRouteDrawMode = async () => {
+	if (!ensureManualRouteEditing()) return;
 	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
 	routeDrawMode.value = !routeDrawMode.value;
 	professionalEditor.value?.setRouteEditMode(routeDrawMode.value);
@@ -999,10 +1089,12 @@ const applySilkSimulationOptions = async () => {
 	refreshDiagnostics();
 };
 const changeCurveKind = async (value: string | number | boolean) => {
+	if (!ensureManualRouteEditing()) return;
 	route.value.curveKind = value as TwinRouteDefinition['curveKind'];
 	await syncRouteGraph();
 };
 const changeLoop = async (value: string | number | boolean) => {
+	if (!ensureManualRouteEditing()) return;
 	route.value.loop = Boolean(value);
 	await syncRouteGraph();
 };
@@ -1010,6 +1102,7 @@ const ensureRuntimeViewport = async () => {
 	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 };
 const syncRouteGraph = async () => {
+	if (routeIsGenerated.value) { restoreGeneratedRoute(); return; }
 	const nextRoute = cloneTwinManifest({ ...manifest.value, routes: [route.value] }).routes[0];
 	if (viewportMode.value === 'editor') {
 		professionalEditor.value?.setRoute(nextRoute);
@@ -1048,6 +1141,7 @@ const recalculateJunctionKinds = (downgrade = false) => {
 	}
 };
 const addStandaloneRoutePoint = async () => {
+	if (!ensureManualRouteEditing()) return;
 	const last = route.value.points[route.value.points.length - 1]?.position || [0, 0.72, 0];
 	const point = createRoutePoint([last[0], last[1], last[2] + 2], route.value.points.length);
 	point.name = `分支节点 ${route.value.points.length + 1}`;
@@ -1056,6 +1150,7 @@ const addStandaloneRoutePoint = async () => {
 	await syncRouteGraph();
 };
 const addRouteEdge = async () => {
+	if (!ensureManualRouteEditing()) return;
 	if (!branchForm.fromPointId || !branchForm.toPointId || branchForm.fromPointId === branchForm.toPointId) { ElMessage.warning('请选择两个不同的路线节点'); return; }
 	const duplicate = route.value.edges.some((edge) => edge.fromPointId === branchForm.fromPointId && edge.toPointId === branchForm.toPointId);
 	if (duplicate) { ElMessage.warning('这两个节点已经存在同向连线'); return; }
@@ -1073,6 +1168,7 @@ const addRouteEdge = async () => {
 	ElMessage.success('分支已连接；橙色节点表示交叉口');
 };
 const removeRouteEdge = async (edgeId: string) => {
+	if (!ensureManualRouteEditing()) return;
 	route.value.edges = route.value.edges.filter((edge) => edge.edgeId !== edgeId);
 	delete previewOccupancy[edgeId];
 	route.value.decisionRules = route.value.decisionRules.filter((rule) => rule.edgeId !== edgeId);
@@ -1089,6 +1185,7 @@ const parseRuleValue = (value: string): string | number | boolean => {
 	return value;
 };
 const addDecisionRule = async () => {
+	if (!ensureManualRouteEditing()) return;
 	if (!ruleForm.junctionPointId || !ruleForm.edgeId) { ElMessage.warning('请选择分流节点和目标输送线'); return; }
 	if (ruleForm.source === 'payload' && !ruleForm.payloadKey.trim()) { ElMessage.warning('请填写物料属性 Key'); return; }
 	if (ruleForm.source === 'binding' && !ruleForm.bindingId) { ElMessage.warning('请选择 Device 信号绑定'); return; }
@@ -1105,21 +1202,25 @@ const addDecisionRule = async () => {
 	ElMessage.success('自动选路规则已加入路线草稿');
 };
 const removeDecisionRule = async (ruleId: string) => {
+	if (!ensureManualRouteEditing()) return;
 	route.value.decisionRules = route.value.decisionRules.filter((rule) => rule.ruleId !== ruleId);
 	await syncRouteGraph();
 };
 const updateRoutePoint = async (index: number) => {
+	if (!ensureManualRouteEditing()) return;
 	const point = route.value.points[index];
 	if (!point) return;
 	if (viewportMode.value === 'editor') professionalEditor.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
 	else adapter.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
 };
 const addRoutePoint = async () => {
+	if (!ensureManualRouteEditing()) return;
 	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
 	professionalEditor.value?.setRouteEditMode(true);
 	professionalEditor.value?.addRoutePoint();
 };
 const removeRoutePoint = async (index: number) => {
+	if (!ensureManualRouteEditing()) return;
 	const point = route.value.points[index];
 	if (!point) return;
 

@@ -20,6 +20,7 @@ namespace IoTSharp.Services.DigitalTwin;
 /// </summary>
 public sealed class DigitalTwinSceneService
 {
+    private const string ComponentRuntimeFormat = "application/vnd.iotsharp.twin-component+json";
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ApplicationDbContext _context;
 
@@ -433,9 +434,10 @@ public sealed class DigitalTwinSceneService
         bool forPublish,
         CancellationToken cancellationToken)
     {
+        List<TwinModelResource> resources = [];
         if (inspection.ResourceIds.Count > 0)
         {
-            var resources = await _context.TwinModelResources.AsNoTracking()
+            resources = await _context.TwinModelResources.AsNoTracking()
                 .Where(item => inspection.ResourceIds.Contains(item.Id) && !item.Deleted && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer)
                 .ToListAsync(cancellationToken);
             foreach (var resourceId in inspection.ResourceIds.Except(resources.Select(item => item.Id)))
@@ -457,6 +459,8 @@ public sealed class DigitalTwinSceneService
                 }
             }
         }
+
+        AppendComponentResourceDiagnostics(inspection, resources);
 
         var assetIds = inspection.Bindings.Where(item => item.AssetId.HasValue).Select(item => item.AssetId!.Value).Distinct().ToList();
         if (assetIds.Count > 0)
@@ -483,6 +487,110 @@ public sealed class DigitalTwinSceneService
                 inspection.Diagnostics.Add(Error("twin.binding.device.not-found", $"绑定 Device {deviceId:D} 不存在或无权访问。", "bindings"));
             }
         }
+    }
+
+    /// <summary>
+    /// 确认 Manifest 中的组件版本快照与数据库资源元数据完全一致，避免客户端伪造生成器或引用普通 GLB。
+    /// </summary>
+    private static void AppendComponentResourceDiagnostics(
+        TwinManifestInspection inspection,
+        IReadOnlyCollection<TwinModelResource> resources)
+    {
+        if (inspection.Components.Count == 0) return;
+        var resourcesById = resources.ToDictionary(item => item.Id);
+        var componentPortsByObjectId = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        foreach (var component in inspection.Components)
+        {
+            if (!resourcesById.TryGetValue(component.ResourceId, out var resource)) continue;
+            var path = $"{component.Path}.component";
+            if (!string.Equals(resource.RuntimeFormat, ComponentRuntimeFormat, StringComparison.OrdinalIgnoreCase))
+            {
+                inspection.Diagnostics.Add(Error("twin.component.resource-format.invalid", $"组件 {component.ObjectId} 引用的数据库资源不是参数化组件。", $"{component.Path}.resourceId"));
+                continue;
+            }
+            if (!string.Equals(resource.ResourceKey, component.ResourceKey, StringComparison.OrdinalIgnoreCase))
+            {
+                inspection.Diagnostics.Add(Error("twin.component.resource-key.mismatch", $"组件 {component.ObjectId} 的 resourceKey 与数据库资源不一致。", $"{path}.resourceKey"));
+            }
+            if (string.IsNullOrWhiteSpace(resource.ModelMetadata))
+            {
+                inspection.Diagnostics.Add(Error("twin.component.metadata.invalid", $"组件资源 {resource.Name} 缺少元数据。", $"{component.Path}.resourceId"));
+                continue;
+            }
+
+            try
+            {
+                using var metadataDocument = JsonDocument.Parse(resource.ModelMetadata);
+                var metadata = metadataDocument.RootElement;
+                if (metadata.ValueKind != JsonValueKind.Object)
+                {
+                    inspection.Diagnostics.Add(Error("twin.component.metadata.invalid", $"组件资源 {resource.Name} 的元数据根节点必须是对象。", $"{component.Path}.resourceId"));
+                    continue;
+                }
+                static string? ReadString(JsonElement element, string propertyName) =>
+                    element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+                var resourceType = ReadString(metadata, "resourceType");
+                var metadataResourceKey = ReadString(metadata, "resourceKey");
+                var componentType = ReadString(metadata, "componentType");
+                var generator = ReadString(metadata, "generator");
+                var generatorVersion = metadata.TryGetProperty("generatorVersion", out var versionValue) && versionValue.TryGetInt32(out var parsedVersion) ? parsedVersion : 0;
+                var registeredPorts = new Dictionary<string, string>(StringComparer.Ordinal);
+                var hasPorts = metadata.TryGetProperty("ports", out var ports) && ports.ValueKind == JsonValueKind.Array && ports.GetArrayLength() > 0;
+                if (hasPorts)
+                {
+                    foreach (var port in ports.EnumerateArray())
+                    {
+                        var portId = ReadString(port, "portId");
+                        var portType = ReadString(port, "type");
+                        if (string.IsNullOrWhiteSpace(portId) || string.IsNullOrWhiteSpace(portType) || !registeredPorts.TryAdd(portId, portType))
+                        {
+                            hasPorts = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (resourceType is not ("procedural-component" or "smart-model") ||
+                    !string.Equals(metadataResourceKey, component.ResourceKey, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(componentType, component.ComponentType, StringComparison.Ordinal) ||
+                    !string.Equals(generator, component.Generator, StringComparison.Ordinal) ||
+                    generatorVersion != component.GeneratorVersion || !hasPorts)
+                {
+                    inspection.Diagnostics.Add(Error("twin.component.metadata.mismatch", $"组件 {component.ObjectId} 的类型、生成器、版本或端口与数据库资源元数据不一致，请重新执行组件入库。", path));
+                }
+                else
+                {
+                    componentPortsByObjectId[component.ObjectId] = registeredPorts;
+                }
+            }
+            catch (JsonException)
+            {
+                inspection.Diagnostics.Add(Error("twin.component.metadata.invalid", $"组件资源 {resource.Name} 的元数据不是有效 JSON。", $"{component.Path}.resourceId"));
+            }
+        }
+
+        foreach (var connection in inspection.Connections)
+        {
+            var fromType = ValidateRegisteredPort(connection.FromObjectId, connection.FromPortId, $"{connection.Path}.from");
+            var toType = ValidateRegisteredPort(connection.ToObjectId, connection.ToPortId, $"{connection.Path}.to");
+            if (fromType != null && toType != null && !CanConnectPortTypes(fromType, toType))
+            {
+                inspection.Diagnostics.Add(Error("twin.connection.type.invalid", $"连接 {connection.ConnectionId} 的端口方向不兼容（{fromType} -> {toType}）。", connection.Path));
+            }
+
+            string? ValidateRegisteredPort(string objectId, string portId, string path)
+            {
+                if (!componentPortsByObjectId.TryGetValue(objectId, out var registeredPorts)) return null;
+                if (registeredPorts.TryGetValue(portId, out var portType)) return portType;
+                inspection.Diagnostics.Add(Error("twin.connection.port.unregistered", $"组件 {objectId} 不包含数据库登记端口 {portId}。", path));
+                return null;
+            }
+        }
+
+        static bool CanConnectPortTypes(string fromType, string toType) =>
+            string.Equals(fromType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(toType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fromType, "output", StringComparison.OrdinalIgnoreCase) && string.Equals(toType, "input", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ReplaceDraftBindings(DigitalTwinScene scene, List<TwinBindingDraft> drafts, UserProfile profile, string actor, DateTime now)

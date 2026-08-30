@@ -420,4 +420,63 @@ public sealed class DigitalTwinManifestInspectorTests
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.route.rule.operator.invalid");
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.route.diverter.outgoing.invalid");
     }
+
+    [Fact]
+    public void Inspect_AcceptsDatabaseBoundV7ComponentSnapshot()
+    {
+        var resourceId = Guid.NewGuid();
+        using var document = JsonDocument.Parse($$"""
+        {
+          "name": "V7 参数化辊道",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [{ "resourceId": "{{resourceId:D}}", "name": "小型直线辊道", "status": "ready" }],
+          "objects": [{
+            "objectId": "roller-1", "name": "小型直线辊道", "kind": "component", "resourceId": "{{resourceId:D}}",
+            "component": {
+              "resourceKey": "iotsharp.component.roller.small.straight", "componentType": "roller-conveyor",
+              "generator": "RollerConveyorComponent", "generatorVersion": 1,
+              "properties": { "length": 3, "width": 0.82, "transportUnitType": "plastic-pallet" },
+              "sectionId": "section-roller-1"
+            },
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [], "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+        var component = Assert.Single(result.Components);
+        Assert.Equal(resourceId, component.ResourceId);
+        Assert.Equal("iotsharp.component.roller.small.straight", component.ResourceKey);
+        Assert.Equal("RollerConveyorComponent", component.Generator);
+    }
+
+    [Fact]
+    public void Inspect_RejectsUnboundOrScaledV7Component()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "错误 V7 组件",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "roller-1", "name": "错误辊道", "kind": "component",
+            "component": {
+              "resourceKey": "iotsharp.component.roller.small.straight", "componentType": "roller-conveyor",
+              "generator": "RollerConveyorComponent", "generatorVersion": 1, "properties": {}
+            },
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [2,1,1] }
+          }],
+          "bindings": [], "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Valid);
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.object.resource.required");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.component.scale.locked");
+    }
 }

@@ -14,7 +14,7 @@
 			<span class="toolbar-divider"></span>
 			<el-button-group size="small">
 				<el-button :type="routeEditMode ? 'warning' : 'default'" @click="toggleRouteEditMode">{{ routeEditMode ? '结束路线编辑' : '路线编辑' }}</el-button>
-				<el-button v-if="routeEditMode" :type="routeDrawMode ? 'warning' : 'default'" @click="toggleRouteDrawMode">{{ routeDrawMode ? '停止绘制' : '连续绘制' }}</el-button>
+				<el-button v-if="routeEditMode" :type="routeDrawMode ? 'warning' : 'default'" :disabled="primaryRouteGenerated" @click="toggleRouteDrawMode">{{ routeDrawMode ? '停止绘制' : '连续绘制' }}</el-button>
 				<el-button v-if="routeEditMode" :disabled="!selectedRoutePointId" type="danger" plain @click="deleteSelectedRoutePoint">删除路线点</el-button>
 			</el-button-group>
 			<span class="toolbar-divider"></span>
@@ -56,6 +56,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import type { TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -87,11 +88,13 @@ const routeDrawMode = ref(false);
 const selectionMode = ref<'select' | 'root'>('root');
 const transformMode = ref<'translate' | 'rotate' | 'scale'>('translate');
 const selectedObjectId = ref('');
+const selectedRouteId = ref('');
 const selectedRoutePointId = ref('');
 const selectedComponent = computed(() => {
 	const object = (props.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedObjectId.value);
 	return isComponentSceneObject(object) ? object : undefined;
 });
+const primaryRouteGenerated = computed(() => props.manifest.routes[0]?.generatedBy === 'component-connections');
 let resolveReady: () => void;
 const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
 
@@ -101,6 +104,7 @@ onMounted(() => {
 		host.value = new ThreeEditorCoreHost(viewport.value, gui.value, props.manifest, {
 			onSelectionChange: (value) => {
 				selectedObjectId.value = value?.kind === 'scene-object' ? value.objectId || '' : '';
+				selectedRouteId.value = value?.kind === 'route-point' ? value.routeId || '' : '';
 				selectedRoutePointId.value = value?.kind === 'route-point' ? value.routePointId || '' : '';
 				emit('selection-change', value);
 			},
@@ -124,8 +128,11 @@ watch(() => props.manifest.routes, () => host.value?.refreshRouteOverlay(), { de
 watch(() => props.manifest.connections, () => host.value?.refreshRouteOverlay(), { deep: true });
 
 const changeSelectionMode = (mode: 'select' | 'root') => { selectionMode.value = mode; host.value?.setSelectionMode(mode); };
-const changeTransformMode = (mode: 'translate' | 'rotate' | 'scale') => { transformMode.value = mode; host.value?.setTransformMode(mode); };
-const selectObject = (objectId: string) => { selectedObjectId.value = objectId; selectedRoutePointId.value = ''; host.value?.selectObject(objectId); };
+const changeTransformMode = (mode: 'translate' | 'rotate' | 'scale') => {
+	if (mode === 'scale' && selectedComponent.value) { ElMessage.warning('参数化组件禁止缩放，请在属性面板修改实际尺寸'); return; }
+	transformMode.value = mode; host.value?.setTransformMode(mode);
+};
+const selectObject = (objectId: string) => { selectedObjectId.value = objectId; selectedRouteId.value = ''; selectedRoutePointId.value = ''; host.value?.selectObject(objectId); };
 const objectKindLabel = (item: TwinSceneObjectDefinition) => {
 	const kind = (item as TwinV7SceneObjectDefinition).kind;
 	return kind === 'model' ? 'GLB模型' : kind === 'component' ? 'V7组件' : '程序对象';
@@ -137,6 +144,7 @@ const toggleRouteEditMode = () => {
 	host.value?.setRouteDrawMode(routeDrawMode.value);
 };
 const toggleRouteDrawMode = () => {
+	if (primaryRouteGenerated.value) { ElMessage.warning('V7 组件自动路线只读，请移动组件或修改 Connection。'); return; }
 	routeDrawMode.value = !routeDrawMode.value;
 	if (routeDrawMode.value) routeEditMode.value = true;
 	host.value?.setRouteEditMode(routeEditMode.value);
@@ -144,6 +152,7 @@ const toggleRouteDrawMode = () => {
 };
 const deleteSelectedRoutePoint = () => {
 	if (!host.value?.removeSelectedRoutePoint()) return;
+	selectedRouteId.value = '';
 	selectedRoutePointId.value = '';
 };
 const loadGlbBuffer = async (object: TwinSceneObjectDefinition, fileName: string, buffer: ArrayBuffer) => {

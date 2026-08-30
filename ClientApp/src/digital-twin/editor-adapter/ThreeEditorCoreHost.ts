@@ -1,7 +1,7 @@
 import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
-import { defaultComponentRegistry, isComponentSceneObject, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { defaultComponentRegistry, isComponentSceneObject, revalidateComponentConnections, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
@@ -81,6 +81,7 @@ export class ThreeEditorCoreHost {
 	private manifest: TwinSceneManifest;
 	private editor: any;
 	private selectedObjectId?: string;
+	private selectedRouteId?: string;
 	private selectedRoutePointId?: string;
 	private routeEditMode = false;
 	private routeDrawMode = false;
@@ -122,8 +123,14 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
 			if (dragging) return;
 
-			if (this.selectedRoutePointId) {
-				const route = this.routeOverlay.updatePointFromMesh(this.selectedRoutePointId);
+			if (this.selectedRouteId && this.selectedRoutePointId) {
+				const selectedRoute = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId);
+				if (selectedRoute?.generatedBy === 'component-connections') {
+					this.routeOverlay.rebuild(this.manifest);
+					this.events.onError?.('自动路线由组件端口连接生成，请移动组件或修改 Connection。');
+					return;
+				}
+				const route = this.routeOverlay.updatePointFromMesh(this.selectedRouteId, this.selectedRoutePointId);
 				if (route) {
 					this.events.onRouteChange?.(cloneJson(route));
 					this.events.onChanged?.();
@@ -135,7 +142,8 @@ export class ThreeEditorCoreHost {
 			const selectedId = this.selectedObjectId;
 			const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);
 			if (selectedId && isComponentSceneObject(selected)) {
-				const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 1.5, preferFacingPorts: true });
+				revalidateComponentConnections(this.manifest);
+				const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 0.5, maxAngleDegrees: 15, preferFacingPorts: true });
 				if (snapped) {
 					const root = this.loadedModels.get(selectedId)?.root;
 					if (root) {
@@ -187,6 +195,7 @@ export class ThreeEditorCoreHost {
 		if (this.disposed || !isComponentSceneObject(object)) return;
 		this.removeObject(object.objectId, false);
 		try {
+			object.transform.scale = [1, 1, 1];
 			const definition: TwinComponentDefinition = {
 				objectId: object.objectId,
 				name: object.name,
@@ -205,7 +214,7 @@ export class ThreeEditorCoreHost {
 			root.rootInfo = { type: 'IOTSHARP_COMPONENT', name: object.name, iotsharpObjectId: object.objectId, iotsharpResourceId: object.resourceId };
 			root.position.set(...object.transform.position);
 			root.rotation.set(...object.transform.rotation);
-			root.scale.set(...object.transform.scale);
+			root.scale.set(1, 1, 1);
 			this.editor.viewer.scene.add(root);
 			this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root, dispose: built.dispose, kind: 'component' });
 			this.editor.viewer.renderScene?.();
@@ -259,35 +268,45 @@ export class ThreeEditorCoreHost {
 	}
 
 	getRoute() {
-		return this.manifest.routes?.[0] ? cloneJson(this.manifest.routes[0]) : undefined;
+		const route = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId) || this.manifest.routes[0];
+		return route ? cloneJson(route) : undefined;
 	}
 
 	setRoute(route: TwinRouteDefinition) {
-		if (this.manifest.routes.length) this.manifest.routes.splice(0, 1, cloneJson(route));
+		const index = this.manifest.routes.findIndex((candidate) => candidate.routeId === route.routeId);
+		if (index >= 0) this.manifest.routes.splice(index, 1, cloneJson(route));
+		else if (this.manifest.routes.length) this.manifest.routes.splice(0, 1, cloneJson(route));
 		else this.manifest.routes.push(cloneJson(route));
 		this.routeOverlay.rebuild(this.manifest);
 	}
 
 	updateRoutePoint(index: number, position: TwinVector3) {
-		const route = this.routeOverlay.updatePoint(0, index, position);
+		const routeIndex = this.manifest.routes.findIndex((candidate) => candidate.routeId === this.selectedRouteId);
+		const targetIndex = routeIndex >= 0 ? routeIndex : 0;
+		if (this.manifest.routes[targetIndex]?.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return; }
+		const route = this.routeOverlay.updatePoint(targetIndex, index, position);
 		if (!route) return;
 		this.events.onRouteChange?.(cloneJson(route));
 		this.events.onChanged?.();
 	}
 
 	addRoutePoint(position?: TwinVector3) {
-		const created = this.routeOverlay.addPoint(position, 0);
+		const routeIndex = this.manifest.routes.findIndex((candidate) => candidate.routeId === this.selectedRouteId);
+		const targetIndex = routeIndex >= 0 ? routeIndex : 0;
+		if (this.manifest.routes[targetIndex]?.generatedBy === 'component-connections') { this.events.onError?.('自动路线不能手工增加控制点，请先创建手工路线。'); return; }
+		const created = this.routeOverlay.addPoint(position, targetIndex);
 		if (!created) return;
-		this.selectRoutePoint(created.point.pointId);
+		this.selectRoutePoint(created.route.routeId, created.point.pointId);
 		this.events.onRouteChange?.(cloneJson(created.route));
 		this.events.onChanged?.();
 	}
 
 	removeRoutePoint(index: number) {
-		const route = this.manifest.routes?.[0];
+		const route = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId) || this.manifest.routes?.[0];
 		const point = route?.points?.[index];
 		if (!route || !point) return;
-		const changed = this.routeOverlay.removePoint(point.pointId);
+		if (route.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return; }
+		const changed = this.routeOverlay.removePoint(route.routeId, point.pointId);
 		if (!changed) return;
 		this.clearRoutePointSelection();
 		this.events.onRouteChange?.(cloneJson(changed));
@@ -295,8 +314,10 @@ export class ThreeEditorCoreHost {
 	}
 
 	removeSelectedRoutePoint() {
-		if (!this.selectedRoutePointId) return false;
-		const route = this.routeOverlay.removePoint(this.selectedRoutePointId);
+		if (!this.selectedRouteId || !this.selectedRoutePointId) return false;
+		const selectedRoute = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId);
+		if (selectedRoute?.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return false; }
+		const route = this.routeOverlay.removePoint(this.selectedRouteId, this.selectedRoutePointId);
 		if (!route) return false;
 		this.clearRoutePointSelection();
 		this.events.onRouteChange?.(cloneJson(route));
@@ -326,13 +347,21 @@ export class ThreeEditorCoreHost {
 	}
 
 	setSelectionMode(mode: 'select' | 'root' | 'transform') { this.editor.setSceneControlMode(mode === 'select' ? '选择' : mode === 'root' ? '根选择' : '变换'); }
-	setTransformMode(mode: 'translate' | 'rotate' | 'scale') { this.editor.setSceneControlMode('变换'); this.editor.setTransformControlsProperty('mode', mode); }
+	setTransformMode(mode: 'translate' | 'rotate' | 'scale') {
+		const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === this.selectedObjectId);
+		if (mode === 'scale' && isComponentSceneObject(selected)) {
+			this.events.onError?.('参数化组件禁止 Scale；请在 V7 属性面板修改长度、宽度和高度。');
+			this.editor.setTransformControlsProperty('mode', 'translate');
+			return;
+		}
+		this.editor.setSceneControlMode('变换'); this.editor.setTransformControlsProperty('mode', mode);
+	}
 	setTransformChildren(enabled: boolean) { this.editor.viewer.handler.isTransformChildren = enabled; }
 	setGrid(visible: boolean) { this.editor.setOperateOption('grid', visible); this.manifest.runtime.showGrid = visible; }
 	setAxes(visible: boolean) { this.editor.setOperateOption('axes', visible); }
 	setKeyboard(enabled: boolean) { this.editor.setOperateOption('openKey', enabled); }
-	undo() { restoreHistoryHandler('z'); this.syncTransformsToManifest(); this.routeOverlay.rebuild(this.manifest); this.events.onChanged?.(); }
-	redo() { restoreHistoryHandler('y'); this.syncTransformsToManifest(); this.routeOverlay.rebuild(this.manifest); this.events.onChanged?.(); }
+	undo() { restoreHistoryHandler('z'); this.reconcileComponentConnectionsAfterHistory(); }
+	redo() { restoreHistoryHandler('y'); this.reconcileComponentConnectionsAfterHistory(); }
 
 	selectObject(objectId: string) {
 		const root = this.loadedModels.get(objectId)?.root;
@@ -344,8 +373,8 @@ export class ThreeEditorCoreHost {
 	}
 
 	focusSelected() {
-		if (this.selectedRoutePointId) {
-			const point = this.routeOverlay.getPointMesh(this.selectedRoutePointId);
+		if (this.selectedRouteId && this.selectedRoutePointId) {
+			const point = this.routeOverlay.getPointMesh(this.selectedRouteId, this.selectedRoutePointId);
 			if (!point) return;
 			const target = point.position.clone();
 			const position = target.clone().add({ x: 4, y: 4, z: 4 } as any);
@@ -387,8 +416,8 @@ export class ThreeEditorCoreHost {
 		if (this.disposed || event.defaultPrevented) return;
 		if (this.routeEditMode) {
 			const hit = this.routeOverlay.pickPoint(event, this.editor.viewer.camera, this.container);
-			if (hit?.pointId) {
-				this.selectRoutePoint(hit.pointId);
+			if (hit?.pointId && hit.routeId) {
+				this.selectRoutePoint(hit.routeId, hit.pointId);
 				return;
 			}
 			if (this.routeDrawMode) {
@@ -409,23 +438,28 @@ export class ThreeEditorCoreHost {
 		}
 	};
 
-	private selectRoutePoint(pointId: string) {
-		const mesh = this.routeOverlay.getPointMesh(pointId);
+	private selectRoutePoint(routeId: string, pointId: string) {
+		const mesh = this.routeOverlay.getPointMesh(routeId, pointId);
 		if (!mesh) return;
 		this.selectedObjectId = undefined;
+		this.selectedRouteId = routeId;
 		this.selectedRoutePointId = pointId;
-		this.routeOverlay.setSelectedPoint(pointId);
+		this.routeOverlay.setSelectedPoint(routeId, pointId);
 		this.editor.setOutlinePass([]);
-		this.editor.viewer.transformControls.attach(mesh);
-		const route = this.manifest.routes.find((candidate) => candidate.points.some((point) => point.pointId === pointId));
+		const route = this.manifest.routes.find((candidate) => candidate.routeId === routeId);
 		const index = route?.points.findIndex((point) => point.pointId === pointId) ?? -1;
 		const point = route?.points[index];
 		if (!point || !route) return;
+		if (route.generatedBy === 'component-connections') {
+			this.editor.viewer.transformControls.detach();
+			this.events.onError?.('该路线由组件连接自动生成，只能通过移动组件或修改 Connection 调整。');
+		} else this.editor.viewer.transformControls.attach(mesh);
 		this.events.onSelectionChange?.({
 			name: point.name,
 			uuid: mesh.uuid,
 			path: `${this.manifest.name}/${route.name}/${point.name}`,
 			kind: 'route-point',
+			routeId: route.routeId,
 			routePointIndex: index,
 			routePointId: point.pointId,
 		});
@@ -433,8 +467,9 @@ export class ThreeEditorCoreHost {
 
 	private clearRoutePointSelection(detach = true) {
 		if (!this.selectedRoutePointId) return;
+		this.selectedRouteId = undefined;
 		this.selectedRoutePointId = undefined;
-		this.routeOverlay.setSelectedPoint(undefined);
+		this.routeOverlay.setSelectedPoint(undefined, undefined);
 		if (detach) this.editor.viewer.transformControls.detach();
 	}
 
@@ -454,14 +489,28 @@ export class ThreeEditorCoreHost {
 	}
 
 	private syncTransformsToManifest() {
-		for (const object of this.manifest.objects) {
+		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) {
 			const root = this.loadedModels.get(object.objectId)?.root;
 			if (!root) continue;
 			object.name = root.name || object.name;
 			object.transform.position = [root.position.x, root.position.y, root.position.z];
 			object.transform.rotation = [root.rotation.x, root.rotation.y, root.rotation.z];
-			object.transform.scale = [root.scale.x, root.scale.y, root.scale.z];
+			if (isComponentSceneObject(object)) {
+				root.scale.set(1, 1, 1);
+				object.transform.scale = [1, 1, 1];
+			} else object.transform.scale = [root.scale.x, root.scale.y, root.scale.z];
 		}
+	}
+
+	private reconcileComponentConnectionsAfterHistory() {
+		this.syncTransformsToManifest();
+		const removedConnectionIds = revalidateComponentConnections(this.manifest);
+		upsertGeneratedComponentRoute(this.manifest);
+		this.routeOverlay.rebuild(this.manifest);
+		if (removedConnectionIds.length > 0) {
+			this.events.onError?.(`撤销/重做后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
+		}
+		this.events.onChanged?.();
 	}
 
 	dispose() {

@@ -1,5 +1,6 @@
 import request from '/@/utils/request';
 import type { TwinSceneManifest, TwinValidationDiagnostic } from '/@/digital-twin/contracts';
+import type { TwinComponentResourceRegistrationPayload } from '/@/digital-twin/components/ComponentResourceRegistration';
 
 export interface DigitalTwinSceneSummary {
 	id: string;
@@ -62,6 +63,17 @@ export interface TwinModelResource {
 		materialCount?: number;
 		textureCount?: number;
 		animationCount?: number;
+		resourceKey?: string;
+		resourceType?: 'procedural-component' | 'smart-model';
+		componentType?: string;
+		generator?: string;
+		generatorVersion?: number;
+		category?: string;
+		tags?: string[];
+		capabilities?: string[];
+		defaultProperties?: Record<string, unknown>;
+		componentSchema?: { properties?: Array<Record<string, unknown>> };
+		ports?: Array<Record<string, unknown>>;
 	};
 	processingStatus: string;
 	license: {
@@ -172,6 +184,10 @@ export const digitalTwinApi = {
 		request({ url: `/api/digital-twin/model-resources/${id}/content`, method: 'get', responseType: 'arraybuffer', timeout: 120000 }),
 	updateModelLicense: (id: string, data: Record<string, unknown>) =>
 		request({ url: `/api/digital-twin/model-resources/${id}/license`, method: 'put', data }),
+	upsertComponentResource: (data: TwinComponentResourceRegistrationPayload) =>
+		request({ url: '/api/digital-twin/model-resources/components/upsert', method: 'post', data }),
+	registerComponentResources: (data: TwinComponentResourceRegistrationPayload[]) =>
+		request({ url: '/api/digital-twin/model-resources/components/batch', method: 'post', data }),
 
 	modelGenerationCapabilities: () => request({ url: '/api/digital-twin/model-generation/capabilities', method: 'get' }),
 	listModelGenerationJobs: () => request({ url: '/api/digital-twin/model-generation/jobs', method: 'get' }),

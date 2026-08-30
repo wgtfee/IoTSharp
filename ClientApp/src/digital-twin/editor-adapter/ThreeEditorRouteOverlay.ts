@@ -38,8 +38,10 @@ export class ThreeEditorRouteOverlay {
 	private readonly pointGroup = new THREE.Group();
 	private readonly pointMeshes = new Map<string, THREE.Mesh>();
 	private manifest: TwinSceneManifest;
+	private selectedRouteId?: string;
 	private selectedPointId?: string;
 	private visible = true;
+	private pointKey(routeId: string, pointId: string) { return `${routeId}::${pointId}`; }
 
 	constructor(scene: THREE.Scene, manifest: TwinSceneManifest) {
 		this.manifest = manifest;
@@ -72,7 +74,7 @@ export class ThreeEditorRouteOverlay {
 
 		for (const route of manifest.routes || []) this.buildRoute(route);
 		this.root.visible = this.visible;
-		this.setSelectedPoint(this.selectedPointId);
+		this.setSelectedPoint(this.selectedRouteId, this.selectedPointId);
 	}
 
 	private buildRoute(route: TwinRouteDefinition) {
@@ -85,7 +87,7 @@ export class ThreeEditorRouteOverlay {
 				new THREE.Vector3(...from.position),
 				new THREE.Vector3(...to.position),
 			]);
-			const color = edge.blocked ? 0xef4444 : edge.enabled === false ? 0x64748b : route.routeId === 'v7-component-route' ? 0x06b6d4 : 0x38bdf8;
+			const color = edge.blocked ? 0xef4444 : edge.enabled === false ? 0x64748b : route.generatedBy === 'component-connections' ? 0x06b6d4 : 0x38bdf8;
 			const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: edge.enabled === false ? 0.35 : 0.9, depthTest: false, depthWrite: false });
 			const line = new THREE.Line(geometry, material);
 			line.name = edge.name || edge.edgeId;
@@ -103,7 +105,7 @@ export class ThreeEditorRouteOverlay {
 			mesh.name = point.name || point.pointId;
 			mesh.renderOrder = 1000;
 			mesh.userData = { iotsharpTwinHelper: true, iotsharpRoutePoint: true, routeId: route.routeId, pointId: point.pointId, routePointIndex: index };
-			this.pointMeshes.set(point.pointId, mesh);
+			this.pointMeshes.set(this.pointKey(route.routeId, point.pointId), mesh);
 			this.pointGroup.add(mesh);
 		}
 	}
@@ -142,28 +144,28 @@ export class ThreeEditorRouteOverlay {
 		return raycaster.ray.intersectPlane(plane, point) ? point : undefined;
 	}
 
-	getPointMesh(pointId: string) { return this.pointMeshes.get(pointId); }
+	getPointMesh(routeId: string, pointId: string) { return this.pointMeshes.get(this.pointKey(routeId, pointId)); }
 
-	setSelectedPoint(pointId?: string) {
+	setSelectedPoint(routeId?: string, pointId?: string) {
+		this.selectedRouteId = routeId;
 		this.selectedPointId = pointId;
-		for (const [id, mesh] of this.pointMeshes) {
+		for (const [key, mesh] of this.pointMeshes) {
+			const selected = key === this.pointKey(routeId || '', pointId || '');
 			const material = mesh.material as THREE.MeshBasicMaterial;
-			mesh.scale.setScalar(id === pointId ? 1.45 : 1);
-			material.opacity = id === pointId ? 1 : 0.88;
+			mesh.scale.setScalar(selected ? 1.45 : 1);
+			material.opacity = selected ? 1 : 0.88;
 		}
 	}
 
-	updatePointFromMesh(pointId: string) {
-		const mesh = this.pointMeshes.get(pointId);
+	updatePointFromMesh(routeId: string, pointId: string) {
+		const mesh = this.getPointMesh(routeId, pointId);
 		if (!mesh) return undefined;
-		for (const route of this.manifest.routes || []) {
-			const point = route.points.find((candidate) => candidate.pointId === pointId);
-			if (!point) continue;
-			point.position = [mesh.position.x, mesh.position.y, mesh.position.z];
-			this.rebuild(this.manifest);
-			return route;
-		}
-		return undefined;
+		const route = this.manifest.routes.find((candidate) => candidate.routeId === routeId);
+		const point = route?.points.find((candidate) => candidate.pointId === pointId);
+		if (!route || !point) return undefined;
+		point.position = [mesh.position.x, mesh.position.y, mesh.position.z];
+		this.rebuild(this.manifest);
+		return route;
 	}
 
 	updatePoint(routeIndex: number, pointIndex: number, position: TwinVector3) {
@@ -188,14 +190,15 @@ export class ThreeEditorRouteOverlay {
 		route.points.push(point);
 		if (last) route.edges.push(createRouteEdge(last.pointId, point.pointId, route.edges.length));
 		this.rebuild(this.manifest);
-		this.setSelectedPoint(point.pointId);
+		this.setSelectedPoint(route.routeId, point.pointId);
 		return { route, point };
 	}
 
-	removePoint(pointId: string) {
+	removePoint(routeId: string, pointId: string) {
 		for (const route of this.manifest.routes || []) {
+			if (route.routeId !== routeId) continue;
 			const index = route.points.findIndex((point) => point.pointId === pointId);
-			if (index < 0) continue;
+			if (index < 0) return undefined;
 			if (route.points.length <= 2) return undefined;
 			const removed = route.points[index];
 			const removedEdgeIds = new Set(route.edges.filter((edge) => edge.fromPointId === removed.pointId || edge.toPointId === removed.pointId).map((edge) => edge.edgeId));
@@ -206,6 +209,7 @@ export class ThreeEditorRouteOverlay {
 			for (const [junctionPointId, edgeId] of Object.entries(route.junctionDecisions || {})) {
 				if (junctionPointId === removed.pointId || removedEdgeIds.has(edgeId)) delete route.junctionDecisions[junctionPointId];
 			}
+			this.selectedRouteId = undefined;
 			this.selectedPointId = undefined;
 			this.rebuild(this.manifest);
 			return route;

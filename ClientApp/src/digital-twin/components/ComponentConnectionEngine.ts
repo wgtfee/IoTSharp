@@ -24,6 +24,8 @@ export interface TwinComponentPortRef extends TwinResolvedComponentPort {
 	objectId: string;
 	objectName: string;
 	componentType: TwinComponentType;
+	transportUnitType?: string;
+	conveyorSizeClass?: string;
 }
 
 export interface TwinComponentSnapCandidate {
@@ -35,6 +37,7 @@ export interface TwinComponentSnapCandidate {
 
 export interface TwinComponentSnapOptions {
 	maxDistance?: number;
+	maxAngleDegrees?: number;
 	preferFacingPorts?: boolean;
 }
 
@@ -44,7 +47,9 @@ export interface TwinComponentGraphBuildResult {
 	connectionCount: number;
 }
 
-const DEFAULT_SNAP_DISTANCE = 1.5;
+const DEFAULT_SNAP_DISTANCE = 0.5;
+const DEFAULT_SNAP_ANGLE_DEGREES = 15;
+const DEFAULT_CONNECTION_TOLERANCE = 0.08;
 const GENERATED_ROUTE_ID = 'component-auto-route';
 const GENERATED_ROUTE_NAME = 'V7 组件自动路线';
 const asV7Objects = (manifest: TwinSceneManifest) => manifest.objects as TwinV7SceneObjectDefinition[];
@@ -97,6 +102,8 @@ export const resolveComponentPorts = (object: TwinV7SceneObjectDefinition): Twin
 			objectId: object.objectId,
 			objectName: object.name,
 			componentType: definition.componentType,
+			transportUnitType: typeof definition.properties.transportUnitType === 'string' ? definition.properties.transportUnitType : undefined,
+			conveyorSizeClass: typeof definition.properties.conveyorSizeClass === 'string' ? definition.properties.conveyorSizeClass : undefined,
 			worldPosition: new THREE.Vector3(...port.localPosition).applyMatrix4(built.root.matrixWorld),
 			worldDirection: new THREE.Vector3(...port.localDirection).transformDirection(built.root.matrixWorld).normalize(),
 		}));
@@ -105,9 +112,18 @@ export const resolveComponentPorts = (object: TwinV7SceneObjectDefinition): Twin
 	}
 };
 
-const canConnectPortTypes = (left: TwinComponentPortType, right: TwinComponentPortType) => {
+export const canConnectPortTypes = (left: TwinComponentPortType, right: TwinComponentPortType) => {
 	if (left === 'material-bidirectional' || right === 'material-bidirectional') return true;
 	return (left === 'material-output' && right === 'material-input') || (left === 'material-input' && right === 'material-output');
+};
+export const areComponentPortsCompatible = (left: TwinComponentPortRef, right: TwinComponentPortRef) => {
+	if (!canConnectPortTypes(left.type, right.type)) return false;
+	if (left.transportUnitType && right.transportUnitType && left.transportUnitType !== right.transportUnitType) return false;
+	return true;
+};
+const portsFaceEachOther = (left: TwinComponentPortRef, right: TwinComponentPortRef, maxAngleDegrees = DEFAULT_SNAP_ANGLE_DEGREES) => {
+	const clamped = Math.max(0, Math.min(90, maxAngleDegrees));
+	return left.worldDirection.dot(right.worldDirection) <= -Math.cos(THREE.MathUtils.degToRad(clamped));
 };
 const connectionUsesEndpoint = (connection: TwinComponentConnectionDefinition, objectId: string, portId: string) =>
 	(connection.from.objectId === objectId && connection.from.portId === portId)
@@ -121,6 +137,7 @@ export const findBestComponentSnap = (
 	const movingObject = asV7Objects(manifest).find((item) => item.objectId === movingObjectId);
 	if (!isComponentSceneObject(movingObject)) return undefined;
 	const maxDistance = Math.max(0.05, options.maxDistance ?? DEFAULT_SNAP_DISTANCE);
+	const maxAngleDegrees = options.maxAngleDegrees ?? DEFAULT_SNAP_ANGLE_DEGREES;
 	const connections = manifest.connections || [];
 	const movingPorts = resolveComponentPorts(movingObject)
 		.filter((port) => !connections.some((connection) => connectionUsesEndpoint(connection, movingObjectId, port.portId)));
@@ -132,9 +149,10 @@ export const findBestComponentSnap = (
 		for (const target of resolveComponentPorts(targetObject)) {
 			if (connections.some((connection) => connectionUsesEndpoint(connection, target.objectId, target.portId))) continue;
 			for (const moving of movingPorts) {
-				if (!canConnectPortTypes(moving.type, target.type)) continue;
+				if (!areComponentPortsCompatible(moving, target)) continue;
 				const distance = moving.worldPosition.distanceTo(target.worldPosition);
 				if (distance > maxDistance) continue;
+				if (options.preferFacingPorts !== false && !portsFaceEachOther(moving, target, maxAngleDegrees)) continue;
 				candidates.push({ moving, target, distance, directionDot: moving.worldDirection.dot(target.worldDirection) });
 			}
 		}
@@ -213,6 +231,36 @@ export const removeComponentConnection = (manifest: TwinSceneManifest, connectio
 export const removeConnectionsForObject = (manifest: TwinSceneManifest, objectId: string) => {
 	manifest.connections = (manifest.connections || []).filter((item) => item.from.objectId !== objectId && item.to.objectId !== objectId);
 	upsertGeneratedComponentRoute(manifest);
+};
+
+/**
+ * 组件移动、旋转或重建后重新校验物理 Connection。失去端口、输送对象不兼容、
+ * 方向不再相向或端口已经分离的连接会被删除，避免 Route 继续沿用“幽灵连接”。
+ */
+export const revalidateComponentConnections = (
+	manifest: TwinSceneManifest,
+	options: { maxDistance?: number; maxAngleDegrees?: number } = {},
+) => {
+	const maxDistance = Math.max(0.001, options.maxDistance ?? DEFAULT_CONNECTION_TOLERANCE);
+	const maxAngleDegrees = options.maxAngleDegrees ?? DEFAULT_SNAP_ANGLE_DEGREES;
+	const index = new Map<string, TwinComponentPortRef>();
+	for (const object of asV7Objects(manifest)) {
+		if (!isComponentSceneObject(object)) continue;
+		for (const port of resolveComponentPorts(object)) index.set(portKey(object.objectId, port.portId), port);
+	}
+	const removedConnectionIds: string[] = [];
+	manifest.connections = (manifest.connections || []).filter((connection) => {
+		const from = index.get(portKey(connection.from.objectId, connection.from.portId));
+		const to = index.get(portKey(connection.to.objectId, connection.to.portId));
+		const valid = Boolean(from && to
+			&& areComponentPortsCompatible(from, to)
+			&& portsFaceEachOther(from, to, maxAngleDegrees)
+			&& from.worldPosition.distanceTo(to.worldPosition) <= maxDistance);
+		if (!valid) removedConnectionIds.push(connection.connectionId);
+		return valid;
+	});
+	if (removedConnectionIds.length) upsertGeneratedComponentRoute(manifest);
+	return removedConnectionIds;
 };
 
 class UnionFind {

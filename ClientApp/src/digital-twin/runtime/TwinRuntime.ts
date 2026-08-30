@@ -20,6 +20,7 @@ export interface TwinSelectionInfo {
 	entityType?: string;
 	entityId?: string;
 	runtimeData?: Record<string, unknown>;
+	routeId?: string;
 	routePointIndex?: number;
 	routePointId?: string;
 }
@@ -763,6 +764,7 @@ export class TwinRuntime {
 				uuid: routePointHit.object.uuid,
 				path: `routes[0].points[${routePointIndex}]`,
 				kind: 'route-point',
+				routeId: this.route.routeId,
 				routePointIndex,
 				routePointId: this.route.points[routePointIndex]?.pointId,
 			});
