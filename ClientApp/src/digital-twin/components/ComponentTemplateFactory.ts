@@ -25,7 +25,10 @@ export const createComponentDefinitionFromTemplate = (
 	return {
 		objectId: options.objectId,
 		name: options.name || template.name,
+		resourceKey: template.resourceKey,
 		componentType: template.componentType,
+		generator: template.generator,
+		generatorVersion: options.resourceVersion ?? template.generatorVersion,
 		resourceId: template.resourceKey,
 		resourceVersion: options.resourceVersion ?? template.generatorVersion,
 		properties: {

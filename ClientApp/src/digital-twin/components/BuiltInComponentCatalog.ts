@@ -1,4 +1,4 @@
-import { booleanProperty, numberProperty, selectProperty, type TwinComponentTemplate } from './types';
+import { booleanProperty, numberProperty, selectProperty, type TwinComponentBindingSlot, type TwinComponentTemplate } from './types';
 
 const unitOptions = [
 	{ label: '塑料托盘', value: 'plastic-pallet' },
@@ -20,6 +20,53 @@ const occupancyOptions = [
 	{ label: '计算', value: 'calculated' },
 	{ label: '仿真', value: 'simulation' },
 	{ label: '实时', value: 'live' },
+];
+
+const inputSlot = (
+	slotId: string,
+	name: string,
+	dataType: TwinComponentBindingSlot['dataType'],
+	semantic: TwinComponentBindingSlot['semantic'],
+	description?: string,
+): TwinComponentBindingSlot => ({ slotId, name, direction: 'input', dataType, semantic, description });
+
+const externalInspectionSlots: TwinComponentBindingSlot[] = [
+	inputSlot('ready', '设备就绪', 'bool', 'ready'),
+	inputSlot('busy', '检测中', 'bool', 'busy'),
+	inputSlot('complete', '检测完成', 'bool', 'complete'),
+	inputSlot('result', '检测结果', 'string', 'result'),
+	inputSlot('fault', '设备故障', 'bool', 'fault'),
+	inputSlot('heartbeat', '设备心跳', 'bool', 'custom', '可选心跳信号'),
+];
+const baggingSlots: TwinComponentBindingSlot[] = [
+	inputSlot('ready', '设备就绪', 'bool', 'ready'),
+	inputSlot('busy', '套袋中', 'bool', 'busy'),
+	inputSlot('complete', '套袋完成', 'bool', 'complete'),
+	inputSlot('fault', '设备故障', 'bool', 'fault'),
+	inputSlot('bagPresent', '包装袋到位', 'bool', 'sensor'),
+];
+const diverterSlots: TwinComponentBindingSlot[] = [
+	inputSlot('routeCode', '目标路线码', 'string', 'route-code'),
+	inputSlot('commandPosition', '命令位置', 'int', 'target-position'),
+	inputSlot('actualPosition', '实际位置', 'int', 'actual-position'),
+	inputSlot('inPosition', '执行器到位', 'bool', 'in-position'),
+	inputSlot('fault', '设备故障', 'bool', 'fault'),
+];
+const liftSlots: TwinComponentBindingSlot[] = [
+	inputSlot('ready', '设备就绪', 'bool', 'ready'),
+	inputSlot('busy', '运行中', 'bool', 'busy'),
+	inputSlot('targetFloor', '目标楼层', 'int', 'target-position'),
+	inputSlot('currentFloor', '当前楼层', 'int', 'actual-position'),
+	inputSlot('inPosition', '提升到位', 'bool', 'in-position'),
+	inputSlot('fault', '设备故障', 'bool', 'fault'),
+];
+const turntableSlots: TwinComponentBindingSlot[] = [
+	inputSlot('ready', '设备就绪', 'bool', 'ready'),
+	inputSlot('busy', '旋转中', 'bool', 'busy'),
+	inputSlot('commandAngle', '命令角度', 'float', 'target-position'),
+	inputSlot('actualAngle', '实际角度', 'float', 'actual-position'),
+	inputSlot('inPosition', '旋转到位', 'bool', 'in-position'),
+	inputSlot('fault', '设备故障', 'bool', 'fault'),
 ];
 
 const straightSchema = (sizeClass: 'small' | 'large') => [
@@ -120,6 +167,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'conveyor',
 		tags: ['辊道', '分流', '岔口', 'PLC'],
 		capabilities: ['material-flow', 'capacity', 'junction', 'plc-binding'],
+		bindingSlots: diverterSlots,
 		defaultProperties: { width: 1.6, height: 0.9, inputLength: 2.2, outputLength: 2.5, branchAngle: 35, transportUnitType: 'plastic-pallet', capacity: 2 },
 		propertySchema: [
 			numberProperty('inputLength', '入口长度', 2.2, 'geometry', { min: 0.8, max: 12, step: 0.1, unit: 'm' }),
@@ -158,6 +206,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'transfer',
 		tags: ['提升机', '垂直输送', 'PLC'],
 		capabilities: ['material-flow', 'capacity', 'vertical-transfer', 'plc-binding'],
+		bindingSlots: liftSlots,
 		defaultProperties: { platformLength: 2.2, width: 1.8, baseHeight: 0.9, liftHeight: 4, transportUnitType: 'plastic-pallet', capacity: 1 },
 		propertySchema: [
 			numberProperty('platformLength', '平台长度', 2.2, 'geometry', { min: 0.8, max: 8, step: 0.1, unit: 'm' }),
@@ -177,6 +226,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'transfer',
 		tags: ['旋转台', '转台', 'PLC'],
 		capabilities: ['material-flow', 'capacity', 'rotation', 'plc-binding'],
+		bindingSlots: turntableSlots,
 		defaultProperties: { deckLength: 2.4, width: 1.8, height: 0.9, baseRadius: 1.55, transportUnitType: 'plastic-pallet', capacity: 1, rotationDegrees: 180 },
 		propertySchema: [
 			numberProperty('deckLength', '辊道长度', 2.4, 'geometry', { min: 0.8, max: 8, step: 0.1, unit: 'm' }),
@@ -195,6 +245,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'process',
 		tags: ['外检', '视觉检测', '工艺设备', 'PLC'],
 		capabilities: ['material-flow', 'capacity', 'process-station', 'plc-binding'],
+		bindingSlots: externalInspectionSlots,
 		defaultProperties: { length: 4, width: 3, machineHeight: 3.2, conveyorHeight: 0.9, conveyorWidth: 1.6, cycleSeconds: 2, capacity: 1, transportUnitType: 'plastic-pallet' },
 		propertySchema: [
 			numberProperty('length', '设备长度', 4, 'geometry', { min: 2, max: 12, step: 0.1, unit: 'm' }),
@@ -215,6 +266,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'process',
 		tags: ['套袋', '工艺设备', 'PLC'],
 		capabilities: ['material-flow', 'capacity', 'process-station', 'plc-binding'],
+		bindingSlots: baggingSlots,
 		defaultProperties: { length: 4, width: 3, machineHeight: 3.4, conveyorHeight: 0.9, conveyorWidth: 1.6, cycleSeconds: 3, capacity: 1, transportUnitType: 'plastic-pallet', showBagFilm: true },
 		propertySchema: [
 			numberProperty('length', '设备长度', 4, 'geometry', { min: 2, max: 12, step: 0.1, unit: 'm' }),

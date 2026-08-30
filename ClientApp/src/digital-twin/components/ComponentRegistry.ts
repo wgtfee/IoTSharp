@@ -9,30 +9,50 @@ import { ExternalInspectionComponent } from './ExternalInspectionComponent';
 import { BaggingMachineComponent } from './BaggingMachineComponent';
 
 export class ComponentRegistry {
-	private readonly generators = new Map<TwinComponentType, TwinComponentGenerator>();
+	private readonly generators = new Map<string, TwinComponentGenerator>();
+	private readonly generatorsByType = new Map<TwinComponentType, TwinComponentGenerator[]>();
+
+	private key(generator: string, generatorVersion: number) {
+		return `${generator}@${generatorVersion}`;
+	}
 
 	register(generator: TwinComponentGenerator) {
-		this.generators.set(generator.componentType, generator);
+		const key = this.key(generator.generator, generator.generatorVersion);
+		if (this.generators.has(key)) throw new Error(`数字孪生组件生成器重复注册: ${key}`);
+		this.generators.set(key, generator);
+		this.generatorsByType.set(generator.componentType, [...(this.generatorsByType.get(generator.componentType) || []), generator]);
 		return this;
 	}
 
-	has(componentType: TwinComponentType) {
-		return this.generators.has(componentType);
+	has(generator: string, generatorVersion?: number) {
+		if (generatorVersion === undefined) return this.generatorsByType.has(generator as TwinComponentType);
+		return this.generators.has(this.key(generator, generatorVersion));
 	}
 
-	get(componentType: TwinComponentType) {
-		return this.generators.get(componentType);
+	get(generator: string, generatorVersion: number) {
+		return this.generators.get(this.key(generator, generatorVersion));
 	}
 
 	create(definition: TwinComponentDefinition): TwinComponentBuildResult {
-		const generator = this.generators.get(definition.componentType);
-		if (!generator) throw new Error(`未注册数字孪生组件生成器: ${definition.componentType}`);
+		if (!definition.generator || !Number.isInteger(definition.generatorVersion) || definition.generatorVersion <= 0) {
+			throw new Error(`组件 ${definition.objectId} 缺少有效的 generator + generatorVersion`);
+		}
+		const generatorKey = this.key(definition.generator, definition.generatorVersion);
+		const generator = this.generators.get(generatorKey);
+		if (!generator) throw new Error(`未注册数字孪生组件生成器: ${generatorKey}`);
+		if (generator.componentType !== definition.componentType) {
+			throw new Error(`组件类型与 Generator 不匹配: ${definition.componentType} != ${generator.componentType} (${generatorKey})`);
+		}
 		const context: TwinComponentBuildContext = { definition };
 		return generator.create(context);
 	}
 
 	listTypes() {
-		return [...this.generators.keys()];
+		return [...this.generatorsByType.keys()];
+	}
+
+	listGenerators() {
+		return [...this.generators.entries()].map(([key, implementation]) => ({ key, implementation }));
 	}
 }
 

@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class TurnConveyor90Component implements TwinComponentGenerator {
 	readonly componentType = 'turn-conveyor-90' as const;
 	readonly generator = 'turn-conveyor-90-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

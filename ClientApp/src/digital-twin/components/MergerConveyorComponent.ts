@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class MergerConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'merger-conveyor' as const;
 	readonly generator = 'merger-conveyor-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

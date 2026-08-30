@@ -11,6 +11,7 @@ export interface TwinComponentResourceRegistrationPayload {
 	category: string;
 	tags: string[];
 	capabilities: string[];
+	bindingSlots: unknown[];
 	defaultProperties: Record<string, unknown>;
 	componentSchema: unknown;
 	ports: Array<{
@@ -30,7 +31,10 @@ export const builtInComponentResourceRegistrations: TwinComponentResourceRegistr
 	const built = defaultComponentRegistry.create({
 		objectId: `resource-preview-${template.resourceKey}`,
 		name: template.name,
+		resourceKey: template.resourceKey,
 		componentType: template.componentType,
+		generator: template.generator,
+		generatorVersion: template.generatorVersion,
 		resourceId: template.resourceKey,
 		resourceVersion: template.generatorVersion,
 		properties: { ...template.defaultProperties },
@@ -47,6 +51,7 @@ export const builtInComponentResourceRegistrations: TwinComponentResourceRegistr
 			category: template.category,
 			tags: [...template.tags],
 			capabilities: [...template.capabilities],
+			bindingSlots: structuredClone(template.bindingSlots || []),
 			defaultProperties: { ...template.defaultProperties },
 			componentSchema: {
 				properties: template.propertySchema.map((property) => ({ ...property })),

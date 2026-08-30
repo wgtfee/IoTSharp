@@ -23,6 +23,9 @@
 			<el-checkbox v-model="showGrid" @change="host?.setGrid(Boolean($event))">网格</el-checkbox>
 			<el-checkbox v-model="showAxes" @change="host?.setAxes(Boolean($event))">坐标轴</el-checkbox>
 			<el-checkbox v-model="showRoute" @change="host?.setRouteOverlayVisible(Boolean($event))">路线</el-checkbox>
+			<el-checkbox v-model="showPorts" @change="host?.setEngineeringOverlayVisible('ports', Boolean($event))">Port</el-checkbox>
+			<el-checkbox v-model="showConnections" @change="host?.setEngineeringOverlayVisible('connections', Boolean($event))">Connection</el-checkbox>
+			<el-checkbox v-model="showBounds" @change="host?.setEngineeringOverlayVisible('bounds', Boolean($event))">Bounds</el-checkbox>
 			<el-checkbox v-model="keyboardEnabled" @change="host?.setKeyboard(Boolean($event))">快捷键</el-checkbox>
 			<el-button size="small" @click="guiOpen = !guiOpen">{{ guiOpen ? '收起属性' : '展开属性' }}</el-button>
 		</div>
@@ -82,6 +85,9 @@ const transformChildren = ref(false);
 const showGrid = ref(props.manifest.runtime.showGrid);
 const showAxes = ref(false);
 const showRoute = ref(true);
+const showPorts = ref(false);
+const showConnections = ref(true);
+const showBounds = ref(false);
 const keyboardEnabled = ref(false);
 const routeEditMode = ref(false);
 const routeDrawMode = ref(false);
@@ -94,7 +100,10 @@ const selectedComponent = computed(() => {
 	const object = (props.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedObjectId.value);
 	return isComponentSceneObject(object) ? object : undefined;
 });
-const primaryRouteGenerated = computed(() => props.manifest.routes[0]?.generatedBy === 'component-connections');
+const primaryRouteGenerated = computed(() => {
+	const routeId = selectedRouteId.value || props.manifest.routes[0]?.routeId;
+	return props.manifest.routes.find((route) => route.routeId === routeId)?.generatedBy === 'component-connections';
+});
 let resolveReady: () => void;
 const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
 

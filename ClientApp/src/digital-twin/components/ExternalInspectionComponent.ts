@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class ExternalInspectionComponent implements TwinComponentGenerator {
 	readonly componentType = 'external-inspection' as const;
 	readonly generator = 'external-inspection-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

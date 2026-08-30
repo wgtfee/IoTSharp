@@ -3,6 +3,7 @@ import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-c
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 import { defaultComponentRegistry, isComponentSceneObject, revalidateComponentConnections, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
+import { EngineeringOverlayManager, type EngineeringOverlayLayer } from '/@/digital-twin/editor-adapter/EngineeringOverlayManager';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
 // @ts-ignore -- vendored JavaScript intentionally has no TypeScript declarations.
@@ -78,6 +79,7 @@ export class ThreeEditorCoreHost {
 	private readonly objectUrls = new Set<string>();
 	private readonly loadedModels = new Map<string, LoadedEditorModel>();
 	private readonly routeOverlay: ThreeEditorRouteOverlay;
+	private readonly engineeringOverlay: EngineeringOverlayManager;
 	private manifest: TwinSceneManifest;
 	private editor: any;
 	private selectedObjectId?: string;
@@ -120,6 +122,7 @@ export class ThreeEditorCoreHost {
 		this.editor.setOperateOption('openKey', false);
 		this.editor.setOperateOption('grid', manifest.runtime.showGrid);
 		this.routeOverlay = new ThreeEditorRouteOverlay(this.editor.viewer.scene, this.manifest);
+		this.engineeringOverlay = new EngineeringOverlayManager(this.editor.viewer.scene, this.manifest, this.routeOverlay);
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
 			if (dragging) return;
 
@@ -157,6 +160,7 @@ export class ThreeEditorCoreHost {
 				upsertGeneratedComponentRoute(this.manifest);
 			}
 			this.routeOverlay.rebuild(this.manifest);
+			this.engineeringOverlay.rebuild(this.manifest);
 			this.events.onChanged?.();
 		};
 		this.container.addEventListener('click', this.handleSceneClick);
@@ -199,7 +203,10 @@ export class ThreeEditorCoreHost {
 			const definition: TwinComponentDefinition = {
 				objectId: object.objectId,
 				name: object.name,
+				resourceKey: object.component.resourceKey,
 				componentType: object.component.componentType as TwinComponentDefinition['componentType'],
+				generator: object.component.generator,
+				generatorVersion: object.component.generatorVersion,
 				resourceId: object.resourceId || object.component.resourceKey,
 				resourceVersion: object.component.generatorVersion,
 				properties: object.component.properties || {},
@@ -230,6 +237,7 @@ export class ThreeEditorCoreHost {
 		this.loadComponent(object);
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 		this.selectObject(objectId);
 		this.events.onChanged?.();
 	}
@@ -239,16 +247,23 @@ export class ThreeEditorCoreHost {
 		this.loadManifestComponents();
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 		this.events.onChanged?.();
 	}
 
 	refreshRouteOverlay() {
 		this.routeOverlay.setManifest(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 		this.editor.viewer.renderScene?.();
 	}
 
 	setRouteOverlayVisible(visible: boolean) {
-		this.routeOverlay.setVisible(visible);
+		this.engineeringOverlay.setVisible('routes', visible);
+		this.editor.viewer.renderScene?.();
+	}
+
+	setEngineeringOverlayVisible(layer: Exclude<EngineeringOverlayLayer, 'routes'>, visible: boolean) {
+		this.engineeringOverlay.setVisible(layer, visible);
 		this.editor.viewer.renderScene?.();
 	}
 
@@ -330,6 +345,7 @@ export class ThreeEditorCoreHost {
 		this.syncTransformsToManifest();
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.setManifest(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 		this.editor.saveSceneEditor();
 		const glbObjectIds = new Set(target.objects.filter((item) => item.kind === 'model').map((item) => item.objectId));
 		this.latestModelParams = this.latestModelParams.filter((item) => glbObjectIds.has(item.rootInfo.iotsharpObjectId));
@@ -410,6 +426,7 @@ export class ThreeEditorCoreHost {
 	private loadManifestComponents() {
 		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) if (isComponentSceneObject(object)) this.loadComponent(object);
 		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 	}
 
 	private readonly handleSceneClick = (event: MouseEvent) => {
@@ -507,6 +524,7 @@ export class ThreeEditorCoreHost {
 		const removedConnectionIds = revalidateComponentConnections(this.manifest);
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
 		if (removedConnectionIds.length > 0) {
 			this.events.onError?.(`撤销/重做后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
 		}
@@ -519,6 +537,7 @@ export class ThreeEditorCoreHost {
 		this.container.removeEventListener('click', this.handleSceneClick);
 		this.resizeObserver.disconnect();
 		this.routeOverlay.dispose();
+		this.engineeringOverlay.dispose();
 		for (const model of this.loadedModels.values()) model.dispose?.();
 		this.editor?.viewer?.destroySceneRender?.();
 		for (const objectUrl of this.objectUrls) URL.revokeObjectURL(objectUrl);

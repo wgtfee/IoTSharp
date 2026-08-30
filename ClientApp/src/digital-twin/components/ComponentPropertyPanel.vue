@@ -46,6 +46,24 @@
 					</label>
 				</div>
 			</el-collapse-item>
+			<el-collapse-item v-if="bindingSlots.length" name="bindings" title="PLC / 数据绑定">
+				<div class="v7-component-panel__fields">
+					<label v-for="slot in bindingSlots" :key="slot.slotId">
+						<span>{{ slot.name }}<em>{{ slot.dataType }}</em></span>
+						<el-select
+							:model-value="slot.bindingId"
+							clearable
+							filterable
+							placeholder="选择 routeEvent Binding"
+							@change="updateBinding(slot.slotId, $event)"
+						>
+							<el-option v-for="binding in availableBindings" :key="binding.bindingId" :label="bindingLabel(binding)" :value="binding.bindingId" />
+						</el-select>
+						<small>{{ slot.description || `${slot.semantic} · ${slot.direction}` }}</small>
+					</label>
+				</div>
+				<small v-if="!availableBindings.length" class="v7-component-panel__empty">请先在“对象与数据绑定”中新增 transform.kind = routeEvent 的 PLC / 遥测绑定。</small>
+			</el-collapse-item>
 		</el-collapse>
 
 		<div class="v7-component-panel__connection-title">
@@ -87,11 +105,13 @@ import type { TwinComponentConnectionEndpoint, TwinV7SceneObjectDefinition } fro
 import {
 	getBuiltInComponentTemplate,
 	isComponentSceneObject,
+	resolveComponentBindingSlots,
 	revalidateComponentConnections,
 	removeComponentConnection,
 	resolveComponentPorts,
 	snapAndConnectNearestComponent,
 	upsertGeneratedComponentRoute,
+	upsertGeneratedComponentRoutes,
 	type TwinComponentPropertySchema,
 } from '/@/digital-twin/components';
 
@@ -102,13 +122,15 @@ const emit = defineEmits<{
 	(e: 'reload-all'): void;
 }>();
 
-const activeGroups = ref(['geometry', 'runtime', 'process', 'connection']);
+const activeGroups = ref(['geometry', 'runtime', 'process', 'connection', 'bindings']);
 const objects = computed(() => props.manifest.objects as TwinV7SceneObjectDefinition[]);
 const object = computed(() => {
 	const candidate = objects.value.find((item) => item.objectId === props.objectId);
 	return isComponentSceneObject(candidate) ? candidate : undefined;
 });
 const template = computed(() => object.value ? getBuiltInComponentTemplate(object.value.component.resourceKey) : undefined);
+const bindingSlots = computed(() => object.value ? resolveComponentBindingSlots(props.manifest, object.value) : []);
+const availableBindings = computed(() => props.manifest.bindings.filter((binding) => binding.transform.kind === 'routeEvent'));
 const ports = computed(() => object.value ? resolveComponentPorts(object.value) : []);
 const connections = computed(() => (props.manifest.connections || []).filter((item) => item.from.objectId === props.objectId || item.to.objectId === props.objectId));
 const categoryLabels: Record<string, string> = { geometry: '几何参数', runtime: '运行参数', process: '工艺参数', connection: '连接参数' };
@@ -141,6 +163,18 @@ const updateProperty = (key: string, value: unknown) => {
 	emit('changed');
 	if (removed.length) ElMessage.warning(`参数变化后 ${removed.length} 条端口连接已失效，请重新吸附`);
 };
+const bindingLabel = (binding: TwinSceneManifest['bindings'][number]) => {
+	const source = [binding.source.deviceId, binding.source.key || binding.source.semanticId].filter(Boolean).join(' · ');
+	return `${binding.bindingId}${source ? ` · ${source}` : ''}`;
+};
+const updateBinding = (slotId: string, bindingId?: string) => {
+	if (!object.value) return;
+	object.value.component.bindings ||= {};
+	if (bindingId) object.value.component.bindings[slotId] = bindingId;
+	else delete object.value.component.bindings[slotId];
+	upsertGeneratedComponentRoute(props.manifest);
+	emit('reload-all'); emit('changed');
+};
 const isPortConnected = (portId: string) => connections.value.some((item) =>
 	(item.from.objectId === props.objectId && item.from.portId === portId)
 	|| (item.to.objectId === props.objectId && item.to.portId === portId));
@@ -162,9 +196,9 @@ const removeConnection = (connectionId: string) => {
 	ElMessage.success('连接已断开，组件路线已重新生成');
 };
 const rebuildRoute = () => {
-	const result = upsertGeneratedComponentRoute(props.manifest);
+	const results = upsertGeneratedComponentRoutes(props.manifest);
 	emit('reload-all'); emit('changed');
-	ElMessage.success(result ? `已生成 ${result.route.edges.length} 个 Section / RouteEdge` : '当前没有组件可生成路线');
+	ElMessage.success(results.length ? `已生成 ${results.length} 个独立 Network / Route、${results.reduce((sum, item) => sum + item.route.edges.length, 0)} 个 Section` : '当前没有组件可生成路线');
 };
 </script>
 

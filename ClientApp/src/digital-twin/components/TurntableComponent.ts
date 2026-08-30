@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class TurntableComponent implements TwinComponentGenerator {
 	readonly componentType = 'turntable' as const;
 	readonly generator = 'turntable-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

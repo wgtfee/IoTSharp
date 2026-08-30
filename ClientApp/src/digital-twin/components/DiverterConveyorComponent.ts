@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class DiverterConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'diverter-conveyor' as const;
 	readonly generator = 'diverter-conveyor-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

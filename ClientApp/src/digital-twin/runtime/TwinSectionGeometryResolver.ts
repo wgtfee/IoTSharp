@@ -30,7 +30,7 @@ export class TwinSectionGeometryResolver {
 	}
 
 	getAll() {
-		return [...this.geometries.values()];
+		return [...new Map([...this.geometries.values()].map((geometry) => [geometry.edgeId, geometry])).values()];
 	}
 
 	getPose(sectionId: string, progress: number) {
@@ -51,14 +51,18 @@ export class TwinSectionGeometryResolver {
 			const to = points.get(edge.toPointId);
 			if (!from || !to) continue;
 			const curve = new THREE.LineCurve3(new THREE.Vector3(...from.position), new THREE.Vector3(...to.position));
-			this.geometries.set(edge.edgeId, {
-				sectionId: edge.edgeId,
+			const sectionId = edge.sectionId || edge.edgeId;
+			const geometry: TwinSectionGeometry = {
+				sectionId,
 				edgeId: edge.edgeId,
 				fromPointId: edge.fromPointId,
 				toPointId: edge.toPointId,
 				curve,
 				length: Math.max(0.001, curve.getLength()),
-			});
+			};
+			// 运行时 Section 当前以 edgeId 为键；V7 工程对象也可通过显式 sectionId 查询同一几何。
+			this.geometries.set(edge.edgeId, geometry);
+			this.geometries.set(sectionId, geometry);
 		}
 	}
 }

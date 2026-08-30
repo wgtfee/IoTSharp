@@ -13,6 +13,8 @@ export interface TwinSceneComponentDefinition {
 	generator: string;
 	generatorVersion: number;
 	properties: Record<string, unknown>;
+	/** Smart Model 标准 Slot 到 Manifest BindingId 的实例级映射。 */
+	bindings?: Record<string, string>;
 	sectionId?: string;
 	routeEdgeId?: string;
 }
@@ -52,6 +54,8 @@ declare module './index' {
 	interface TwinRouteDefinition {
 		/** V7 自动路线的生成来源。 */
 		generatedBy?: 'component-connections';
+		/** 由排序后的 Component ObjectId 稳定计算，网络成员不变时保持不变。 */
+		componentNetworkId?: string;
 	}
 
 	interface TwinRoutePointDefinition {

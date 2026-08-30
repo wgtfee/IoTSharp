@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class BaggingMachineComponent implements TwinComponentGenerator {
 	readonly componentType = 'bagging-machine' as const;
 	readonly generator = 'bagging-machine-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

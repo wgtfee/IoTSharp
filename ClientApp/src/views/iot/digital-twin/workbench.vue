@@ -726,7 +726,10 @@ const registeredComponentResource = (resourceKey: string) => {
 		&& item.modelMetadata?.generator === registration?.generator
 		&& item.modelMetadata?.generatorVersion === registration?.generatorVersion
 		&& Array.isArray(item.modelMetadata?.ports)
-		&& item.modelMetadata.ports.length > 0);
+		&& item.modelMetadata.ports.length > 0
+		&& Array.isArray(item.modelMetadata?.bindingSlots)
+		&& item.modelMetadata.bindingSlots.length === (registration?.bindingSlots.length || 0)
+		&& (registration?.bindingSlots || []).every((slot: any) => item.modelMetadata.bindingSlots?.some((stored: any) => stored.slotId === slot.slotId && stored.semantic === slot.semantic)));
 };
 const bindRegisteredComponentResources = () => {
 	const listedResourceIds = new Set(manifest.value.resources.map((item) => item.resourceId));

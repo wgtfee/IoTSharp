@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class RollerConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'roller-conveyor' as const;
 	readonly generator = 'roller-conveyor-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

@@ -24,6 +24,12 @@ export type TwinComponentCapability =
 export type TwinComponentPortType = 'material-input' | 'material-output' | 'material-bidirectional';
 export type TwinComponentPropertyEditor = 'number' | 'select' | 'boolean' | 'string';
 export type TwinComponentPropertyCategory = 'geometry' | 'runtime' | 'connection' | 'process';
+export type TwinBindingSlotDataType = 'bool' | 'int' | 'float' | 'string';
+export type TwinBindingSlotDirection = 'input' | 'output';
+export type TwinBindingSlotSemantic =
+	| 'ready' | 'busy' | 'complete' | 'fault' | 'result'
+	| 'route-code' | 'target-position' | 'actual-position' | 'in-position'
+	| 'sensor' | 'command' | 'custom';
 
 export interface TwinComponentTransform {
 	position: [number, number, number];
@@ -34,8 +40,12 @@ export interface TwinComponentTransform {
 export interface TwinComponentDefinition {
 	objectId: string;
 	name: string;
+	resourceKey: string;
 	componentType: TwinComponentType;
+	generator: string;
+	generatorVersion: number;
 	resourceId?: string;
+	/** @deprecated 使用 generatorVersion；仅保留旧调用方编译兼容。 */
 	resourceVersion?: number;
 	properties: Record<string, unknown>;
 	transform?: TwinComponentTransform;
@@ -71,6 +81,16 @@ export interface TwinComponentPropertySchema {
 	description?: string;
 }
 
+export interface TwinComponentBindingSlot {
+	slotId: string;
+	name: string;
+	description?: string;
+	direction: TwinBindingSlotDirection;
+	dataType: TwinBindingSlotDataType;
+	required?: boolean;
+	semantic: TwinBindingSlotSemantic;
+}
+
 export interface TwinComponentTemplate {
 	resourceKey: string;
 	name: string;
@@ -83,6 +103,7 @@ export interface TwinComponentTemplate {
 	capabilities: TwinComponentCapability[];
 	defaultProperties: Record<string, unknown>;
 	propertySchema: TwinComponentPropertySchema[];
+	bindingSlots?: TwinComponentBindingSlot[];
 }
 
 export interface TwinComponentBuildContext {
@@ -99,6 +120,7 @@ export interface TwinComponentBuildResult {
 export interface TwinComponentGenerator {
 	readonly componentType: TwinComponentType;
 	readonly generator: string;
+	readonly generatorVersion: number;
 	create(context: TwinComponentBuildContext): TwinComponentBuildResult;
 }
 

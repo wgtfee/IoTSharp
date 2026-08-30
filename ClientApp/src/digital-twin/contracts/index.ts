@@ -73,9 +73,12 @@ export type TwinProcessType = 'robot-loading' | 'external-inspection' | 'bagging
 export interface TwinProcessDefinition {
 	type: TwinProcessType;
 	cycleSeconds?: number;
+	readyBindingId?: string;
+	busyBindingId?: string;
 	completeBindingId?: string;
 	resultBindingId?: string;
 	faultBindingId?: string;
+	timeoutSeconds?: number;
 }
 
 export interface TwinRoutePointDefinition {
@@ -208,7 +211,7 @@ export interface SilkCakeDefinition {
 	};
 }
 
-export type SilkProcessWaitingReason = 'PROCESS_NOT_COMPLETED' | 'INSPECTION_NG_HOLD' | 'NO_SILK_CAKE' | 'NO_EMPTY_PALLET' | 'ROBOT_BUSY' | 'GANTRY_BUSY' | 'STACK_FULL' | 'CART_EMPTY' | 'DOWNSTREAM_FULL' | 'FAULT';
+export type SilkProcessWaitingReason = 'PROCESS_NOT_READY' | 'PROCESS_NOT_COMPLETED' | 'PROCESS_SIGNAL_STALE' | 'INSPECTION_NG_HOLD' | 'NO_SILK_CAKE' | 'NO_EMPTY_PALLET' | 'ROBOT_BUSY' | 'GANTRY_BUSY' | 'STACK_FULL' | 'CART_EMPTY' | 'DOWNSTREAM_FULL' | 'FAULT';
 
 export interface PlasticPalletDefinition {
 	palletId: string;
@@ -722,7 +725,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			for (const [property, bindingId] of [['actuatorBindingId', point.actuatorBindingId], ['sensorBindingId', point.sensorBindingId]] as const) {
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.point.binding.invalid', message: '路线节点必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].points[${pointIndex}].${property}` });
 			}
-			for (const property of ['completeBindingId', 'resultBindingId', 'faultBindingId'] as const) {
+			for (const property of ['readyBindingId', 'busyBindingId', 'completeBindingId', 'resultBindingId', 'faultBindingId'] as const) {
 				const bindingId = point.process?.[property];
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-binding.invalid', message: '工位信号必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].points[${pointIndex}].process.${property}` });
 			}

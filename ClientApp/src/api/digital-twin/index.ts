@@ -74,6 +74,7 @@ export interface TwinModelResource {
 		defaultProperties?: Record<string, unknown>;
 		componentSchema?: { properties?: Array<Record<string, unknown>> };
 		ports?: Array<Record<string, unknown>>;
+		bindingSlots?: Array<Record<string, unknown>>;
 	};
 	processingStatus: string;
 	license: {

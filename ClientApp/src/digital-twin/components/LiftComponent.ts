@@ -5,6 +5,7 @@ import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPo
 export class LiftComponent implements TwinComponentGenerator {
 	readonly componentType = 'lift' as const;
 	readonly generator = 'lift-v1';
+	readonly generatorVersion = 1;
 
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;

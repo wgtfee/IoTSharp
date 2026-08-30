@@ -8,7 +8,7 @@ import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDe
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
 import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
-import { defaultComponentRegistry, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 export interface TwinSelectionInfo {
 	name: string;
@@ -507,8 +507,15 @@ export class TwinRuntime {
 		const silkLineDefinition = this.manifest.objects.find((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
 		if (silkLineDefinition) {
 			const palletCount = silkLineDefinition.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 50;
-			const hasV7Infrastructure = (this.manifest.objects as any[]).some((item) => item.kind === 'component' && item.component?.properties?.silkV7Infrastructure === true);
-			this.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation, { renderLegacyPlasticConveyors: !hasV7Infrastructure, renderLegacyPreProcessStations: !hasV7Infrastructure });
+			const hasV7Infrastructure = hasSilkV7Infrastructure(this.manifest);
+			const hasCompleteV7Infrastructure = hasCompleteSilkV7Infrastructure(this.manifest);
+			this.packagingLine = new ProceduralPackagingLine(this.route, palletCount, this.manifest.runtime.silkLineSimulation, {
+				renderLegacyPlasticConveyors: !hasV7Infrastructure,
+				renderLegacyPreProcessStations: !hasV7Infrastructure,
+				renderLegacyGantryConveyors: !hasCompleteV7Infrastructure,
+				renderLegacyPostProcessConveyor: !hasCompleteV7Infrastructure,
+				woodPackagingRoute: this.manifest.routes.find((route) => route.routeId === 'silk-wood-packaging-route'),
+			});
 			this.packagingLine.setRoutingContext(this.routingContext);
 			this.packagingLine.group.userData.twinObjectId = silkLineDefinition.objectId;
 			this.applyTransform(this.packagingLine.group, silkLineDefinition);
@@ -578,7 +585,10 @@ export class TwinRuntime {
 				const definition = {
 					objectId: objectDefinition.objectId,
 					name: objectDefinition.name,
+					resourceKey: component.resourceKey,
 					componentType: component.componentType,
+					generator: component.generator,
+					generatorVersion: component.generatorVersion,
 					resourceId: objectDefinition.resourceId || component.resourceKey,
 					resourceVersion: component.generatorVersion,
 					properties: component.properties || {},

@@ -27,6 +27,10 @@ jobs:
         working-directory: ClientApp
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
+      - name: Verify V7 Components
+        working-directory: ClientApp
+        run: npm run verify:v7-components
+
       - name: Build ClientApp
         working-directory: ClientApp
         run: npm run build

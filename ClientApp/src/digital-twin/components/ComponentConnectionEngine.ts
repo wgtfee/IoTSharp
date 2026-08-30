@@ -12,6 +12,7 @@ import type {
 } from '/@/digital-twin/contracts/v7-components';
 import { defaultComponentRegistry } from './ComponentRegistry';
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
+import { applyComponentRoutePointBindings, buildComponentProcessDefinition } from './ComponentBindingResolver';
 import type {
 	TwinComponentDefinition,
 	TwinComponentPortDefinition,
@@ -42,16 +43,18 @@ export interface TwinComponentSnapOptions {
 }
 
 export interface TwinComponentGraphBuildResult {
+	networkId: string;
 	route: TwinRouteDefinition;
 	componentObjectIds: string[];
 	connectionCount: number;
 }
 
+export type TwinComponentNetworkBuildResult = TwinComponentGraphBuildResult;
+
 const DEFAULT_SNAP_DISTANCE = 0.5;
 const DEFAULT_SNAP_ANGLE_DEGREES = 15;
 const DEFAULT_CONNECTION_TOLERANCE = 0.08;
-const GENERATED_ROUTE_ID = 'component-auto-route';
-const GENERATED_ROUTE_NAME = 'V7 组件自动路线';
+const LEGACY_GENERATED_ROUTE_ID = 'component-auto-route';
 const asV7Objects = (manifest: TwinSceneManifest) => manifest.objects as TwinV7SceneObjectDefinition[];
 const portKey = (objectId: string, portId: string) => `${objectId}::${portId}`;
 const clampCapacity = (value: unknown) => Math.max(1, Math.min(9999, Math.floor(Number(value) || 1)));
@@ -82,7 +85,10 @@ const toComponentDefinition = (object: TwinV7SceneObjectDefinition): TwinCompone
 	return {
 		objectId: object.objectId,
 		name: object.name,
+		resourceKey: object.component.resourceKey,
 		componentType: object.component.componentType as TwinComponentType,
+		generator: object.component.generator,
+		generatorVersion: object.component.generatorVersion,
 		resourceId: object.resourceId || object.component.resourceKey,
 		resourceVersion: object.component.generatorVersion,
 		properties: object.component.properties || {},
@@ -119,6 +125,9 @@ export const canConnectPortTypes = (left: TwinComponentPortType, right: TwinComp
 export const areComponentPortsCompatible = (left: TwinComponentPortRef, right: TwinComponentPortRef) => {
 	if (!canConnectPortTypes(left.type, right.type)) return false;
 	if (left.transportUnitType && right.transportUnitType && left.transportUnitType !== right.transportUnitType) return false;
+	if (left.conveyorSizeClass && right.conveyorSizeClass && left.conveyorSizeClass !== right.conveyorSizeClass) return false;
+	const supportsHeightTransition = left.componentType === 'lift' || right.componentType === 'lift';
+	if (!supportsHeightTransition && Math.abs(left.worldPosition.y - right.worldPosition.y) > 0.15) return false;
 	return true;
 };
 const portsFaceEachOther = (left: TwinComponentPortRef, right: TwinComponentPortRef, maxAngleDegrees = DEFAULT_SNAP_ANGLE_DEGREES) => {
@@ -314,9 +323,30 @@ const pointKindForMembers = (members: TwinComponentPortRef[]): Pick<TwinRoutePoi
 };
 const resolveObjectProperties = (object: TwinV7SceneObjectDefinition) => isComponentSceneObject(object) ? object.component.properties || {} : {};
 
+const getComponentNetworks = (manifest: TwinSceneManifest) => {
+	const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
+	const byId = new Map(components.map((item) => [item.objectId, item]));
+	const union = new UnionFind();
+	for (const component of components) union.add(component.objectId);
+	for (const connection of manifest.connections || []) {
+		if (byId.has(connection.from.objectId) && byId.has(connection.to.objectId)) union.union(connection.from.objectId, connection.to.objectId);
+	}
+	const groups = new Map<string, TwinV7SceneObjectDefinition[]>();
+	for (const component of components) {
+		const root = union.find(component.objectId);
+		groups.set(root, [...(groups.get(root) || []), component]);
+	}
+	return [...groups.values()]
+		.map((items) => items.sort((left, right) => left.objectId.localeCompare(right.objectId)))
+		.sort((left, right) => left[0].objectId.localeCompare(right[0].objectId));
+};
+
 /** connections 描述物理端口；Section/RouteEdge 描述组件内部可占用输送段。 */
-export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult => {
-	const objects = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
+const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7SceneObjectDefinition[]): TwinComponentNetworkBuildResult => {
+	const objectIds = new Set(objects.map((item) => item.objectId));
+	const sortedObjectIds = [...objectIds].sort();
+	const networkHash = stableHash(sortedObjectIds.join('|'));
+	const networkId = `component-network-${networkHash}`;
 	const portsByObject = new Map<string, TwinComponentPortRef[]>();
 	const portIndex = new Map<string, TwinComponentPortRef>();
 	const union = new UnionFind();
@@ -324,7 +354,8 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 		const ports = resolveComponentPorts(object); portsByObject.set(object.objectId, ports);
 		for (const port of ports) { const key = portKey(object.objectId, port.portId); portIndex.set(key, port); union.add(key); }
 	}
-	for (const connection of manifest.connections || []) {
+	const networkConnections = (manifest.connections || []).filter((connection) => objectIds.has(connection.from.objectId) && objectIds.has(connection.to.objectId));
+	for (const connection of networkConnections) {
 		const fromKey = portKey(connection.from.objectId, connection.from.portId);
 		const toKey = portKey(connection.to.objectId, connection.to.portId);
 		if (portIndex.has(fromKey) && portIndex.has(toKey)) union.union(fromKey, toKey);
@@ -339,19 +370,26 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 		for (const member of members) pointIdByPort.set(portKey(member.objectId, member.portId), pointId);
 		const position = members.reduce((sum, member) => sum.add(member.worldPosition), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, members.length));
 		const kind = pointKindForMembers(members);
+		const processMember = members.find((member) =>
+			(member.componentType === 'external-inspection' || member.componentType === 'bagging-machine') && member.portId === 'input');
+		const semanticMember = members.find((member) =>
+			(member.componentType === 'diverter-conveyor' && member.portId === 'input')
+			|| (member.componentType === 'merger-conveyor' && member.portId === 'output'));
+		const sourceMember = processMember || semanticMember || members[0];
 		const point: TwinRoutePointDefinition = {
 			pointId,
 			name: members.length > 1 ? members.map((member) => `${member.objectName}.${member.name}`).join(' ↔ ') : `${members[0].objectName}.${members[0].name}`,
 			position: [position.x, position.y, position.z],
 			kind: kind.kind,
 			process: kind.process ? { ...kind.process } : undefined,
-			componentObjectId: members[0]?.objectId,
-			componentPortId: members[0]?.portId,
+			componentObjectId: sourceMember?.objectId,
+			componentPortId: sourceMember?.portId,
 		};
-		if (point.process) {
-			const source = objects.find((item) => item.objectId === members[0]?.objectId);
-			point.process.cycleSeconds = Math.max(0.1, safeNumber(source ? resolveObjectProperties(source).cycleSeconds : undefined, 2));
+		const source = objects.find((item) => item.objectId === sourceMember?.objectId);
+		if (point.process && source) {
+			point.process = buildComponentProcessDefinition(manifest, source, point.process.type);
 		}
+		if (source) applyComponentRoutePointBindings(manifest, source, point);
 		points.push(point);
 	}
 	const edges: TwinRouteEdgeDefinition[] = [];
@@ -382,31 +420,46 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 	}
 	const incoming = new Set(edges.map((edge) => edge.toPointId));
 	const route: TwinRouteDefinition = {
-		routeId: GENERATED_ROUTE_ID,
-		name: GENERATED_ROUTE_NAME,
+		routeId: `component-route-${networkHash}`,
+		name: `V7 组件自动路线 · ${objects.map((item) => item.name).slice(0, 2).join(' / ')}${objects.length > 2 ? ` 等 ${objects.length} 台` : ''}`,
 		type: 'conveyor', curveKind: 'line', defaultSpeed: 1.2, loop: false, orientToPath: true,
 		points, edges,
 		startPointId: points.find((point) => !incoming.has(point.pointId))?.pointId || points[0]?.pointId,
-		junctionDecisions: {}, routingMode: 'automatic', decisionRules: [], generatedBy: 'component-connections',
+		junctionDecisions: {}, routingMode: 'automatic', decisionRules: [], generatedBy: 'component-connections', componentNetworkId: networkId,
 	};
-	return { route, componentObjectIds: objects.map((item) => item.objectId), connectionCount: manifest.connections?.length || 0 };
+	return { networkId, route, componentObjectIds: sortedObjectIds, connectionCount: networkConnections.length };
 };
 
-export const upsertGeneratedComponentRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult | undefined => {
+export const buildComponentGraphRoutes = (manifest: TwinSceneManifest): TwinComponentNetworkBuildResult[] =>
+	getComponentNetworks(manifest).map((objects) => buildComponentNetworkRoute(manifest, objects));
+
+/** @deprecated 使用 buildComponentGraphRoutes；保留给旧扩展的单网络兼容入口。 */
+export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult => {
+	const first = buildComponentGraphRoutes(manifest)[0];
+	if (!first) throw new Error('当前场景没有可生成路线的 V7 Component Network');
+	return first;
+};
+
+export const upsertGeneratedComponentRoutes = (manifest: TwinSceneManifest): TwinComponentNetworkBuildResult[] => {
 	const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
-	const existingIndex = manifest.routes.findIndex((item) => item.generatedBy === 'component-connections' || item.routeId === GENERATED_ROUTE_ID);
-	if (!components.length) { if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1); return undefined; }
-	const result = buildComponentGraphRoute(manifest);
-	if (existingIndex >= 0) manifest.routes.splice(existingIndex, 1, result.route);
-	else if (asV7Objects(manifest).some((item) => item.kind === 'procedural')) manifest.routes.push(result.route);
-	else manifest.routes.unshift(result.route);
+	const retainedRoutes = manifest.routes.filter((item) => item.generatedBy !== 'component-connections' && item.routeId !== LEGACY_GENERATED_ROUTE_ID);
+	if (!components.length) { manifest.routes = retainedRoutes; return []; }
+	const results = buildComponentGraphRoutes(manifest);
+	const generatedRoutes = results.map((item) => item.route);
+	manifest.routes = asV7Objects(manifest).some((item) => item.kind === 'procedural')
+		? [...retainedRoutes, ...generatedRoutes]
+		: [...generatedRoutes, ...retainedRoutes];
 	for (const object of components) {
-		const firstEdge = result.route.edges.find((edge) => edge.componentObjectId === object.objectId);
+		const firstEdge = results.flatMap((item) => item.route.edges).find((edge) => edge.componentObjectId === object.objectId);
 		object.component.sectionId ||= `section-${object.objectId}`;
 		object.component.routeEdgeId = firstEdge?.edgeId;
 	}
-	return result;
+	return results;
 };
+
+/** 兼容旧调用方；内部始终重建全部独立 Network。 */
+export const upsertGeneratedComponentRoute = (manifest: TwinSceneManifest): TwinComponentGraphBuildResult | undefined =>
+	upsertGeneratedComponentRoutes(manifest)[0];
 
 export const getComponentTemplateForObject = (object: TwinV7SceneObjectDefinition | undefined) =>
 	isComponentSceneObject(object) ? getBuiltInComponentTemplate(object.component.resourceKey) : undefined;

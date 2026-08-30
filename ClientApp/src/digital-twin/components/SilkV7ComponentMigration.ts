@@ -3,12 +3,8 @@ import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-c
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 
 const MIGRATION_FLAG = 'silkV7Infrastructure';
-const EXCLUDED_EDGE_IDS = new Set([
-	// 这三条由桁架单元内部继续负责视觉和机械动画，避免与现有 Gantry 模型重复。
-	'silk-edge-left-b',
-	'silk-edge-right-b',
-	'silk-wood-edge-stack',
-]);
+const MIGRATION_VERSION_KEY = 'silkV7InfrastructureVersion';
+export const SILK_V7_MIGRATION_VERSION = 2;
 
 const createComponentObject = (
 	resourceKey: string,
@@ -35,6 +31,7 @@ const createComponentObject = (
 				...structuredClone(template.defaultProperties),
 				...properties,
 				[MIGRATION_FLAG]: true,
+				[MIGRATION_VERSION_KEY]: SILK_V7_MIGRATION_VERSION,
 				routeManagedExternally: true,
 			},
 			sectionId,
@@ -46,7 +43,6 @@ const createComponentObject = (
 
 const routePoint = (route: TwinRouteDefinition, pointId: string) => route.points.find((item) => item.pointId === pointId);
 const createEdgeComponent = (route: TwinRouteDefinition, edge: TwinRouteDefinition['edges'][number]): TwinV7SceneObjectDefinition | undefined => {
-	if (EXCLUDED_EDGE_IDS.has(edge.edgeId)) return undefined;
 	const from = routePoint(route, edge.fromPointId), to = routePoint(route, edge.toPointId);
 	if (!from || !to) return undefined;
 	const dx = to.position[0] - from.position[0], dz = to.position[2] - from.position[2];
@@ -90,20 +86,24 @@ const addSmartStation = (objects: TwinV7SceneObjectDefinition[], route: TwinRout
  */
 export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) => {
 	const route = manifest.routes.find((item) => item.routeId === 'silk-cake-line-main');
+	const woodRoute = manifest.routes.find((item) => item.routeId === 'silk-wood-packaging-route');
 	const hasSilkRuntime = manifest.objects.some((item) => ['silk-cake-line', 'silk-cake-packaging-line', 'packaging-line'].includes(item.procedural?.preset || ''));
 	if (!route || !hasSilkRuntime) return { migrated: false, componentCount: 0 };
 
 	const objects = manifest.objects as TwinV7SceneObjectDefinition[];
 	const existing = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true);
-	if (existing.length > 0) {
-		manifest.connections ||= [];
-		return { migrated: false, componentCount: existing.length };
+	let upgraded = false;
+	for (const component of existing) {
+		if (component.component!.properties[MIGRATION_VERSION_KEY] !== SILK_V7_MIGRATION_VERSION) upgraded = true;
+		component.component!.properties[MIGRATION_VERSION_KEY] = SILK_V7_MIGRATION_VERSION;
 	}
 
 	const migrated: TwinV7SceneObjectDefinition[] = [];
-	for (const edge of route.edges) {
-		const component = createEdgeComponent(route, edge);
-		if (component) migrated.push(component);
+	for (const targetRoute of [route, woodRoute].filter((item): item is TwinRouteDefinition => Boolean(item))) {
+		for (const edge of targetRoute.edges) {
+			const component = createEdgeComponent(targetRoute, edge);
+			if (component) migrated.push(component);
+		}
 	}
 	addSmartStation(migrated, route, 'silk-external-inspection', 'builtin-external-inspection', 'V7 外检机');
 	addSmartStation(migrated, route, 'silk-bagging', 'builtin-bagging-machine', 'V7 套袋机');
@@ -114,10 +114,28 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	const merger = routePoint(route, 'silk-merger');
 	if (merger) migrated.push(createComponentObject('builtin-merger-conveyor', 'v7-silk-merger', 'V7 空托汇流器', [merger.position[0], 0, merger.position[2]], 0, { capacity: 1, transportUnitType: 'plastic-pallet' }, 'silk-merger'));
 
-	objects.push(...migrated);
+	const existingIds = new Set(objects.map((item) => item.objectId));
+	const additions = migrated.filter((item) => !existingIds.has(item.objectId));
+	objects.push(...additions);
 	manifest.connections ||= [];
-	return { migrated: true, componentCount: migrated.length };
+	return { migrated: additions.length > 0 || upgraded, componentCount: existing.length + additions.length, migrationVersion: SILK_V7_MIGRATION_VERSION };
 };
 
 export const hasSilkV7Infrastructure = (manifest: TwinSceneManifest) =>
 	(manifest.objects as TwinV7SceneObjectDefinition[]).some((item) => item.kind === 'component' && item.component?.properties?.[MIGRATION_FLAG] === true);
+
+export const hasCompleteSilkV7Infrastructure = (manifest: TwinSceneManifest) => {
+	const migratedComponents = new Map(
+		(manifest.objects as TwinV7SceneObjectDefinition[])
+			.filter((item) => item.kind === 'component'
+				&& item.component?.properties?.[MIGRATION_FLAG] === true
+				&& Number(item.component.properties[MIGRATION_VERSION_KEY]) >= SILK_V7_MIGRATION_VERSION)
+			.map((item) => [item.objectId, item]),
+	);
+	const routeIds = new Set(['silk-cake-line-main', 'silk-wood-packaging-route']);
+	const requiredIds = manifest.routes
+		.filter((route) => routeIds.has(route.routeId))
+		.flatMap((route) => route.edges.map((edge) => `v7-${edge.edgeId}`));
+	requiredIds.push('v7-silk-external-inspection', 'v7-silk-bagging', 'v7-silk-diverter', 'v7-silk-merger');
+	return requiredIds.length > 4 && requiredIds.every((objectId) => migratedComponents.has(objectId));
+};

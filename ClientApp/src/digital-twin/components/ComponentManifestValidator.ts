@@ -3,6 +3,7 @@ import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-c
 import { defaultComponentRegistry } from './ComponentRegistry';
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 import { areComponentPortsCompatible, isComponentSceneObject, resolveComponentPorts, type TwinComponentPortRef } from './ComponentConnectionEngine';
+import { validateEngineeringLayout } from './EngineeringLayoutValidator';
 
 const CONNECTION_DISTANCE_TOLERANCE = 0.08;
 const CONNECTION_FACING_DOT = -Math.cos(15 * Math.PI / 180);
@@ -14,6 +15,7 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 	const portsByObject = new Map<string, Set<string>>();
 	const portRefsByObject = new Map<string, Map<string, TwinComponentPortRef>>();
 	const sectionIds = new Set<string>();
+	const bindingsById = new Map(manifest.bindings.map((binding) => [binding.bindingId, binding]));
 
 	objects.forEach((object, index) => {
 		if (object.kind !== 'component') return;
@@ -27,6 +29,7 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 		if (!object.component.componentType || !defaultComponentRegistry.has(object.component.componentType)) diagnostics.push({ severity: 'error', code: 'twin.component.type.unsupported', message: `不支持的 componentType：${object.component.componentType || '(empty)'}`, path: `${path}.componentType` });
 		if (!object.component.generator) diagnostics.push({ severity: 'error', code: 'twin.component.generator.required', message: '组件 generator 不能为空。', path: `${path}.generator` });
 		if (!Number.isInteger(object.component.generatorVersion) || object.component.generatorVersion <= 0) diagnostics.push({ severity: 'error', code: 'twin.component.generator-version.invalid', message: 'generatorVersion 必须是正整数。', path: `${path}.generatorVersion` });
+		else if (object.component.generator && !defaultComponentRegistry.has(object.component.generator, object.component.generatorVersion)) diagnostics.push({ severity: 'error', code: 'twin.component.generator.unsupported', message: `未注册组件生成器 ${object.component.generator}@${object.component.generatorVersion}。`, path: `${path}.generatorVersion` });
 		if (!object.component.properties || typeof object.component.properties !== 'object' || Array.isArray(object.component.properties)) diagnostics.push({ severity: 'error', code: 'twin.component.properties.invalid', message: '组件 properties 必须是对象。', path: `${path}.properties` });
 		const template = getBuiltInComponentTemplate(object.component.resourceKey);
 		if (!template) diagnostics.push({ severity: 'error', code: 'twin.component.resource-key.unsupported', message: `未注册组件模板：${object.component.resourceKey}`, path: `${path}.resourceKey` });
@@ -43,6 +46,16 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 					else if ((field.min !== undefined && numeric < field.min) || (field.max !== undefined && numeric > field.max)) diagnostics.push({ severity: 'error', code: 'twin.component.property.range', message: `${field.label}超出允许范围 ${field.min ?? '-∞'}～${field.max ?? '+∞'}。`, path: fieldPath });
 				} else if (field.type === 'select' && field.options && !field.options.some((option) => option.value === value)) diagnostics.push({ severity: 'error', code: 'twin.component.property.option', message: `${field.label}不是受支持的选项。`, path: fieldPath });
 				else if (field.type === 'boolean' && typeof value !== 'boolean') diagnostics.push({ severity: 'error', code: 'twin.component.property.boolean', message: `${field.label}必须是布尔值。`, path: fieldPath });
+			}
+			const slots = new Map((template.bindingSlots || []).map((slot) => [slot.slotId, slot]));
+			for (const slot of template.bindingSlots || []) {
+				const bindingId = object.component.bindings?.[slot.slotId];
+				if (slot.required && !bindingId) diagnostics.push({ severity: 'error', code: 'twin.component.binding.required', message: `${slot.name}必须配置数据绑定。`, path: `${path}.bindings.${slot.slotId}` });
+			}
+			for (const [slotId, bindingId] of Object.entries(object.component.bindings || {})) {
+				if (!slots.has(slotId)) diagnostics.push({ severity: 'error', code: 'twin.component.binding-slot.unknown', message: `组件不存在 Binding Slot ${slotId}。`, path: `${path}.bindings.${slotId}` });
+				else if (!bindingId || !bindingsById.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.component.binding.missing', message: `Binding Slot ${slotId} 引用了不存在的 BindingId。`, path: `${path}.bindings.${slotId}` });
+				else if (bindingsById.get(bindingId)?.transform.kind !== 'routeEvent') diagnostics.push({ severity: 'error', code: 'twin.component.binding.kind.invalid', message: `Binding Slot ${slotId} 必须引用 routeEvent 数据绑定。`, path: `${path}.bindings.${slotId}` });
 			}
 		}
 		if (object.component.sectionId) {
@@ -81,5 +94,5 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 			if (from.worldDirection.dot(to.worldDirection) > CONNECTION_FACING_DOT) diagnostics.push({ severity: 'error', code: 'twin.connection.direction.invalid', message: 'Connection 两端口方向必须在 15°容差内相向。', path });
 		}
 	}
-	return diagnostics;
+	return [...diagnostics, ...validateEngineeringLayout(manifest)];
 };

@@ -6,6 +6,7 @@ import { resolveGantryPose } from './GantryPoseResolver';
 import { ProcessStationManager } from './ProcessStationManager';
 import { createProcessStationVisual } from './ProcessStationVisualFactory';
 import { silkLineLayout } from './SilkLineLayout';
+import { TwinSectionGeometryResolver } from './TwinSectionGeometryResolver';
 
 type SilkSide = 'A' | 'B';
 type PalletStage = 'source-queue' | 'loading' | 'to-load-check' | 'to-external-inspection' | 'external-inspection' | 'to-bagging' | 'bagging' | 'to-diverter' | 'to-gantry-a' | 'to-gantry-b' | 'gantry-a' | 'gantry-b' | 'empty-return-drop' | 'empty-return-main' | 'empty-return-rise' | 'returning';
@@ -356,8 +357,15 @@ export class ProceduralPackagingLine {
 		laneB?: string;
 		returning?: string;
 	};
+	private readonly woodSectionGeometry?: TwinSectionGeometryResolver;
 
-	constructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}, visualOptions: { renderLegacyPlasticConveyors?: boolean; renderLegacyPreProcessStations?: boolean } = {}) {
+	constructor(route: TwinRouteDefinition, palletCount = 80, options: Partial<SilkLineSimulationOptions> = {}, visualOptions: {
+		renderLegacyPlasticConveyors?: boolean;
+		renderLegacyPreProcessStations?: boolean;
+		renderLegacyGantryConveyors?: boolean;
+		renderLegacyPostProcessConveyor?: boolean;
+		woodPackagingRoute?: TwinRouteDefinition;
+	} = {}) {
 		this.options = {
 			robotCycleSeconds: options.robotCycleSeconds ?? 5,
 			emptyPalletBatchRate: THREE.MathUtils.clamp(options.emptyPalletBatchRate ?? 0, 0, 1),
@@ -375,6 +383,7 @@ export class ProceduralPackagingLine {
 			autoFeedWoodPallet: options.autoFeedWoodPallet ?? true,
 		};
 		this.route = structuredClone(route);
+		if (visualOptions.woodPackagingRoute) this.woodSectionGeometry = new TwinSectionGeometryResolver(visualOptions.woodPackagingRoute);
 		this.applySilkLineSectionCapacities(this.route);
 		this.palletCount = Math.min(200, Math.max(6, Math.floor(palletCount)));
 		this.speed = route.defaultSpeed;
@@ -387,8 +396,8 @@ export class ProceduralPackagingLine {
 		if (visualOptions.renderLegacyPreProcessStations !== false) this.buildPreProcessStations();
 		this.buildRotaryTableAndSilkCart();
 		this.buildRobot();
-		this.buildGantryCell();
-		this.buildPostProcessLine();
+		this.buildGantryCell(visualOptions.renderLegacyGantryConveyors !== false);
+		this.buildPostProcessLine(visualOptions.renderLegacyPostProcessConveyor !== false);
 		this.buildPlasticPallets();
 		this.replaceSilkCart(true);
 		this.feedInitialPlasticPallets();
@@ -1034,7 +1043,7 @@ export class ProceduralPackagingLine {
 		parent.add(segment);
 	}
 
-	private buildGantryCell() {
+	private buildGantryCell(renderLegacyConveyors: boolean) {
 		this.gantryRoot.name = '2×3丝饼码垛桁架';
 		this.gantryRoot.userData.twinEntityType = 'gantry-stacker';
 		this.gantryRoot.userData.twinEntityId = 'GantryStacker-01';
@@ -1048,9 +1057,11 @@ export class ProceduralPackagingLine {
 		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, frameHeight, z1), new THREE.Vector3(x1, frameHeight, z1), 0.16);
 		this.addBeam(this.gantryRoot, new THREE.Vector3(x0, frameHeight, z0), new THREE.Vector3(x0, frameHeight, z1), 0.16);
 		this.addBeam(this.gantryRoot, new THREE.Vector3(x1, frameHeight, z0), new THREE.Vector3(x1, frameHeight, z1), 0.16);
-		this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.55, -7.6), new THREE.Vector3(silkLineLayout.gantryLaneEndX, 0.55, -7.6), 1.5, 'Gantry-Lane-A-3位', 'silk-edge-left-b');
-		this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.55, -4.2), new THREE.Vector3(silkLineLayout.gantryLaneEndX, 0.55, -4.2), 1.5, 'Gantry-Lane-B-3位', 'silk-edge-right-b');
-		this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.42, WOOD_LANE_Z), new THREE.Vector3(30.4, 0.42, WOOD_LANE_Z), 2.1, 'Gantry-Wood-Pallet-Lane', 'silk-wood-edge-stack');
+		if (renderLegacyConveyors) {
+			this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.55, -7.6), new THREE.Vector3(silkLineLayout.gantryLaneEndX, 0.55, -7.6), 1.5, 'Gantry-Lane-A-3位', 'silk-edge-left-b');
+			this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.55, -4.2), new THREE.Vector3(silkLineLayout.gantryLaneEndX, 0.55, -4.2), 1.5, 'Gantry-Lane-B-3位', 'silk-edge-right-b');
+			this.addRollerLane(this.gantryRoot, new THREE.Vector3(22.8, 0.42, WOOD_LANE_Z), new THREE.Vector3(30.4, 0.42, WOOD_LANE_Z), 2.1, 'Gantry-Wood-Pallet-Lane', 'silk-wood-edge-stack');
+		}
 		this.gantryCarriage.name = 'Gantry-X-Carriage';
 		const carriageBeam = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.22, 0.34), this.safetyMaterial);
 		this.gantryCarriage.add(carriageBeam);
@@ -1137,10 +1148,10 @@ export class ProceduralPackagingLine {
 		this.feedNewWoodPallet();
 	}
 
-	private buildPostProcessLine() {
+	private buildPostProcessLine(renderLegacyConveyor: boolean) {
 		const process = new THREE.Group();
 		process.name = '木托盘后包装与立库入库线';
-		this.addRollerLane(process, new THREE.Vector3(30.4, 0.42, WOOD_LANE_Z), new THREE.Vector3(silkLineLayout.inboundX + 1.5, 0.42, WOOD_LANE_Z), 2.2, '满托后包装辊道', 'silk-wood-edge-post-process');
+		if (renderLegacyConveyor) this.addRollerLane(process, new THREE.Vector3(30.4, 0.42, WOOD_LANE_Z), new THREE.Vector3(silkLineLayout.inboundX + 1.5, 0.42, WOOD_LANE_Z), 2.2, '满托后包装辊道', 'silk-wood-edge-post-process');
 		this.addProcessPortal(process, COVER_POSITION.x, '盖板桁架工位', 0x38bdf8);
 		this.addProcessPortal(process, LABEL_POSITION.x, '贴标工位', 0x22c55e);
 		this.addProcessPortal(process, WRAP_POSITION.x, '缠膜工位', 0xa855f7);
@@ -1836,7 +1847,7 @@ export class ProceduralPackagingLine {
 						: wood.stage === 'inbound' ? this.options.warehouseInboundCycleSeconds : 1;
 			wood.progress = clamp01(wood.progress + deltaSeconds / duration);
 			if (wood.stage === 'covering') {
-				lerpPose(wood.root, WOOD_STACK_POSITION, COVER_POSITION, wood.progress);
+				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-stack', wood.progress, WOOD_STACK_POSITION, COVER_POSITION);
 				this.coverGantryHead.position.y = -Math.sin(wood.progress * Math.PI) * 0.8;
 				if (wood.progress >= 1) {
 					this.attachCover(wood);
@@ -1847,7 +1858,7 @@ export class ProceduralPackagingLine {
 				continue;
 			}
 			if (wood.stage === 'labeling') {
-				lerpPose(wood.root, COVER_POSITION, LABEL_POSITION, wood.progress);
+				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-cover', wood.progress, COVER_POSITION, LABEL_POSITION);
 				if (wood.progress >= 1) {
 					this.attachLabel(wood);
 					wood.labelApplied = true;
@@ -1857,7 +1868,7 @@ export class ProceduralPackagingLine {
 				continue;
 			}
 			if (wood.stage === 'wrapping') {
-				lerpPose(wood.root, LABEL_POSITION, WRAP_POSITION, Math.min(1, wood.progress * 0.25));
+				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-label', Math.min(1, wood.progress * 0.25), LABEL_POSITION, WRAP_POSITION);
 				this.wrapperFilm.visible = true;
 				this.wrapperFilm.rotation.y += deltaSeconds * 2.5;
 				if (wood.progress >= 1) {
@@ -1869,7 +1880,7 @@ export class ProceduralPackagingLine {
 				continue;
 			}
 			if (wood.stage === 'inbound') {
-				lerpPose(wood.root, WRAP_POSITION, INBOUND_POSITION, wood.progress);
+				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-post-process', wood.progress, WRAP_POSITION, INBOUND_POSITION);
 				if (wood.progress >= 1) {
 					wood.stage = 'stored';
 					wood.progress = 1;
@@ -1885,6 +1896,16 @@ export class ProceduralPackagingLine {
 		for (let index = this.woodProcessQueue.length - 1; index >= 0; index -= 1) {
 			if (this.woodProcessQueue[index].stage === 'stored') this.woodProcessQueue.splice(index, 1);
 		}
+	}
+
+	private applyWoodSectionPose(root: THREE.Object3D, sectionId: string, progress: number, fallbackFrom: THREE.Vector3, fallbackTo: THREE.Vector3) {
+		const pose = this.woodSectionGeometry?.getPose(sectionId, progress);
+		if (!pose) {
+			lerpPose(root, fallbackFrom, fallbackTo, progress);
+			return;
+		}
+		root.position.copy(pose.position);
+		if (pose.tangent.lengthSq() > 0.000001) root.rotation.y = -Math.atan2(pose.tangent.z, pose.tangent.x);
 	}
 
 	private attachCover(wood: WoodenPalletRuntime) {
