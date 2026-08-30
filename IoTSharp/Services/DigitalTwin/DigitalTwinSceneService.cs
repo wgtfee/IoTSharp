@@ -550,6 +550,16 @@ public sealed class DigitalTwinSceneService
                     }
                 }
 
+                var registeredBindingSlots = new HashSet<string>(StringComparer.Ordinal);
+                if (metadata.TryGetProperty("bindingSlots", out var bindingSlots) && bindingSlots.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var bindingSlot in bindingSlots.EnumerateArray())
+                    {
+                        var slotId = ReadString(bindingSlot, "slotId");
+                        if (!string.IsNullOrWhiteSpace(slotId)) registeredBindingSlots.Add(slotId);
+                    }
+                }
+
                 if (resourceType is not ("procedural-component" or "smart-model") ||
                     !string.Equals(metadataResourceKey, component.ResourceKey, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(componentType, component.ComponentType, StringComparison.Ordinal) ||
@@ -561,6 +571,10 @@ public sealed class DigitalTwinSceneService
                 else
                 {
                     componentPortsByObjectId[component.ObjectId] = registeredPorts;
+                    foreach (var slotId in component.Bindings.Keys.Where(slotId => !registeredBindingSlots.Contains(slotId)))
+                    {
+                        inspection.Diagnostics.Add(Error("twin.component.binding-slot.unregistered", $"组件 {component.ObjectId} 的 Binding Slot {slotId} 未在数据库组件资源中登记。", $"{path}.bindings.{slotId}"));
+                    }
                 }
             }
             catch (JsonException)
@@ -587,10 +601,15 @@ public sealed class DigitalTwinSceneService
             }
         }
 
-        static bool CanConnectPortTypes(string fromType, string toType) =>
-            string.Equals(fromType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(toType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(fromType, "output", StringComparison.OrdinalIgnoreCase) && string.Equals(toType, "input", StringComparison.OrdinalIgnoreCase);
+        static string NormalizePortType(string value) => value.StartsWith("material-", StringComparison.OrdinalIgnoreCase) ? value[9..] : value;
+        static bool CanConnectPortTypes(string fromType, string toType)
+        {
+            fromType = NormalizePortType(fromType);
+            toType = NormalizePortType(toType);
+            return string.Equals(fromType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(toType, "bidirectional", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(fromType, "output", StringComparison.OrdinalIgnoreCase) && string.Equals(toType, "input", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private void ReplaceDraftBindings(DigitalTwinScene scene, List<TwinBindingDraft> drafts, UserProfile profile, string actor, DateTime now)

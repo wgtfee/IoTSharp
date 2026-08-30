@@ -202,6 +202,7 @@ public sealed class TwinComponentResourcesController : ControllerBase
         defaultProperties = request.DefaultProperties,
         componentSchema = request.ComponentSchema,
         ports = request.Ports,
+        bindingSlots = request.BindingSlots.ValueKind == JsonValueKind.Array ? request.BindingSlots : JsonSerializer.SerializeToElement(Array.Empty<object>(), JsonOptions),
         builtIn = true,
         metadataVersion = 1
     };
@@ -218,6 +219,7 @@ public sealed class TwinComponentResourcesController : ControllerBase
         if (request.DefaultProperties.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "defaultProperties 不能为空。";
         if (request.ComponentSchema.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "componentSchema 不能为空。";
         if (request.Ports.ValueKind != JsonValueKind.Array || request.Ports.GetArrayLength() == 0) return "ports 必须是非空数组。";
+        if (request.BindingSlots.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Array)) return "bindingSlots 必须是数组。";
         return null;
     }
 
@@ -254,4 +256,5 @@ public sealed class TwinComponentResourceRegistrationRequest
     public JsonElement DefaultProperties { get; set; }
     public JsonElement ComponentSchema { get; set; }
     public JsonElement Ports { get; set; }
+    public JsonElement BindingSlots { get; set; }
 }

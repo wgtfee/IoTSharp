@@ -152,7 +152,7 @@ public sealed class DigitalTwinSceneServiceTests
             ResourceKey = "builtin-small-roller-conveyor",
             Name = "标准小辊道",
             RuntimeFormat = "application/vnd.iotsharp.twin-component+json",
-            ModelMetadata = """{"resourceKey":"builtin-small-roller-conveyor","resourceType":"procedural-component","componentType":"roller-conveyor","generator":"roller-conveyor-v1","generatorVersion":1,"ports":[{"portId":"input","type":"input"},{"portId":"output","type":"output"}]}""",
+            ModelMetadata = """{"resourceKey":"builtin-small-roller-conveyor","resourceType":"procedural-component","componentType":"roller-conveyor","generator":"roller-conveyor-v1","generatorVersion":1,"ports":[{"portId":"input","type":"material-input"},{"portId":"output","type":"material-output"}],"bindingSlots":[{"slotId":"ready","semantic":"ready"}]}""",
             ProcessingStatus = TwinModelProcessingStatus.Ready,
             OriginalFileName = string.Empty,
             StoragePath = string.Empty,
@@ -169,7 +169,7 @@ public sealed class DigitalTwinSceneServiceTests
         await context.SaveChangesAsync();
         var profile = new UserProfile { Id = Guid.NewGuid(), Name = "admin", Email = "admin@local", Tenant = tenant.Id, Customer = customer.Id, Roles = ["SystemAdmin"] };
 
-        static JsonElement CreateManifest(Guid assetId, Guid resourceId, int generatorVersion, string fromPortId = "output")
+        static JsonElement CreateManifest(Guid assetId, Guid resourceId, int generatorVersion, string fromPortId = "output", string bindingSlotId = "ready")
         {
             using var document = JsonDocument.Parse($$"""
             {
@@ -182,7 +182,8 @@ public sealed class DigitalTwinSceneServiceTests
                 "component": {
                   "resourceKey": "builtin-small-roller-conveyor", "componentType": "roller-conveyor",
                   "generator": "roller-conveyor-v1", "generatorVersion": {{generatorVersion}},
-                  "properties": { "length": 3, "transportUnitType": "plastic-pallet" }
+                  "properties": { "length": 3, "transportUnitType": "plastic-pallet" },
+                  "bindings": { "{{bindingSlotId}}": "binding-ready" }
                 },
                 "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
               }],
@@ -190,7 +191,13 @@ public sealed class DigitalTwinSceneServiceTests
                 "connectionId": "loop-test", "from": { "objectId": "roller-1", "portId": "{{fromPortId}}" },
                 "to": { "objectId": "roller-1", "portId": "input" }
               }],
-              "bindings": [], "routes": [], "runtime": { "dataMode": "simulation" }
+              "bindings": [{
+                "bindingId": "binding-ready", "objectId": "roller-1",
+                "source": { "kind": "simulation", "key": "ready" },
+                "target": { "kind": "customProperty", "property": "ready" },
+                "transform": { "kind": "routeEvent" }, "staleAfterMs": 5000
+              }],
+              "routes": [], "runtime": { "dataMode": "simulation" }
             }
             """);
             return document.RootElement.Clone();
@@ -219,6 +226,14 @@ public sealed class DigitalTwinSceneServiceTests
             DraftPayload = CreateManifest(asset.Id, resource.Id, 1, "forged-output")
         }, profile, CancellationToken.None));
         Assert.Contains(invalidPort.Validation.Diagnostics, item => item.Code == "twin.connection.port.unregistered");
+
+        var invalidSlot = await Assert.ThrowsAsync<TwinValidationException>(() => service.CreateAsync(new DigitalTwinSceneCreateDto
+        {
+            Name = "V7 未登记 Binding Slot",
+            RootAssetId = asset.Id,
+            DraftPayload = CreateManifest(asset.Id, resource.Id, 1, "output", "forged-slot")
+        }, profile, CancellationToken.None));
+        Assert.Contains(invalidSlot.Validation.Diagnostics, item => item.Code == "twin.component.binding-slot.unregistered");
     }
 
     private static ServiceProvider BuildServices()

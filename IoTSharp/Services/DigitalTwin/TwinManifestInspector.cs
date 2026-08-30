@@ -90,6 +90,7 @@ internal static class TwinManifestInspector
         var objectIds = InspectObjects(manifest, rootAssetId, result);
         InspectConnections(manifest, objectIds, result);
         InspectBindings(manifest, objectIds, result);
+        ValidateComponentBindingReferences(result);
         InspectRoutes(manifest, objectIds, result);
         return result;
     }
@@ -324,6 +325,27 @@ internal static class TwinManifestInspector
         if (!component.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
             result.Diagnostics.Add(Error("twin.component.properties.invalid", "组件 properties 必须是对象。", $"{path}.component.properties"));
 
+        var componentBindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (component.TryGetProperty("bindings", out var bindings))
+        {
+            if (bindings.ValueKind != JsonValueKind.Object)
+            {
+                result.Diagnostics.Add(Error("twin.component.bindings.invalid", "组件 bindings 必须是 SlotId 到 BindingId 的对象。", $"{path}.component.bindings"));
+            }
+            else
+            {
+                foreach (var binding in bindings.EnumerateObject())
+                {
+                    if (string.IsNullOrWhiteSpace(binding.Name) || binding.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(binding.Value.GetString()))
+                    {
+                        result.Diagnostics.Add(Error("twin.component.binding.invalid", "组件 Binding Slot 必须引用非空 BindingId。", $"{path}.component.bindings.{binding.Name}"));
+                        continue;
+                    }
+                    componentBindings[binding.Name] = binding.Value.GetString()!.Trim();
+                }
+            }
+        }
+
         if (sceneObject.TryGetProperty("transform", out var transform) && transform.ValueKind == JsonValueKind.Object &&
             transform.TryGetProperty("scale", out var scale) && IsFiniteVector(scale) &&
             scale.EnumerateArray().Any(value => Math.Abs(value.GetDouble() - 1d) > 0.000001d))
@@ -342,8 +364,27 @@ internal static class TwinManifestInspector
                 ComponentType = componentType,
                 Generator = generator,
                 GeneratorVersion = generatorVersion,
+                Bindings = componentBindings,
                 Path = path
             });
+        }
+    }
+
+    private static void ValidateComponentBindingReferences(TwinManifestInspection result)
+    {
+        var routeEventBindings = result.Bindings
+            .Where(binding => binding.SourceKind != TwinBindingSourceKind.Resource && binding.TransformKind.Equals("routeEvent", StringComparison.OrdinalIgnoreCase))
+            .Select(binding => binding.BindingKey)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var component in result.Components)
+        {
+            foreach (var (slotId, bindingId) in component.Bindings)
+            {
+                if (!routeEventBindings.Contains(bindingId))
+                {
+                    result.Diagnostics.Add(Error("twin.component.binding.reference.invalid", $"组件 {component.ObjectId} 的 Slot {slotId} 必须引用已存在的 routeEvent Binding。", $"{component.Path}.component.bindings.{slotId}"));
+                }
+            }
         }
     }
 
@@ -585,7 +626,7 @@ internal static class TwinManifestInspector
 								{
 									result.Diagnostics.Add(Error("twin.route.point.process-cycle.invalid", "工位仿真节拍必须大于 0 秒。", $"{processPath}.cycleSeconds"));
 								}
-								foreach (var bindingProperty in new[] { "completeBindingId", "resultBindingId", "faultBindingId" })
+								foreach (var bindingProperty in new[] { "readyBindingId", "busyBindingId", "completeBindingId", "resultBindingId", "faultBindingId" })
 								{
 									if (TryGetNonEmptyString(process, bindingProperty, out var bindingId) && !routeBindingKeys.Contains(bindingId))
 									{
@@ -1053,6 +1094,7 @@ internal sealed class TwinComponentReferenceDraft
     public string ComponentType { get; set; } = string.Empty;
     public string Generator { get; set; } = string.Empty;
     public int GeneratorVersion { get; set; }
+    public Dictionary<string, string> Bindings { get; set; } = new(StringComparer.Ordinal);
     public string Path { get; set; } = string.Empty;
 }
 
