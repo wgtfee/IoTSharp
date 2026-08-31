@@ -33,14 +33,14 @@
 			</div>
 		</header>
 
-		<section class="twin-status-strip">
+		<section v-if="viewportMode === 'runtime'" class="twin-status-strip">
 			<div><span>路线状态</span><strong :class="`is-${metrics.state}`">{{ routeStateText }}<small v-if="metrics.waitingEdgeId || metrics.waitingPointId"> · {{ waitingReasonText }}</small></strong></div>
 			<div><span>位置</span><strong>{{ metrics.distanceMeters.toFixed(2) }} / {{ metrics.lengthMeters.toFixed(2) }} m</strong></div>
 			<div><span>实时绑定</span><strong>{{ manifest.bindings.length }} 条 · {{ liveMode ? '轮询中' : '已暂停' }}</strong></div>
 			<div><span>渲染</span><strong>{{ metrics.fps }} FPS · {{ metrics.drawCalls }} calls</strong></div>
 			<div><span>场景规模</span><strong>{{ formatNumber(metrics.triangles) }} triangles</strong></div>
 		</section>
-		<section v-if="metrics.silkLine" class="twin-status-strip twin-status-strip--silk">
+		<section v-if="viewportMode === 'runtime' && metrics.silkLine" class="twin-status-strip twin-status-strip--silk">
 			<div><span>双面丝车</span><strong>{{ metrics.silkLine.cartSide }} 面 · Row {{ metrics.silkLine.cartRow }} · {{ metrics.silkLine.cartRemaining }}/{{ metrics.silkLine.cartCapacity }}</strong></div>
 			<div><span>Robot 1×6</span><strong>{{ metrics.silkLine.robotState }} · Batch {{ metrics.silkLine.robotBatchSize }}/6 · 空托 {{ metrics.silkLine.loadingBufferReady }}/6 · 短回流 {{ metrics.silkLine.emptyBypassCount }}</strong></div>
 			<div><span>外检机</span><strong>{{ metrics.silkLine.inspectionState }} · PASS {{ metrics.silkLine.inspectionPassed }} · NG {{ metrics.silkLine.inspectionNg }} · {{ Math.round(metrics.silkLine.inspectionProgress * 100) }}%</strong></div>
@@ -56,7 +56,7 @@
 			<aside v-show="!leftPanelCollapsed" class="twin-panel twin-panel--left">
 				<div class="twin-panel__heading">
 					<div><span>SCENE</span><strong>场景与路线</strong></div>
-					<el-switch v-model="liveMode" active-text="实时" inline-prompt @change="toggleLiveMode" />
+					<el-switch v-if="viewportMode === 'runtime'" v-model="liveMode" active-text="实时" inline-prompt @change="toggleLiveMode" />
 				</div>
 				<div class="twin-card">
 					<el-alert v-if="routeIsGenerated" type="info" :closable="false" show-icon title="当前路线由 V7 组件端口 Connection 自动生成；请移动组件或修改连接，路线控制点只读。" />
@@ -91,10 +91,10 @@
 					<small>固定工艺：Robot 1×6、Gantry 2×3、木托盘 8 层 × 6 = 48 件；修改节拍后重建仿真并随草稿入库。</small>
 				</div>
 
-				<div class="twin-panel__subheading"><strong>场景模型</strong><el-button size="small" text type="primary" @click="resourceDrawerVisible = true">添加</el-button></div>
+				<div class="twin-panel__subheading"><strong>场景对象</strong><el-button size="small" text type="primary" @click="resourceDrawerVisible = true">添加</el-button></div>
 				<div class="compact-list">
-					<div v-for="item in modelObjects" :key="item.objectId" @click="selectSceneObject(item.objectId)"><span>{{ item.name }}</span><el-button text type="danger" size="small" @click.stop="removeModelObject(item.objectId)">移除</el-button></div>
-					<small v-if="modelObjects.length === 0">尚未从资源库放置模型。</small>
+					<div v-for="item in modelObjects" :key="item.objectId" @click="selectSceneObject(item.objectId)"><span>{{ item.name }}</span><el-button v-if="item.kind !== 'equipment'" text type="danger" size="small" @click.stop="removeModelObject(item.objectId)">移除</el-button></div>
+					<small v-if="modelObjects.length === 0">当前场景还没有可编辑对象。</small>
 				</div>
 
 				<div class="twin-panel__subheading"><strong>路线控制点</strong><el-button size="small" text type="primary" :disabled="routeIsGenerated" @click="addRoutePoint">新增</el-button></div>
@@ -206,17 +206,17 @@
 			<section class="twin-viewport-shell">
 				<el-button class="twin-panel-toggle twin-panel-toggle--left" circle size="small" :title="leftPanelCollapsed ? '展开场景与路线' : '收起场景与路线'" @click="leftPanelCollapsed = !leftPanelCollapsed">{{ leftPanelCollapsed ? '›' : '‹' }}</el-button>
 				<el-button class="twin-panel-toggle twin-panel-toggle--right" circle size="small" :title="rightPanelCollapsed ? '展开对象与数据绑定' : '收起对象与数据绑定'" @click="rightPanelCollapsed = !rightPanelCollapsed">{{ rightPanelCollapsed ? '‹' : '›' }}</el-button>
-				<ThreeJsEditorHost v-if="viewportMode === 'editor'" :key="editorInstanceKey" ref="professionalEditor" :manifest="manifest" @selection-change="selected = $event" @route-change="applyRuntimeRoute" @changed="markEditorChanged" @error="ElMessage.error($event)" />
+				<ThreeJsEditorHost v-if="viewportMode === 'editor'" :key="editorInstanceKey" ref="professionalEditor" :manifest="manifest" @selection-change="handleSelectionChange" @route-change="applyRuntimeRoute" @changed="markEditorChanged" @error="ElMessage.error($event)" />
 				<div v-else ref="viewport" class="twin-viewport"></div>
 				<div class="twin-viewport__hint"><template v-if="viewportMode === 'editor'">专业编辑是唯一工程坐标场景：模型、V7组件、Port、Connection、Section 与 Route 同图编辑；路线点可直接选择和拖动。</template><template v-else>运行预览只负责仿真/实时状态；工程位置以专业编辑场景为准。</template></div>
-				<div class="twin-progress"><i :style="{ width: `${Math.round(metrics.progress * 100)}%` }"></i></div>
+				<div v-if="viewportMode === 'runtime'" class="twin-progress"><i :style="{ width: `${Math.round(metrics.progress * 100)}%` }"></i></div>
 			</section>
 
 			<aside v-show="!rightPanelCollapsed" class="twin-panel twin-panel--right">
 				<div class="twin-panel__heading"><div><span>BINDING</span><strong>对象与数据绑定</strong></div></div>
 				<div class="twin-card twin-selection-card">
 					<span class="twin-card__label">当前选择</span><strong>{{ selected?.name ?? '未选择对象' }}</strong><small>{{ selected?.nodePath || selected?.path || '请在场景中选择模型节点' }}</small>
-					<pre v-if="selectedRuntimeData" class="twin-runtime-detail">{{ selectedRuntimeData }}</pre>
+					<pre v-if="viewportMode === 'runtime' && selectedRuntimeData" class="twin-runtime-detail">{{ selectedRuntimeData }}</pre>
 					<el-button v-if="selected?.kind === 'scene-object'" size="small" @click="focusSelected">聚焦对象</el-button>
 				</div>
 				<div class="twin-card binding-form">
@@ -245,6 +245,31 @@
 			<el-alert v-if="assets.length === 0" title="资产库为空：请先到资产管理新建产线根资产，再创建数字孪生场景。" type="warning" :closable="false" show-icon style="margin-bottom:16px"><template #default><el-button link type="primary" @click="router.push('/iot/assets/assetlist')">打开资产管理</el-button><el-button link @click="loadAssets">刷新资产</el-button></template></el-alert>
 			<el-form label-position="top"><el-form-item label="场景名称"><el-input v-model="createForm.name" /></el-form-item><el-form-item label="根 Asset"><el-select v-model="createForm.rootAssetId" filterable style="width:100%"><el-option v-for="asset in assets" :key="asset.id" :label="asset.name" :value="asset.id" /></el-select></el-form-item><el-form-item label="说明"><el-input v-model="createForm.description" type="textarea" /></el-form-item></el-form>
 			<template #footer><el-button @click="createDialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" :disabled="assets.length === 0" @click="createScene">创建并入库</el-button></template>
+		</el-dialog>
+
+		<el-dialog v-model="deviceStatusDialogVisible" width="720px" class="twin-device-status-dialog" destroy-on-close>
+			<template #header>
+				<div class="device-status-heading"><div><small>DEVICE STATUS</small><strong>{{ selected?.name || '驱动电机' }}</strong><span>{{ selected?.equipmentId || selected?.nodePath || selected?.objectId }}</span></div><el-tag :type="motorStatus.type" effect="dark" size="large">{{ motorStatus.label }}</el-tag></div>
+			</template>
+			<el-descriptions :column="2" border>
+				<el-descriptions-item label="设备类型">驱动电机</el-descriptions-item>
+				<el-descriptions-item label="数据模式">{{ liveMode ? 'PLC / IoT 实时' : '场景仿真' }}</el-descriptions-item>
+				<el-descriptions-item label="场景对象">{{ selectedObjectName }}</el-descriptions-item>
+				<el-descriptions-item label="绑定设备">{{ selectedEquipmentDeviceNames || '未绑定 Device' }}</el-descriptions-item>
+				<el-descriptions-item label="节点路径" :span="2">{{ selected?.nodePath || selected?.path || '-' }}</el-descriptions-item>
+				<el-descriptions-item label="最近数据" :span="2">{{ motorLatestTimestamp }}</el-descriptions-item>
+			</el-descriptions>
+			<div class="device-status-section"><div><strong>实时点位</strong><small>{{ motorBindingRows.length }} 条与当前对象关联的持久化绑定</small></div>
+				<el-alert v-if="motorBindingRows.length === 0" title="当前电机尚未绑定遥测、属性或在线状态；下面的运行状态仅来自场景仿真。" type="warning" :closable="false" show-icon />
+				<el-table v-else :data="motorBindingRows" max-height="280" stripe>
+					<el-table-column prop="key" label="点位" min-width="130" />
+					<el-table-column prop="device" label="Device" min-width="150" />
+					<el-table-column label="当前值" min-width="120"><template #default="scope"><code>{{ scope.row.value }}</code></template></el-table-column>
+					<el-table-column label="质量" width="95"><template #default="scope"><el-tag size="small" :type="scope.row.qualityType">{{ scope.row.quality }}</el-tag></template></el-table-column>
+					<el-table-column prop="timestamp" label="更新时间" min-width="170" />
+				</el-table>
+			</div>
+			<template #footer><el-button @click="deviceStatusDialogVisible = false">关闭</el-button><el-button type="primary" @click="openSelectedBindingPanel">配置数据绑定</el-button></template>
 		</el-dialog>
 
 		<el-drawer v-model="resourceDrawerVisible" title="模型资源库" size="520px">
@@ -279,7 +304,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
-import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinModelResource, type TwinSceneVersion } from '/@/api/digital-twin';
+import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { builtInComponentResourceRegistrations, builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
@@ -312,7 +337,8 @@ const pageLoading = ref(false), saving = ref(false), creating = ref(false), publ
 const playing = ref(false), liveMode = ref(false), routeDrawMode = ref(false);
 const viewportMode = ref<'editor' | 'runtime'>('editor');
 const editorInstanceKey = ref(0);
-const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), versionsDrawerVisible = ref(false);
+const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), versionsDrawerVisible = ref(false), deviceStatusDialogVisible = ref(false);
+const latestBindingUpdates = ref<Record<string, TwinDataUpdate>>({});
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
 const apiErrorMessage = (error: any, fallback: string) => error?.msg
@@ -338,11 +364,47 @@ const routeIsGenerated = computed(() => route.value?.generatedBy === 'component-
 const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).filter((item) => item.edges.length > 0));
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
-const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || (item as any).kind === 'component'));
+const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || item.kind === 'equipment' || (item as any).kind === 'component'));
 const glbModels = computed(() => models.value.filter((item) => item.runtimeFormat !== 'application/vnd.iotsharp.twin-component+json'));
 const componentTemplates = builtInComponentTemplates;
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
+const selectedEquipmentBindings = computed(() => {
+	const nodePath = selected.value?.nodePath || '';
+	return selectedBindings.value.filter((binding) => !binding.nodePath || !nodePath || binding.nodePath === nodePath || binding.nodePath.startsWith(`${nodePath}/`) || nodePath.startsWith(`${binding.nodePath}/`));
+});
 const selectedRuntimeData = computed(() => selected.value?.runtimeData ? JSON.stringify(selected.value.runtimeData, null, 2) : '');
+const selectedObjectName = computed(() => manifest.value.objects.find((item) => item.objectId === selected.value?.objectId)?.name || selected.value?.name || '-');
+const motorBindingRows = computed(() => selectedEquipmentBindings.value.map((binding) => {
+	const update = latestBindingUpdates.value[binding.bindingId];
+	const device = assetDevices.value.find((item) => item.id === binding.source.deviceId);
+	const quality = update ? (update.stale ? 'stale' : update.quality) : (liveMode.value ? 'waiting' : 'simulation');
+	return {
+		bindingId: binding.bindingId,
+		key: `${binding.source.kind} · ${binding.source.key || '-'}`,
+		device: device?.name || binding.source.deviceId || '未指定',
+		value: update ? formatStatusValue(update.value) : (liveMode.value ? '等待数据' : '仿真'),
+		quality,
+		qualityType: quality === 'good' ? 'success' : quality === 'simulation' ? 'info' : quality === 'waiting' ? 'warning' : 'danger',
+		timestamp: update?.sourceTimestamp ? formatDate(update.sourceTimestamp) : '-',
+	};
+}));
+const selectedEquipmentDeviceNames = computed(() => [...new Set(motorBindingRows.value.map((item) => item.device).filter(Boolean))].join('、'));
+const motorLatestTimestamp = computed(() => {
+	const timestamps = selectedEquipmentBindings.value.map((binding) => latestBindingUpdates.value[binding.bindingId]?.sourceTimestamp).filter(Boolean) as string[];
+	const sorted = timestamps.sort();
+	return sorted.length ? formatDate(sorted[sorted.length - 1]) : (liveMode.value ? '等待首帧数据' : '仿真模式无 PLC 时间戳');
+});
+const motorStatus = computed<{ label: string; type: 'success' | 'warning' | 'danger' | 'info' }>(() => {
+	const updates = selectedEquipmentBindings.value.map((binding) => latestBindingUpdates.value[binding.bindingId]).filter(Boolean) as TwinDataUpdate[];
+	if (updates.some((update) => update.stale || ['stale', 'missing', 'bad'].includes(update.quality))) return { label: '数据异常', type: 'danger' };
+	const keyed = updates.map((update) => ({ key: String(update.key || '').toLocaleLowerCase(), value: update.value }));
+	if (keyed.some((item) => /online|connected|通信/.test(item.key) && !statusValueIsTrue(item.value))) return { label: '离线', type: 'danger' };
+	if (keyed.some((item) => /fault|alarm|error|故障|报警/.test(item.key) && statusValueIsTrue(item.value))) return { label: '故障', type: 'danger' };
+	const running = keyed.find((item) => /running|run|enabled|start|运行|启动/.test(item.key));
+	if (running) return statusValueIsTrue(running.value) ? { label: '运行中', type: 'success' } : { label: '已停止', type: 'info' };
+	if (liveMode.value) return updates.length ? { label: '在线', type: 'success' } : { label: '等待数据', type: 'warning' };
+	return playing.value ? { label: '仿真运行', type: 'success' } : { label: '仿真停止', type: 'info' };
+});
 const canAddBinding = computed(() => Boolean(selected.value?.objectId && bindingForm.deviceId && (bindingForm.key || bindingForm.sourceKind === 'connectivity')));
 const selectedDevice = computed(() => assetDevices.value.find((item) => item.id === bindingForm.deviceId));
 const routeBindingOptions = computed(() => manifest.value.bindings
@@ -669,11 +731,37 @@ const applyRuntimeRoute = (value: TwinRouteDefinition) => {
 	refreshDiagnostics();
 };
 
+const isMotorSelection = (value: TwinSelectionInfo | null) => {
+	if (!value || value.kind === 'route-point') return false;
+	if (String(value.equipmentType || '').toLocaleLowerCase() === 'motor') return true;
+	return /motor|drive[_ -]?motor|电机|马达|减速机/i.test(`${value.name || ''} ${value.nodePath || ''} ${value.path || ''}`);
+};
+const handleSelectionChange = (value: TwinSelectionInfo | null) => {
+	selected.value = value;
+	if (viewportMode.value === 'runtime' && isMotorSelection(value)) deviceStatusDialogVisible.value = true;
+};
+const openSelectedBindingPanel = () => {
+	deviceStatusDialogVisible.value = false;
+	rightPanelCollapsed.value = false;
+};
+const statusValueIsTrue = (value: unknown) => {
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'number') return value !== 0;
+	return ['true', '1', 'on', 'running', 'run', 'online', 'yes', '启动', '运行', '在线'].includes(String(value ?? '').trim().toLocaleLowerCase());
+};
+const formatStatusValue = (value: unknown) => {
+	if (value === null || value === undefined) return '-';
+	if (typeof value === 'object') {
+		try { return JSON.stringify(value); } catch { return String(value); }
+	}
+	return String(value);
+};
+
 const initializeRuntime = () => {
 	if (!viewport.value) return;
 	adapter.value?.dispose();
 	adapter.value = new ThreeJsEditorAdapter(viewport.value, cloneTwinManifest(manifest.value), {
-		onSelectionChange: (value) => { selected.value = value; },
+		onSelectionChange: handleSelectionChange,
 		onRouteChange: applyRuntimeRoute,
 		onMetrics: (value) => Object.assign(metrics, value),
 		onError: (message) => ElMessage.error(message),
@@ -782,6 +870,7 @@ const loadScene = async (sceneId: string | number | boolean) => {
 	pageLoading.value = true;
 	try {
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.getScene(sceneId));
+		latestBindingUpdates.value = {};
 		currentScene.value = detail; selectedSceneId.value = detail.id; manifest.value = normalizeManifest(detail.draftPayload);
 		bindRegisteredComponentResources();
 		for (const key of Object.keys(previewOccupancy)) delete previewOccupancy[key];
@@ -1040,16 +1129,40 @@ const removeBinding = (bindingId: string) => {
 
 const refreshSnapshot = async () => {
 	if (!liveMode.value || !currentScene.value?.publishedVersionId) return;
-	try { adapter.value?.applyDataUpdates(apiData<any>(await digitalTwinApi.snapshot(currentScene.value.id)).updates || []); } catch { /* 下一轮自动重试。 */ }
+	try {
+		const snapshot = apiData<TwinRuntimeSnapshot>(await digitalTwinApi.snapshot(currentScene.value.id));
+		const updates = snapshot.updates || [];
+		if (updates.length) {
+			const next = { ...latestBindingUpdates.value };
+			for (const update of updates) {
+				if (update.bindingKey) next[update.bindingKey] = update;
+				if (update.bindingId) next[update.bindingId] = update;
+			}
+			latestBindingUpdates.value = next;
+		}
+		adapter.value?.applyDataUpdates(updates);
+	} catch { /* 下一轮自动重试。 */ }
 };
 const stopSnapshotPolling = () => { if (snapshotTimer !== undefined) window.clearInterval(snapshotTimer); snapshotTimer = undefined; };
 const startSnapshotPolling = () => { stopSnapshotPolling(); refreshSnapshot(); snapshotTimer = window.setInterval(refreshSnapshot, 2000); };
 const switchViewportMode = async (value: string | number | boolean) => {
 	// 从专业编辑器离开前先把尚未保存的变换写回内存 Manifest，路线运行才能立即看到最新位置。
-	professionalEditor.value?.captureManifest(manifest.value);
-	viewportMode.value = value === 'runtime' ? 'runtime' : 'editor';
+	try {
+		professionalEditor.value?.captureManifest(manifest.value);
+	} catch (error: any) {
+		// 编辑器扩展快照属于附加信息，绝不能阻塞基础 Manifest 的运行预览。
+		ElMessage.warning(`专业编辑快照同步失败，已继续打开运行预览：${error?.message || '未知错误'}`);
+	}
+	const nextMode = value === 'runtime' ? 'runtime' : 'editor';
+	viewportMode.value = nextMode;
+	if (nextMode === 'editor') deviceStatusDialogVisible.value = false;
 	playing.value = false; routeDrawMode.value = false;
 	await initializeViewport();
+	// 与场景中心保持一致：用户主动进入“运行预览”时，离线仿真立即启动。
+	if (nextMode === 'runtime' && !liveMode.value && adapter.value) {
+		playing.value = true;
+		adapter.value.setRunning(true);
+	}
 };
 const toggleLiveMode = async (value: string | number | boolean) => {
 	liveMode.value = Boolean(value); manifest.value.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
@@ -1057,7 +1170,10 @@ const toggleLiveMode = async (value: string | number | boolean) => {
 	liveMode.value ? startSnapshotPolling() : stopSnapshotPolling();
 };
 const togglePlaying = async () => {
-	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
+	if (viewportMode.value !== 'runtime') {
+		await switchViewportMode('runtime');
+		return;
+	}
 	playing.value = !playing.value; adapter.value?.setRunning(playing.value);
 };
 const restoreGeneratedRoute = (notify = true) => {
@@ -1181,11 +1297,12 @@ const removeRouteEdge = async (edgeId: string) => {
 	recalculateJunctionKinds(true);
 	await syncRouteGraph();
 };
-const parseRuleValue = (value: string): string | number | boolean => {
-	if (value.toLowerCase() === 'true') return true;
-	if (value.toLowerCase() === 'false') return false;
-	if (value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
-	return value;
+const parseRuleValue = (value: unknown): string | number | boolean => {
+	const normalized = String(value ?? '');
+	if (normalized.toLocaleLowerCase() === 'true') return true;
+	if (normalized.toLocaleLowerCase() === 'false') return false;
+	if (normalized.trim() !== '' && Number.isFinite(Number(normalized))) return Number(normalized);
+	return normalized;
 };
 const addDecisionRule = async () => {
 	if (!ensureManualRouteEditing()) return;
@@ -1275,15 +1392,16 @@ onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter
 </script>
 
 <style scoped lang="scss">
-.twin-workbench{--border:rgba(148,163,184,.2);--panel:rgba(8,19,34,.97);display:flex;flex-direction:column;min-height:calc(100vh - 132px);margin:-15px;color:#dbeafe;background:#07111f;overflow:hidden}.twin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:70px;padding:10px 18px;border-bottom:1px solid var(--border);background:#07111f}.twin-toolbar__title,.twin-toolbar__actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.twin-toolbar__title{min-width:320px}.scene-select{width:220px}.twin-toolbar__eyebrow,.twin-panel__heading span{font-size:10px;font-weight:800;letter-spacing:.15em;color:#38bdf8}.is-hidden{display:none}
+.twin-workbench{--border:rgba(148,163,184,.2);--panel:rgba(8,19,34,.97);display:flex;flex-direction:column;height:calc(100vh - 132px);height:calc(100dvh - 132px);min-height:560px;margin:-15px;color:#dbeafe;background:#07111f;overflow:hidden}.twin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:70px;padding:10px 18px;border-bottom:1px solid var(--border);background:#07111f}.twin-toolbar__title,.twin-toolbar__actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.twin-toolbar__title{min-width:320px}.scene-select{width:220px}.twin-toolbar__eyebrow,.twin-panel__heading span{font-size:10px;font-weight:800;letter-spacing:.15em;color:#38bdf8}.is-hidden{display:none}
 .twin-status-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border);background:#0a1728}.twin-status-strip>div{display:flex;flex-direction:column;gap:4px;padding:9px 15px;border-right:1px solid var(--border)}.twin-status-strip span,.twin-card__label{font-size:11px;color:#7f95ad}.twin-status-strip strong{font-size:12px}.twin-status-strip strong small{font:inherit}.is-running{color:#4ade80}.is-paused{color:#fbbf24}.is-waiting{color:#fb7185}.is-completed{color:#38bdf8}
-.twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1;transition:grid-template-columns .2s ease}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(420px,1fr) 310px}.twin-layout.is-right-collapsed{grid-template-columns:300px minmax(420px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(420px,1fr) 0}.twin-panel{min-height:0;padding:14px;background:var(--panel);overflow:auto}.twin-panel--left{border-right:1px solid var(--border)}.twin-panel--right{border-left:1px solid var(--border)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}.root-asset-help{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border:1px solid rgba(245,158,11,.32);border-radius:8px;background:rgba(245,158,11,.08)}.root-asset-help span{display:flex;flex-shrink:0}.root-asset-warning{color:#fbbf24!important}
+.twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1;overflow:hidden;transition:grid-template-columns .2s ease}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(420px,1fr) 310px}.twin-layout.is-right-collapsed{grid-template-columns:300px minmax(420px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(420px,1fr) 0}.twin-panel{height:100%;min-height:0;padding:14px;background:var(--panel);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.twin-panel--left{grid-column:1;border-right:1px solid var(--border)}.twin-panel--right{grid-column:3;border-left:1px solid var(--border)}.twin-panel__heading{position:sticky;top:-14px;z-index:4;margin:-14px -14px 0;padding:14px;border-bottom:1px solid var(--border);background:var(--panel)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}.root-asset-help{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border:1px solid rgba(245,158,11,.32);border-radius:8px;background:rgba(245,158,11,.08)}.root-asset-help span{display:flex;flex-shrink:0}.root-asset-warning{color:#fbbf24!important}
 .twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}
 .twin-runtime-detail{max-height:230px;margin:0;padding:9px;border:1px solid rgba(56,189,248,.22);border-radius:8px;background:rgba(2,8,23,.72);overflow:auto;color:#bae6fd;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
 .silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-route-process-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px;padding:7px;border:1px solid rgba(56,189,248,.26);border-radius:7px}.twin-route-process-grid :deep(.el-input-number){width:100%}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
 .twin-secondary-route{border-color:rgba(168,85,247,.28)}.twin-secondary-route>.twin-inline-control strong{font-size:12px;color:#e9d5ff}.twin-secondary-route>.twin-inline-control small{text-align:right}
-.twin-viewport-shell{position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
+.twin-viewport-shell{grid-column:2;position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
 .twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px 1fr;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
+.device-status-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding-right:26px}.device-status-heading>div{display:flex;min-width:0;flex-direction:column;gap:4px}.device-status-heading small{font-size:10px;font-weight:800;letter-spacing:.16em;color:#0ea5e9}.device-status-heading strong{font-size:20px;color:var(--el-text-color-primary)}.device-status-heading span{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.device-status-section{display:flex;flex-direction:column;gap:12px;margin-top:18px}.device-status-section>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.device-status-section>div small{color:var(--el-text-color-secondary)}.device-status-section code{color:#0284c7;font-weight:700}
 @media(max-width:1200px){.twin-layout{grid-template-columns:260px minmax(360px,1fr) 280px}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(360px,1fr) 280px}.twin-layout.is-right-collapsed{grid-template-columns:260px minmax(360px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(360px,1fr) 0}.twin-toolbar{align-items:flex-start;flex-direction:column}.twin-status-strip{grid-template-columns:repeat(3,1fr)}}
 </style>

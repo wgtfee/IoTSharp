@@ -194,7 +194,7 @@ function transformItem(source: any[], target: any[]) {
 				isAffix: false,
 				isIframe: false,
 				roles: ['admin', 'common'],
-				icon: '',
+				icon: item.icon || '',
 			},
 			children: [],
 		};

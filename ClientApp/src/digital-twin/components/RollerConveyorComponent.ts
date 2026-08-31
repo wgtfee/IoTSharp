@@ -18,7 +18,7 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 		const rollerPitch = resolveNumber(props, 'rollerPitch', sizeClass === 'large' ? 0.6 : 0.55, rollerDiameter * 1.1, 2);
 		const root = new THREE.Group();
 		root.name = definition.name;
-		root.add(createStraightRollerGeometry({
+		const geometry = createStraightRollerGeometry({
 			length,
 			width,
 			height,
@@ -29,7 +29,10 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 			supportSpacing: resolveNumber(props, 'supportSpacing', 2, 0.8, 8),
 			frameColor: sizeClass === 'large' ? 0x475569 : 0x334155,
 			rollerColor: 0x94a3b8,
-		}));
+		});
+		const driveMotor = geometry.getObjectByName('驱动电机');
+		if (driveMotor) driveMotor.userData.twinEquipmentId = `${definition.objectId}:drive-motor`;
+		root.add(geometry);
 		const ports: TwinComponentPortDefinition[] = [
 			{
 				portId: 'input',

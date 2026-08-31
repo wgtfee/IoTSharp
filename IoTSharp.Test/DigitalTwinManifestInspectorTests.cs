@@ -479,4 +479,96 @@ public sealed class DigitalTwinManifestInspectorTests
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.object.resource.required");
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.component.scale.locked");
     }
+
+    [Fact]
+    public void Inspect_AcceptsEquipmentObjectsAndExtractsDatabaseResourceBindings()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "丝饼整机对象场景",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [
+            {
+              "objectId": "silk-line", "name": "丝饼产线", "kind": "procedural",
+              "procedural": { "preset": "silk-cake-line", "palletCount": 80 },
+              "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "robot", "name": "1×6 上料机器人", "kind": "equipment",
+              "equipment": { "equipmentType": "loading-robot", "parentObjectId": "silk-line" },
+              "transform": { "position": [-6.5,0,-7.9], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "turntable", "name": "丝车旋转台", "kind": "equipment",
+              "equipment": { "equipmentType": "silk-cart-turntable", "parentObjectId": "silk-line" },
+              "transform": { "position": [-6.4,0,-10.5], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "gantry", "name": "码垛桁架", "kind": "equipment",
+              "equipment": { "equipmentType": "gantry-stacker", "parentObjectId": "silk-line" },
+              "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "cover", "name": "天盖安装机", "kind": "equipment",
+              "equipment": { "equipmentType": "cover-applicator", "parentObjectId": "silk-line" },
+              "transform": { "position": [33,0,-11], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "labeler", "name": "贴标机", "kind": "equipment",
+              "equipment": { "equipmentType": "labeler", "parentObjectId": "silk-line" },
+              "transform": { "position": [37.5,0,-11], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "wrapper", "name": "缠膜机", "kind": "equipment",
+              "equipment": { "equipmentType": "wrapper", "parentObjectId": "silk-line" },
+              "transform": { "position": [42,0,-11], "rotation": [0,0,0], "scale": [1,1,1] }
+            },
+            {
+              "objectId": "lift", "name": "入库提升机", "kind": "equipment",
+              "equipment": { "equipmentType": "inbound-lift", "parentObjectId": "silk-line" },
+              "transform": { "position": [48,0,-11], "rotation": [0,0,0], "scale": [1,1,1] }
+            }
+          ],
+          "bindings": [], "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+        Assert.Equal(8, result.Bindings.Count);
+        Assert.Equal(7, result.Bindings.Count(item => item.BindingKey.StartsWith("resource:", StringComparison.Ordinal) && item.ObjectId != "silk-line"));
+        Assert.All(result.Bindings.Where(item => item.ObjectId != "silk-line"), item =>
+        {
+            Assert.Equal(TwinBindingSourceKind.Resource, item.SourceKind);
+            Assert.Null(item.ModelResourceId);
+        });
+    }
+
+    [Fact]
+    public void Inspect_RejectsDuplicateOrOrphanEquipmentMappings()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "错误整机对象场景",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [
+            { "objectId": "not-line", "name": "普通对象", "kind": "model", "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] } },
+            { "objectId": "robot-a", "name": "机器人 A", "kind": "equipment", "equipment": { "equipmentType": "loading-robot", "parentObjectId": "not-line" }, "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] } },
+            { "objectId": "robot-b", "name": "机器人 B", "kind": "equipment", "equipment": { "equipmentType": "loading-robot", "parentObjectId": "not-line" }, "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] } },
+            { "objectId": "lift", "name": "孤立提升机", "kind": "equipment", "equipment": { "equipmentType": "inbound-lift", "parentObjectId": "missing-line" }, "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] } }
+          ],
+          "bindings": [], "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Valid);
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.equipment.parent-kind.invalid");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.equipment.parent.invalid");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.equipment.duplicate");
+    }
 }

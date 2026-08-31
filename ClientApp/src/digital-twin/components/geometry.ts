@@ -104,6 +104,22 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	}
 	legs.instanceMatrix.needsUpdate = true;
 	root.add(legs);
+
+	const motorGroup = new THREE.Group();
+	motorGroup.name = '驱动电机';
+	motorGroup.userData.twinEquipmentType = 'motor';
+	motorGroup.userData.equipmentRole = 'conveyor-drive';
+	const motorMaterial = createMaterial(0x0ea5e9, { roughness: 0.36, metalness: 0.72 });
+	const motorBody = new THREE.Mesh(new THREE.CylinderGeometry(rollerRadius * 1.75, rollerRadius * 1.75, Math.max(0.34, rollerRadius * 4), 20), motorMaterial);
+	motorBody.name = 'Motor_Body';
+	motorBody.rotation.x = Math.PI / 2;
+	motorGroup.add(motorBody);
+	const gearbox = new THREE.Mesh(new THREE.BoxGeometry(rollerRadius * 3.2, rollerRadius * 3.2, Math.max(0.22, rollerRadius * 1.6)), supportMaterial);
+	gearbox.name = 'Motor_Gearbox';
+	gearbox.position.z = -Math.max(0.28, rollerRadius * 2.8);
+	motorGroup.add(gearbox);
+	motorGroup.position.set(length / 2 - Math.min(0.45, length * 0.12), height - frameHeight * 0.65, width / 2 + Math.max(0.32, rollerRadius * 2.8));
+	root.add(motorGroup);
 	markShadows(root);
 	return root;
 };

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { SilkLineSimulationOptions, TwinRouteDefinition, TwinRouteEdgeDefinition } from '../contracts';
+import type { SilkLineSimulationOptions, TwinEquipmentType, TwinRouteDefinition, TwinRouteEdgeDefinition } from '../contracts';
 import type { TwinRouteRoutingContext } from '../routes/RouteEngine';
 import { TwinMaterialFlowRuntime, type TwinFlowWaitingReason } from './TwinMaterialFlowRuntime';
 import { resolveGantryPose } from './GantryPoseResolver';
@@ -63,6 +63,10 @@ interface RobotTaskRuntime {
 	attachedAtPick: boolean;
 	attachedAtPlace: boolean;
 	skipLoading: boolean;
+	pickCenterWorld?: THREE.Vector3;
+	placeCenterWorld?: THREE.Vector3;
+	pickLocalPositions: THREE.Vector3[];
+	pickLocalQuaternions: THREE.Quaternion[];
 }
 
 interface GantryTaskRuntime {
@@ -199,6 +203,14 @@ const markShadow = (object: THREE.Object3D) => {
 };
 
 const clamp01 = (value: number) => THREE.MathUtils.clamp(value, 0, 1);
+const smooth01 = (value: number) => {
+	const clamped = clamp01(value);
+	return clamped * clamped * (3 - 2 * clamped);
+};
+const averageVectors = (vectors: THREE.Vector3[]) => {
+	if (!vectors.length) return new THREE.Vector3();
+	return vectors.reduce((sum, vector) => sum.add(vector), new THREE.Vector3()).multiplyScalar(1 / vectors.length);
+};
 const polylineLength = (points: THREE.Vector3[]) => points.slice(1).reduce((sum, point, index) => sum + point.distanceTo(points[index]), 0);
 const pointOnPolyline = (points: THREE.Vector3[], progress: number) => {
 	if (!points.length) return new THREE.Vector3();
@@ -329,18 +341,26 @@ export class ProceduralPackagingLine {
 
 	private readonly silkCartRoot = new THREE.Group();
 	private readonly silkCartBody = new THREE.Group();
+	private readonly rotaryCell = new THREE.Group();
 	private readonly rotaryDisc = new THREE.Group();
 	private readonly robotRoot = new THREE.Group();
 	private readonly robotShoulder = new THREE.Group();
 	private readonly robotElbow = new THREE.Group();
 	private readonly robotWrist = new THREE.Group();
 	private readonly robotRowGripper = new THREE.Group();
+	private readonly robotGripperHeads: THREE.Object3D[] = [];
+	private readonly robotToolLink = new THREE.Group();
 	private readonly gantryRoot = new THREE.Group();
 	private readonly gantryCarriage = new THREE.Group();
 	private readonly gantryLift = new THREE.Group();
 	private readonly gantryGripper = new THREE.Group();
+	private readonly coverStationRoot = new THREE.Group();
 	private readonly coverGantryHead = new THREE.Group();
+	private readonly labelStationRoot = new THREE.Group();
+	private readonly wrapperStationRoot = new THREE.Group();
 	private readonly wrapperFilm = new THREE.Group();
+	private readonly inboundLiftRoot = new THREE.Group();
+	private readonly inboundLiftPlatform = new THREE.Group();
 
 	private sectionIds: {
 		loading?: string;
@@ -479,10 +499,13 @@ export class ProceduralPackagingLine {
 		for (const stored of this.storedWoodPallets.splice(0)) this.group.remove(stored.root);
 		if (this.activeWoodPallet) this.group.remove(this.activeWoodPallet.root);
 		this.activeWoodPallet = undefined;
+		for (const cake of this.cakes.values()) cake.root.parent?.remove(cake.root);
+		this.cakes.clear();
 		this.replaceSilkCart(true);
 		this.feedInitialPlasticPallets();
 		this.feedNewWoodPallet();
 		this.applyAllPoses();
+		this.updateRobot(0);
 	}
 
 	updateFixed(deltaSeconds: number) {
@@ -824,23 +847,24 @@ export class ProceduralPackagingLine {
 	}
 
 	private buildRotaryTableAndSilkCart() {
-		const cell = new THREE.Group();
-		cell.name = '双面丝车旋转供料单元';
-		cell.position.set(-6.4, 0, -10.5);
+		this.rotaryCell.name = '双面丝车旋转供料单元';
+		this.rotaryCell.userData.twinEntityType = 'silk-cart-turntable';
+		this.rotaryCell.userData.twinEntityId = 'SilkCartTurntable-01';
+		this.rotaryCell.position.set(-6.4, 0, -10.5);
 		const base = new THREE.Mesh(new THREE.CylinderGeometry(2.25, 2.35, 0.35, 40), this.darkFrameMaterial);
 		base.position.y = 0.18;
-		cell.add(base);
+		this.rotaryCell.add(base);
 		const discMesh = new THREE.Mesh(new THREE.CylinderGeometry(2.08, 2.08, 0.18, 40), this.safetyMaterial);
 		discMesh.position.y = 0.44;
 		this.rotaryDisc.add(discMesh);
-		cell.add(this.rotaryDisc);
+		this.rotaryCell.add(this.rotaryDisc);
 		this.silkCartRoot.name = '丝车';
 		this.silkCartRoot.userData.twinEntityType = 'silk-cart';
 		this.silkCartRoot.position.y = 0.55;
 		this.rotaryDisc.add(this.silkCartRoot);
 		this.silkCartRoot.add(this.silkCartBody);
 		this.buildSilkCartFrame();
-		this.group.add(cell);
+		this.group.add(this.rotaryCell);
 	}
 
 	private buildSilkCartFrame() {
@@ -938,16 +962,23 @@ export class ProceduralPackagingLine {
 		this.robotWrist.add(wrist);
 		this.robotElbow.add(this.robotWrist);
 		this.robotRowGripper.name = 'RobotRowGripper-1x6';
-		this.robotRowGripper.position.set(0, 0.38, 0);
+		this.robotRowGripper.position.set(0, 4.25, 0);
 		const rail = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.16, 0.18), this.darkFrameMaterial);
+		rail.name = 'RobotRowGripperRail';
 		this.robotRowGripper.add(rail);
 		for (let index = 0; index < ROBOT_BATCH; index += 1) {
 			const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.32, 16), this.robotJointMaterial);
 			head.position.set(-2.75 + index * 1.1, -0.2, 0);
 			this.robotRowGripper.add(head);
+			this.robotGripperHeads.push(head);
 		}
-		this.robotWrist.add(this.robotRowGripper);
+		// 夹具作为机器人整机根节点的直系子对象，由工艺轨迹直接驱动；视觉连杆把腕部与夹具连续连接。
+		this.robotRoot.add(this.robotRowGripper);
+		this.robotToolLink.name = 'RobotTelescopicToolLink';
+		this.robotToolLink.add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1, 14), this.robotJointMaterial));
+		this.robotRoot.add(this.robotToolLink);
 		this.group.add(this.robotRoot);
+		this.updateRobotToolLink();
 	}
 
 	private buildPlasticConveyors() {
@@ -1152,44 +1183,80 @@ export class ProceduralPackagingLine {
 		const process = new THREE.Group();
 		process.name = '木托盘后包装与立库入库线';
 		if (renderLegacyConveyor) this.addRollerLane(process, new THREE.Vector3(30.4, 0.42, WOOD_LANE_Z), new THREE.Vector3(silkLineLayout.inboundX + 1.5, 0.42, WOOD_LANE_Z), 2.2, '满托后包装辊道', 'silk-wood-edge-post-process');
-		this.addProcessPortal(process, COVER_POSITION.x, '盖板桁架工位', 0x38bdf8);
-		this.addProcessPortal(process, LABEL_POSITION.x, '贴标工位', 0x22c55e);
-		this.addProcessPortal(process, WRAP_POSITION.x, '缠膜工位', 0xa855f7);
+
+		this.coverStationRoot.name = '天盖安装机';
+		this.coverStationRoot.userData.twinEntityType = 'cover-applicator';
+		this.coverStationRoot.userData.twinEntityId = 'CoverApplicator-01';
+		this.coverStationRoot.position.set(COVER_POSITION.x, 0, COVER_POSITION.z);
+		this.addProcessPortal(this.coverStationRoot, '天盖安装机门架', 0x38bdf8);
 		const coverGantry = new THREE.Group();
-		coverGantry.name = '盖板桁架';
-		coverGantry.position.set(COVER_POSITION.x, 4.2, COVER_POSITION.z);
+		coverGantry.name = '天盖安装执行机构';
+		coverGantry.position.set(0, 4.2, 0);
 		const beam = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.22, 0.3), this.frameMaterial);
 		coverGantry.add(beam);
 		const head = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 1.8), this.safetyMaterial);
 		head.position.y = -1.0;
 		this.coverGantryHead.add(head);
 		coverGantry.add(this.coverGantryHead);
-		process.add(coverGantry);
+		this.coverStationRoot.add(coverGantry);
+
+		this.labelStationRoot.name = '贴标机';
+		this.labelStationRoot.userData.twinEntityType = 'labeler';
+		this.labelStationRoot.userData.twinEntityId = 'Labeler-01';
+		this.labelStationRoot.position.set(LABEL_POSITION.x, 0, LABEL_POSITION.z);
+		this.addProcessPortal(this.labelStationRoot, '贴标机门架', 0x22c55e);
+		const labelHead = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.9, 0.8), this.labelMaterial);
+		labelHead.name = '贴标执行头';
+		labelHead.position.set(0, 2.15, -1.25);
+		this.labelStationRoot.add(labelHead);
+
+		this.wrapperStationRoot.name = '缠膜机';
+		this.wrapperStationRoot.userData.twinEntityType = 'wrapper';
+		this.wrapperStationRoot.userData.twinEntityId = 'Wrapper-01';
+		this.wrapperStationRoot.position.set(WRAP_POSITION.x, 0, WRAP_POSITION.z);
+		this.addProcessPortal(this.wrapperStationRoot, '缠膜机门架', 0xa855f7);
 		const wrapperRing = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.12, 12, 48), this.safetyMaterial);
 		wrapperRing.rotation.y = Math.PI / 2;
-		wrapperRing.position.set(WRAP_POSITION.x, 2.2, WRAP_POSITION.z);
-		process.add(wrapperRing);
+		wrapperRing.position.set(0, 2.2, 0);
+		this.wrapperStationRoot.add(wrapperRing);
 		const film = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 4.0, 32, 1, true), this.wrapMaterial);
 		film.position.y = 1.8;
 		this.wrapperFilm.add(film);
-		this.wrapperFilm.position.set(WRAP_POSITION.x, 0, WRAP_POSITION.z);
+		this.wrapperFilm.position.set(0, 0, 0);
 		this.wrapperFilm.visible = false;
-		process.add(this.wrapperFilm);
+		this.wrapperStationRoot.add(this.wrapperFilm);
+
+		this.inboundLiftRoot.name = '入库提升机';
+		this.inboundLiftRoot.userData.twinEntityType = 'inbound-lift';
+		this.inboundLiftRoot.userData.twinEntityId = 'InboundLift-01';
+		this.inboundLiftRoot.position.set(INBOUND_POSITION.x, 0, INBOUND_POSITION.z);
+		for (const x of [-1.45, 1.45]) for (const z of [-1.25, 1.25]) {
+			const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 5.4, 0.18), this.frameMaterial);
+			rail.position.set(x, 2.7, z);
+			this.inboundLiftRoot.add(rail);
+		}
+		this.inboundLiftPlatform.name = '提升机轿厢平台';
+		const liftDeck = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.2, 2.7), this.safetyMaterial);
+		liftDeck.position.y = 0.58;
+		this.inboundLiftPlatform.add(liftDeck);
+		this.inboundLiftRoot.add(this.inboundLiftPlatform);
+
+		this.group.add(this.coverStationRoot, this.labelStationRoot, this.wrapperStationRoot, this.inboundLiftRoot);
 		this.buildWarehouse(process);
 		this.group.add(process);
 	}
 
-	private addProcessPortal(parent: THREE.Group, x: number, name: string, color: number) {
+	private addProcessPortal(parent: THREE.Group, name: string, color: number) {
 		const material = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.18, roughness: 0.4, metalness: 0.32 });
 		const portal = new THREE.Group();
 		portal.name = name;
-		for (const z of [WOOD_LANE_Z - 1, WOOD_LANE_Z + 1]) {
+		for (const z of [-1, 1]) {
 			const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.0, 0.16), material);
-			post.position.set(x, 1.5, z);
+			post.position.set(0, 1.5, z);
 			portal.add(post);
 		}
 		const top = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 2.2), material);
-		top.position.set(x, 3.0, WOOD_LANE_Z);
+		top.position.set(0, 3.0, 0);
 		portal.add(top);
 		parent.add(portal);
 	}
@@ -1311,6 +1378,12 @@ export class ProceduralPackagingLine {
 		this.robotBatchSequence += 1;
 		const emptyBatchSample = (this.robotBatchSequence * 37 % 100) / 100;
 		const skipLoading = emptyBatchSample < this.options.emptyPalletBatchRate;
+		this.group.updateMatrixWorld(true);
+		const pickCenterWorld = averageVectors(rowSlots.map((slot) => {
+			const cake = slot.silkCakeId ? this.cakes.get(slot.silkCakeId) : undefined;
+			return cake?.root.getWorldPosition(new THREE.Vector3()) || slot.anchor.getWorldPosition(new THREE.Vector3());
+		}));
+		const placeCenterWorld = averageVectors(pallets.map((pallet) => pallet.cakeAnchor.localToWorld(new THREE.Vector3(0, 0.22, 0))));
 		this.robotTask = {
 			state: 'picking',
 			progress: 0,
@@ -1321,6 +1394,10 @@ export class ProceduralPackagingLine {
 			attachedAtPick: false,
 			attachedAtPlace: false,
 			skipLoading,
+			pickCenterWorld,
+			placeCenterWorld,
+			pickLocalPositions: [],
+			pickLocalQuaternions: [],
 		};
 		this.cartState = this.currentSide === 'A' ? 'feeding-a' : 'feeding-b';
 	}
@@ -1330,26 +1407,39 @@ export class ProceduralPackagingLine {
 			this.robotShoulder.rotation.z = -0.18;
 			this.robotElbow.rotation.z = 0.48;
 			this.robotWrist.rotation.y = 0;
+			this.robotRowGripper.position.set(0, 4.25, 0);
+			this.updateRobotGripperSpread(0);
+			this.updateRobotToolLink();
 			return;
 		}
 		const duration = Math.max(0.2, this.options.robotCycleSeconds);
 		this.robotTask.progress = clamp01(this.robotTask.progress + deltaSeconds / duration);
 		const p = this.robotTask.progress;
-		this.robotShoulder.rotation.z = -0.25 + Math.sin(p * Math.PI) * 0.55;
-		this.robotElbow.rotation.z = 0.45 + Math.sin(p * Math.PI) * 0.75;
-		this.robotWrist.rotation.y = (this.robotTask.side === 'A' ? -1 : 1) * Math.sin(p * Math.PI) * 0.4;
-		if (!this.robotTask.attachedAtPick && p >= 0.2) {
+		const reach = Math.sin(p * Math.PI);
+		this.robotShoulder.rotation.z = -0.22 + reach * 0.42;
+		this.robotElbow.rotation.z = 0.48 + reach * 0.62;
+		this.robotWrist.rotation.y = (this.robotTask.side === 'A' ? -1 : 1) * reach * 0.32;
+		this.updateRobotGripperPose(p);
+		this.updateRobotGripperSpread(smooth01((p - 0.38) / 0.32));
+
+		if (!this.robotTask.attachedAtPick && p >= 0.25) {
 			this.robotTask.attachedAtPick = true;
+			this.group.updateMatrixWorld(true);
 			for (const silkCakeId of this.robotTask.silkCakeIds) {
 				const cake = this.cakes.get(silkCakeId);
 				if (!cake) continue;
 				this.robotRowGripper.attach(cake.root);
+				this.robotTask.pickLocalPositions.push(cake.root.position.clone());
+				this.robotTask.pickLocalQuaternions.push(cake.root.quaternion.clone());
 				cake.state = 'robot-picking';
 			}
 			for (const slot of this.cartSlots.filter((slot) => this.robotTask.silkCakeIds.includes(slot.silkCakeId || ''))) delete slot.silkCakeId;
 		}
-		if (!this.robotTask.attachedAtPlace && p >= 0.72) {
+
+		if (this.robotTask.attachedAtPick && !this.robotTask.attachedAtPlace) this.updateRobotCarriedCakes(p);
+		if (!this.robotTask.attachedAtPlace && p >= 0.74) {
 			this.robotTask.attachedAtPlace = true;
+			this.group.updateMatrixWorld(true);
 			for (let index = 0; index < ROBOT_BATCH; index += 1) {
 				const pallet = this.pallets.get(this.robotTask.palletIds[index]);
 				const cake = this.cakes.get(this.robotTask.silkCakeIds[index]);
@@ -1362,7 +1452,82 @@ export class ProceduralPackagingLine {
 				pallet.silkCakeId = cake.silkCakeId;
 			}
 		}
+		this.updateRobotToolLink();
 		if (p >= 1) this.finishRobotBatch();
+	}
+
+	private updateRobotGripperPose(progress: number) {
+		const pickCenter = this.robotTask.pickCenterWorld;
+		const placeCenter = this.robotTask.placeCenterWorld;
+		if (!pickCenter || !placeCenter) return;
+		this.robotRoot.updateMatrixWorld(true);
+		const home = this.robotRoot.localToWorld(new THREE.Vector3(0, 4.25, 0));
+		const pick = pickCenter.clone().add(new THREE.Vector3(0, 0.55, 0));
+		const abovePick = pick.clone().add(new THREE.Vector3(0, 1.75, 0));
+		const place = placeCenter.clone().add(new THREE.Vector3(0, 0.55, 0));
+		const abovePlace = place.clone().add(new THREE.Vector3(0, 1.9, 0));
+		const keys: Array<{ at: number; position: THREE.Vector3 }> = [
+			{ at: 0, position: home },
+			{ at: 0.12, position: abovePick },
+			{ at: 0.25, position: pick },
+			{ at: 0.36, position: abovePick },
+			{ at: 0.60, position: abovePlace },
+			{ at: 0.74, position: place },
+			{ at: 0.84, position: abovePlace },
+			{ at: 1, position: home },
+		];
+		let from = keys[0], to = keys[keys.length - 1];
+		for (let index = 1; index < keys.length; index += 1) {
+			if (progress <= keys[index].at) {
+				from = keys[index - 1];
+				to = keys[index];
+				break;
+			}
+		}
+		const segmentProgress = smooth01((progress - from.at) / Math.max(0.0001, to.at - from.at));
+		const worldPosition = from.position.clone().lerp(to.position, segmentProgress);
+		this.robotRowGripper.position.copy(this.robotRoot.worldToLocal(worldPosition));
+	}
+
+	private updateRobotGripperSpread(progress: number) {
+		for (let index = 0; index < this.robotGripperHeads.length; index += 1) {
+			const pickupX = -2.75 + index * 1.1;
+			const placementX = -3.875 + index * 1.55;
+			this.robotGripperHeads[index].position.x = THREE.MathUtils.lerp(pickupX, placementX, progress);
+		}
+		const rail = this.robotRowGripper.getObjectByName('RobotRowGripperRail');
+		if (rail) rail.scale.x = THREE.MathUtils.lerp(1, 1.3, progress);
+	}
+
+	private updateRobotCarriedCakes(progress: number) {
+		const placementBlend = smooth01((progress - 0.36) / 0.38);
+		this.group.updateMatrixWorld(true);
+		for (let index = 0; index < this.robotTask.silkCakeIds.length; index += 1) {
+			const cake = this.cakes.get(this.robotTask.silkCakeIds[index]);
+			const pallet = this.pallets.get(this.robotTask.palletIds[index]);
+			const startPosition = this.robotTask.pickLocalPositions[index];
+			const startQuaternion = this.robotTask.pickLocalQuaternions[index];
+			if (!cake || !pallet || !startPosition || !startQuaternion) continue;
+			const targetWorld = pallet.cakeAnchor.localToWorld(new THREE.Vector3(0, 0.22, 0));
+			const targetLocal = this.robotRowGripper.worldToLocal(targetWorld.clone());
+			cake.root.position.lerpVectors(startPosition, targetLocal, placementBlend);
+			const gripperWorldQuaternion = this.robotRowGripper.getWorldQuaternion(new THREE.Quaternion());
+			const targetWorldQuaternion = pallet.cakeAnchor.getWorldQuaternion(new THREE.Quaternion());
+			const targetLocalQuaternion = gripperWorldQuaternion.invert().multiply(targetWorldQuaternion);
+			cake.root.quaternion.copy(startQuaternion).slerp(targetLocalQuaternion, placementBlend);
+		}
+	}
+
+	private updateRobotToolLink() {
+		this.robotRoot.updateMatrixWorld(true);
+		const wristWorld = this.robotWrist.getWorldPosition(new THREE.Vector3());
+		const wristLocal = this.robotRoot.worldToLocal(wristWorld);
+		const gripperLocal = this.robotRowGripper.position.clone();
+		const direction = gripperLocal.clone().sub(wristLocal);
+		const length = Math.max(0.01, direction.length());
+		this.robotToolLink.position.copy(wristLocal).add(gripperLocal).multiplyScalar(0.5);
+		this.robotToolLink.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+		this.robotToolLink.scale.set(1, length, 1);
 	}
 
 	private finishRobotBatch() {
@@ -1898,6 +2063,19 @@ export class ProceduralPackagingLine {
 		}
 	}
 
+	/** 供专业编辑器和运行时把程序化产线中的整机映射为独立 Manifest 对象。 */
+	getEquipmentRoots(): Partial<Record<TwinEquipmentType, THREE.Group>> {
+		return {
+			'loading-robot': this.robotRoot,
+			'silk-cart-turntable': this.rotaryCell,
+			'gantry-stacker': this.gantryRoot,
+			'cover-applicator': this.coverStationRoot,
+			labeler: this.labelStationRoot,
+			wrapper: this.wrapperStationRoot,
+			'inbound-lift': this.inboundLiftRoot,
+		};
+	}
+
 	private applyWoodSectionPose(root: THREE.Object3D, sectionId: string, progress: number, fallbackFrom: THREE.Vector3, fallbackTo: THREE.Vector3) {
 		const pose = this.woodSectionGeometry?.getPose(sectionId, progress);
 		if (!pose) {
@@ -2146,7 +2324,11 @@ export class ProceduralPackagingLine {
 	}
 
 	private createIdleRobotTask(): RobotTaskRuntime {
-		return { state: 'idle', progress: 0, side: this.currentSide, row: this.currentRow, palletIds: [], silkCakeIds: [], attachedAtPick: false, attachedAtPlace: false, skipLoading: false };
+		return {
+			state: 'idle', progress: 0, side: this.currentSide, row: this.currentRow,
+			palletIds: [], silkCakeIds: [], attachedAtPick: false, attachedAtPlace: false,
+			skipLoading: false, pickLocalPositions: [], pickLocalQuaternions: [],
+		};
 	}
 
 	private createIdleGantryTask(): GantryTaskRuntime {

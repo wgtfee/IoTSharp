@@ -8,6 +8,13 @@ import assetsmnt from  '~icons/ic/outline-devices-other'
 import alarmmnt from  '~icons/ic/round-warning'
 import rulesmnt from  '~icons/carbon/flow-modeler'
 import settingsmnt from  '~icons/carbon/settings'
+import digitaltwin from '~icons/material-symbols/3d-rotation'
+import digitaltwinmodelgenerator from '~icons/material-symbols/deployed-code'
+import digitaltwinworkbench from '~icons/material-symbols/view-in-ar'
+import digitaltwinscenes from '~icons/material-symbols/schema'
+import aicenter from '~icons/material-symbols/smart-toy'
+import aiworkbench from '~icons/material-symbols/psychology'
+import mcpservice from '~icons/material-symbols/account-tree'
 export const menuIconList = {
     dashboard,
     tenantmnt,
@@ -19,4 +26,11 @@ export const menuIconList = {
     alarmmnt,
     rulesmnt,
     settingsmnt,
+    digitaltwin,
+    digitaltwinmodelgenerator,
+    digitaltwinworkbench,
+    digitaltwinscenes,
+    aicenter,
+    aiworkbench,
+    mcpservice,
 }

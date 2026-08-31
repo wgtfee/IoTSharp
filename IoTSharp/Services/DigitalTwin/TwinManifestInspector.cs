@@ -220,6 +220,13 @@ internal static class TwinManifestInspector
     private static HashSet<string> InspectObjects(JsonElement manifest, Guid rootAssetId, TwinManifestInspection result)
     {
         var objectIds = new HashSet<string>(StringComparer.Ordinal);
+        var objectKinds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var equipmentReferences = new List<(string Path, string ParentObjectId, string EquipmentType)>();
+        var supportedEquipmentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "loading-robot", "silk-cart-turntable", "gantry-stacker", "cover-applicator",
+            "labeler", "wrapper", "inbound-lift"
+        };
         if (!manifest.TryGetProperty("objects", out var objects) || objects.ValueKind != JsonValueKind.Array)
         {
             result.Diagnostics.Add(Error("twin.objects.invalid", "objects 必须是数组。", "objects"));
@@ -240,6 +247,7 @@ internal static class TwinManifestInspector
             var resourceId = TryGetGuid(sceneObject, "resourceId", out var parsedResourceId) ? parsedResourceId : (Guid?)null;
             var assetId = TryGetGuid(sceneObject, "assetId", out var parsedAssetId) ? parsedAssetId : rootAssetId;
             var hasKind = TryGetNonEmptyString(sceneObject, "kind", out var kind);
+            objectKinds[objectId] = hasKind ? kind : string.Empty;
             var requiresDatabaseResource = hasKind && (kind.Equals("model", StringComparison.OrdinalIgnoreCase) || kind.Equals("component", StringComparison.OrdinalIgnoreCase));
             if (requiresDatabaseResource && resourceId == null)
             {
@@ -253,6 +261,25 @@ internal static class TwinManifestInspector
             if (kind?.Equals("component", StringComparison.OrdinalIgnoreCase) == true)
             {
                 InspectComponentObject(sceneObject, objectId, resourceId, path, result);
+            }
+
+            if (kind?.Equals("equipment", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (!sceneObject.TryGetProperty("equipment", out var equipment) || equipment.ValueKind != JsonValueKind.Object)
+                {
+                    result.Diagnostics.Add(Error("twin.equipment.definition.required", "整机对象必须包含 equipment 定义。", $"{path}.equipment"));
+                }
+                else
+                {
+                    var equipmentType = GetString(equipment, "equipmentType");
+                    var parentObjectId = GetString(equipment, "parentObjectId");
+                    if (string.IsNullOrWhiteSpace(equipmentType) || !supportedEquipmentTypes.Contains(equipmentType))
+                        result.Diagnostics.Add(Error("twin.equipment.type.invalid", "整机对象类型不受支持。", $"{path}.equipment.equipmentType"));
+                    if (string.IsNullOrWhiteSpace(parentObjectId))
+                        result.Diagnostics.Add(Error("twin.equipment.parent.required", "整机对象必须引用所属程序化产线。", $"{path}.equipment.parentObjectId"));
+                    else if (!string.IsNullOrWhiteSpace(equipmentType))
+                        equipmentReferences.Add((path, parentObjectId, equipmentType));
+                }
             }
 
             if (kind?.Equals("procedural", StringComparison.OrdinalIgnoreCase) == true &&
@@ -289,6 +316,24 @@ internal static class TwinManifestInspector
                 StaleAfterMs = 0
             });
             index += 1;
+        }
+
+        var equipmentSlots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in equipmentReferences)
+        {
+            if (!objectKinds.TryGetValue(reference.ParentObjectId, out var parentKind))
+            {
+                result.Diagnostics.Add(Error("twin.equipment.parent.invalid", "整机对象引用的父产线不存在。", $"{reference.Path}.equipment.parentObjectId"));
+            }
+            else if (!parentKind.Equals("procedural", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Diagnostics.Add(Error("twin.equipment.parent-kind.invalid", "整机对象的父对象必须是程序化产线。", $"{reference.Path}.equipment.parentObjectId"));
+            }
+
+            if (!equipmentSlots.Add($"{reference.ParentObjectId}\n{reference.EquipmentType}"))
+            {
+                result.Diagnostics.Add(Error("twin.equipment.duplicate", "同一程序化产线不能重复映射同一种整机设备。", $"{reference.Path}.equipment.equipmentType"));
+            }
         }
 
         return objectIds;

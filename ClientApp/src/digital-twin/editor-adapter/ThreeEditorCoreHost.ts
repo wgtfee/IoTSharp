@@ -1,6 +1,8 @@
-import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
+import * as THREE from 'three';
+import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinEquipmentType, TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
+import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
 import { defaultComponentRegistry, isComponentSceneObject, revalidateComponentConnections, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
 import { EngineeringOverlayManager, type EngineeringOverlayLayer } from '/@/digital-twin/editor-adapter/EngineeringOverlayManager';
@@ -23,7 +25,7 @@ interface LoadedEditorModel {
 	resourceId?: string;
 	root: any;
 	dispose?: () => void;
-	kind: 'model' | 'component';
+	kind: 'model' | 'component' | 'procedural' | 'equipment';
 }
 
 const editorCommit = 'd7e2ddf6cc1fa8c626356a3606167abff68daaed';
@@ -71,6 +73,14 @@ const sanitizeModelSnapshot = (value: any): ThreeEditorModelSnapshot | null => {
 	};
 };
 
+const disposeObjectTree = (root: any) => {
+	root?.traverse?.((object: any) => {
+		object.geometry?.dispose?.();
+		const materials = Array.isArray(object.material) ? object.material : object.material ? [object.material] : [];
+		for (const material of materials) material?.dispose?.();
+	});
+};
+
 /** threejs-editor 专业编辑内核与 IoTSharp Manifest 的稳定边界。 */
 export class ThreeEditorCoreHost {
 	private readonly container: HTMLDivElement;
@@ -116,6 +126,7 @@ export class ThreeEditorCoreHost {
 				this.latestModelParams = (modelParams || []).map(sanitizeModelSnapshot).filter((item): item is ThreeEditorModelSnapshot => Boolean(item && glbIds.has(item.rootInfo.iotsharpObjectId)));
 			},
 		});
+		this.ensureIndustrialEditorEnvironment();
 
 		this.editor.setGUIDomPosition(guiContainer);
 		this.editor.setSceneControlMode('变换');
@@ -167,6 +178,7 @@ export class ThreeEditorCoreHost {
 		this.resizeObserver = new ResizeObserver(() => this.editor?.viewer?.renderSceneResize?.());
 		this.resizeObserver.observe(container);
 		this.loadManifestComponents();
+		this.loadManifestProceduralReferences();
 	}
 
 	async loadGlbBuffer(object: TwinSceneObjectDefinition, fileName: string, buffer: ArrayBuffer) {
@@ -255,6 +267,126 @@ export class ThreeEditorCoreHost {
 		this.routeOverlay.setManifest(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.editor.viewer.renderScene?.();
+	}
+
+	/**
+	 * 在专业编辑器中加载程序化产线的静态工程参考。
+	 * 输送机仍由 V7 Component 绘制；这里补齐运行时拥有的机器人、旋转台、丝车、桁架、托盘和后包装设备。
+	 */
+	private loadManifestProceduralReferences() {
+		const supportedPresets = new Set(['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line']);
+		for (const object of this.manifest.objects) {
+			if (object.kind !== 'procedural' || !supportedPresets.has(object.procedural?.preset || '') || this.loadedModels.has(object.objectId)) continue;
+			const route = this.manifest.routes.find((candidate) => candidate.routeId === 'silk-cake-line-main') || this.manifest.routes[0];
+			if (!route) continue;
+			try {
+				const palletCount = object.procedural?.palletCount ?? this.manifest.runtime.silkLineSimulation?.palletCount ?? 80;
+				// manifest 来自 Vue ref，route/options 可能是响应式 Proxy；程序化运行时内部会 structuredClone，
+				// 因此必须在编辑器适配边界先转成纯 JSON 数据。
+				const routeSnapshot = cloneJson(route);
+				const simulationSnapshot = cloneJson(this.manifest.runtime.silkLineSimulation || {});
+				const woodPackagingRoute = this.manifest.routes.find((candidate) => candidate.routeId === 'silk-wood-packaging-route');
+				const reference = new ProceduralPackagingLine(routeSnapshot, palletCount, simulationSnapshot, {
+					renderLegacyPlasticConveyors: false,
+					renderLegacyPreProcessStations: false,
+					renderLegacyGantryConveyors: false,
+					renderLegacyPostProcessConveyor: false,
+					woodPackagingRoute: woodPackagingRoute ? cloneJson(woodPackagingRoute) : undefined,
+				});
+				const root: any = reference.group;
+				root.name = object.name;
+				root.userData = { ...root.userData, iotsharpObjectId: object.objectId, editorProceduralReference: true };
+				root.rootInfo = { type: 'IOTSHARP_PROCEDURAL', name: object.name, iotsharpObjectId: object.objectId };
+				root.position.set(...object.transform.position);
+				root.rotation.set(...object.transform.rotation);
+				root.scale.set(...object.transform.scale);
+				this.editor.viewer.scene.add(root);
+				this.loadedModels.set(object.objectId, { objectId: object.objectId, root, dispose: () => disposeObjectTree(root), kind: 'procedural' });
+				const equipmentRoots = reference.getEquipmentRoots();
+				const equipmentObjects = this.manifest.objects.filter((candidate) => candidate.kind === 'equipment'
+					&& candidate.equipment?.parentObjectId === object.objectId);
+				for (const equipmentObject of equipmentObjects) {
+					const equipmentType = equipmentObject.equipment!.equipmentType as TwinEquipmentType;
+					const equipmentRoot: any = equipmentRoots[equipmentType];
+					if (!equipmentRoot) continue;
+					equipmentRoot.name = equipmentObject.name;
+					equipmentRoot.userData = {
+						...equipmentRoot.userData,
+						iotsharpObjectId: equipmentObject.objectId,
+						twinEquipmentType: equipmentType,
+						twinEquipmentId: equipmentObject.objectId,
+					};
+					equipmentRoot.rootInfo = {
+						type: 'IOTSHARP_EQUIPMENT',
+						name: equipmentObject.name,
+						iotsharpObjectId: equipmentObject.objectId,
+					};
+					equipmentRoot.position.set(...equipmentObject.transform.position);
+					equipmentRoot.rotation.set(...equipmentObject.transform.rotation);
+					equipmentRoot.scale.set(...equipmentObject.transform.scale);
+					this.loadedModels.set(equipmentObject.objectId, {
+						objectId: equipmentObject.objectId,
+						root: equipmentRoot,
+						kind: 'equipment',
+					});
+				}
+				this.editor.viewer.renderScene?.();
+			} catch (error) {
+				this.events.onError?.(`程序化设备参考加载失败：${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+	}
+
+	/** 没有用户灯光配置时，提供与运行预览一致的工业场景照明及默认观察视角。 */
+	private ensureIndustrialEditorEnvironment() {
+		const scene: THREE.Scene = this.editor.viewer.scene;
+		const renderer: THREE.WebGLRenderer = this.editor.viewer.renderer;
+		const camera: THREE.PerspectiveCamera = this.editor.viewer.camera;
+		const controls = this.editor.viewer.controls;
+		const hasStoredRenderer = Boolean((this.latestSceneParams as any).renderer);
+		const hasStoredCamera = Boolean((this.latestSceneParams as any).camera || (this.latestSceneParams as any).controls);
+		const isSilkLine = this.manifest.objects.some((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
+		// 兼容历史快照中的缺失/非法控制参数；否则 OrbitControls 的滚轮缩放会静默失效。
+		controls.enableZoom = true;
+		controls.zoomSpeed = Number.isFinite(controls.zoomSpeed) && controls.zoomSpeed > 0 ? controls.zoomSpeed : 1.1;
+		controls.minDistance = Number.isFinite(controls.minDistance) && controls.minDistance >= 0 ? Math.min(controls.minDistance, 1) : 0.5;
+		controls.maxDistance = Number.isFinite(controls.maxDistance) && controls.maxDistance > controls.minDistance ? Math.max(controls.maxDistance, 500) : 5000;
+
+		if (!hasStoredRenderer) {
+			renderer.outputColorSpace = THREE.SRGBColorSpace;
+			renderer.toneMapping = THREE.ACESFilmicToneMapping;
+			renderer.toneMappingExposure = 1.08;
+			renderer.shadowMap.enabled = true;
+			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+			renderer.setClearColor(this.manifest.world.background || '#07111f', 1);
+		}
+
+		if (!scene.children.some((item) => item instanceof THREE.Light)) {
+			const hemisphere = new THREE.HemisphereLight(0xd9efff, 0x17243a, 1.8);
+			hemisphere.name = 'IoTSharp 默认半球光';
+			scene.add(hemisphere);
+			const keyLight = new THREE.DirectionalLight(0xffffff, 3.0);
+			keyLight.name = 'IoTSharp 主平行光';
+			keyLight.position.set(18, 28, 16);
+			keyLight.castShadow = true;
+			keyLight.shadow.mapSize.set(2048, 2048);
+			keyLight.shadow.camera.left = -60;
+			keyLight.shadow.camera.right = 60;
+			keyLight.shadow.camera.top = 60;
+			keyLight.shadow.camera.bottom = -60;
+			scene.add(keyLight);
+			const fillLight = new THREE.DirectionalLight(0x8fd3ff, 0.9);
+			fillLight.name = 'IoTSharp 侧向补光';
+			fillLight.position.set(-20, 14, -18);
+			scene.add(fillLight);
+		}
+
+		if (!hasStoredCamera && isSilkLine) {
+			camera.position.set(32, 26, 38);
+			controls.target.set(5, 1.2, -2);
+			camera.updateProjectionMatrix();
+			controls.update?.();
+		}
 	}
 
 	setRouteOverlayVisible(visible: boolean) {
@@ -346,9 +478,24 @@ export class ThreeEditorCoreHost {
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.setManifest(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
-		this.editor.saveSceneEditor();
 		const glbObjectIds = new Set(target.objects.filter((item) => item.kind === 'model').map((item) => item.objectId));
 		this.latestModelParams = this.latestModelParams.filter((item) => glbObjectIds.has(item.rootInfo.iotsharpObjectId));
+		if (glbObjectIds.size === 0) {
+			delete target.editorExtension;
+			return target;
+		}
+
+		// three-editor 的原生快照只认识 GLB 根模型。V7 组件和程序化工程参考虽然也有 rootInfo，
+		// 但没有上游模型的 globalConfig，直接参与快照会中断保存及“运行预览”切换。
+		const excludedRootInfo = [...this.loadedModels.values()]
+			.filter((item) => item.kind !== 'model' && item.root?.rootInfo)
+			.map((item) => ({ root: item.root, rootInfo: item.root.rootInfo }));
+		for (const item of excludedRootInfo) delete item.root.rootInfo;
+		try {
+			this.editor.saveSceneEditor();
+		} finally {
+			for (const item of excludedRootInfo) item.root.rootInfo = item.rootInfo;
+		}
 		if (this.latestModelParams.length === 0) {
 			delete target.editorExtension;
 			return target;
@@ -405,6 +552,45 @@ export class ThreeEditorCoreHost {
 		this.editor.setGsapAnimation(this.editor.viewer.controls.target, target, { duration: 0.45 });
 	}
 
+	/** 按当前观察方向拉近或拉远，作为鼠标滚轮之外的稳定缩放入口。 */
+	zoomBy(scale: number) {
+		if (!Number.isFinite(scale) || scale <= 0) return;
+		const camera: THREE.PerspectiveCamera = this.editor.viewer.camera;
+		const controls = this.editor.viewer.controls;
+		const offset = camera.position.clone().sub(controls.target);
+		const currentDistance = Math.max(offset.length(), 0.001);
+		const minimum = Number.isFinite(controls.minDistance) ? Math.max(0.2, controls.minDistance) : 0.5;
+		const maximum = Number.isFinite(controls.maxDistance) ? Math.max(minimum + 1, controls.maxDistance) : 1000;
+		const distance = THREE.MathUtils.clamp(currentDistance * scale, minimum, maximum);
+		camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(distance));
+		controls.update?.();
+		this.editor.viewer.renderScene?.();
+	}
+
+	/** 根据当前已加载设备的包围盒适配专业编辑全景。 */
+	fitScene() {
+		const roots = [...this.loadedModels.values()].map((item) => item.root).filter((root) => root?.visible !== false);
+		if (!roots.length) return;
+		const bounds = new THREE.Box3();
+		for (const root of roots) bounds.expandByObject(root);
+		if (bounds.isEmpty()) return;
+		const center = bounds.getCenter(new THREE.Vector3());
+		const size = bounds.getSize(new THREE.Vector3());
+		const camera: THREE.PerspectiveCamera = this.editor.viewer.camera;
+		const controls = this.editor.viewer.controls;
+		const maxSize = Math.max(size.x, size.y, size.z, 1);
+		const distance = Math.max(4, maxSize / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * 1.25);
+		const direction = camera.position.clone().sub(controls.target);
+		if (direction.lengthSq() < 0.0001) direction.set(1, 0.75, 1);
+		controls.target.copy(center);
+		camera.position.copy(center).add(direction.normalize().multiplyScalar(distance));
+		camera.near = Math.max(0.05, distance / 2000);
+		camera.far = Math.max(1000, distance * 20);
+		camera.updateProjectionMatrix();
+		controls.update?.();
+		this.editor.viewer.renderScene?.();
+	}
+
 	removeObject(objectId: string, notify = true) {
 		const model = this.loadedModels.get(objectId);
 		if (!model) return;
@@ -447,7 +633,9 @@ export class ThreeEditorCoreHost {
 		}
 		try {
 			this.editor.getSceneEvent(event, (info: any) => {
-				const root = info?.currentRootModel;
+				let root = info?.currentModel;
+				while (root && !root?.rootInfo?.iotsharpObjectId && !root?.userData?.iotsharpObjectId) root = root.parent;
+				root ||= info?.currentRootModel;
 				if (root?.rootInfo?.iotsharpObjectId || root?.userData?.iotsharpObjectId) this.selectRoot(root, info.currentModel);
 			});
 		} catch {
@@ -502,7 +690,33 @@ export class ThreeEditorCoreHost {
 			segments.unshift(current.name || `${current.type}[${index}]`);
 			current = current.parent;
 		}
-		this.events.onSelectionChange?.({ name: node.name || root.name || '未命名对象', uuid: node.uuid, path: `${this.manifest.name}/${root.name || objectId}`, kind: 'scene-object', objectId, nodePath: segments.join('/') });
+		const equipmentInfo = this.getEquipmentInfo(node, root, segments);
+		this.events.onSelectionChange?.({
+			name: node.name || root.name || '未命名对象',
+			uuid: node.uuid,
+			path: `${this.manifest.name}/${root.name || objectId}`,
+			kind: 'scene-object',
+			objectId,
+			nodePath: segments.join('/'),
+			equipmentType: equipmentInfo?.equipmentType,
+			equipmentId: equipmentInfo?.equipmentId,
+		});
+	}
+
+	private getEquipmentInfo(node: any, root: any, segments: string[]): { equipmentType: string; equipmentId?: string } | undefined {
+		let current = node;
+		while (current) {
+			const equipmentType = current.userData?.twinEquipmentType || current.userData?.equipmentType;
+			if (equipmentType) {
+				const equipmentId = current.userData?.twinEquipmentId || current.userData?.equipmentId;
+				return { equipmentType: String(equipmentType), equipmentId: equipmentId ? String(equipmentId) : undefined };
+			}
+			if (current === root) break;
+			current = current.parent;
+		}
+		const semanticName = `${node?.name || ''} ${segments.join('/')}`.toLocaleLowerCase();
+		if (/motor|drive[_ -]?motor|电机|马达|减速机/.test(semanticName)) return { equipmentType: 'motor' };
+		return undefined;
 	}
 
 	private syncTransformsToManifest() {

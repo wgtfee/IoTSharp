@@ -1,4 +1,4 @@
-import type { TwinRouteDefinition, TwinSceneManifest } from '/@/digital-twin/contracts';
+import { createSilkCakeEquipmentObjectDefinitions, type TwinRouteDefinition, type TwinSceneManifest } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 
@@ -91,6 +91,13 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	if (!route || !hasSilkRuntime) return { migrated: false, componentCount: 0 };
 
 	const objects = manifest.objects as TwinV7SceneObjectDefinition[];
+	const proceduralRoot = manifest.objects.find((item) => item.kind === 'procedural'
+		&& ['silk-cake-line', 'silk-cake-packaging-line', 'packaging-line'].includes(item.procedural?.preset || ''));
+	const existingIds = new Set(objects.map((item) => item.objectId));
+	const equipmentAdditions = proceduralRoot
+		? createSilkCakeEquipmentObjectDefinitions(proceduralRoot.objectId).filter((item) => !existingIds.has(item.objectId))
+		: [];
+	objects.push(...equipmentAdditions as TwinV7SceneObjectDefinition[]);
 	const existing = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true);
 	let upgraded = false;
 	for (const component of existing) {
@@ -114,11 +121,11 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	const merger = routePoint(route, 'silk-merger');
 	if (merger) migrated.push(createComponentObject('builtin-merger-conveyor', 'v7-silk-merger', 'V7 空托汇流器', [merger.position[0], 0, merger.position[2]], 0, { capacity: 1, transportUnitType: 'plastic-pallet' }, 'silk-merger'));
 
-	const existingIds = new Set(objects.map((item) => item.objectId));
-	const additions = migrated.filter((item) => !existingIds.has(item.objectId));
+	const allExistingIds = new Set(objects.map((item) => item.objectId));
+	const additions = migrated.filter((item) => !allExistingIds.has(item.objectId));
 	objects.push(...additions);
 	manifest.connections ||= [];
-	return { migrated: additions.length > 0 || upgraded, componentCount: existing.length + additions.length, migrationVersion: SILK_V7_MIGRATION_VERSION };
+	return { migrated: additions.length > 0 || equipmentAdditions.length > 0 || upgraded, componentCount: existing.length + additions.length, migrationVersion: SILK_V7_MIGRATION_VERSION };
 };
 
 export const hasSilkV7Infrastructure = (manifest: TwinSceneManifest) =>

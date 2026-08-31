@@ -21,6 +21,8 @@ export interface TwinModelResourceReference {
 	status: 'local-poc' | 'ready';
 }
 
+export type TwinEquipmentType = 'loading-robot' | 'silk-cart-turntable' | 'gantry-stacker' | 'cover-applicator' | 'labeler' | 'wrapper' | 'inbound-lift';
+
 export type TwinBindingSourceKind = 'telemetry' | 'attribute' | 'alarm' | 'connectivity' | 'commandFeedback' | 'constant' | 'simulation';
 export type TwinBindingTargetKind = 'visible' | 'color' | 'emissive' | 'opacity' | 'text' | 'number' | 'position' | 'rotation' | 'scale' | 'animation' | 'routeProgress' | 'customProperty';
 
@@ -52,12 +54,17 @@ export interface TwinObjectBindingDefinition {
 export interface TwinSceneObjectDefinition {
 	objectId: string;
 	name: string;
-	kind: 'procedural' | 'model';
+	kind: 'procedural' | 'model' | 'equipment';
 	resourceId?: string;
 	assetId?: string;
 	procedural?: {
 		preset: 'basic-conveyor' | 'packaging-line' | 'silk-cake-line' | 'silk-cake-packaging-line';
 		palletCount?: number;
+	};
+	equipment?: {
+		equipmentType: TwinEquipmentType;
+		/** 所属程序化产线对象；设备变换以该父对象坐标系为准。 */
+		parentObjectId: string;
 	};
 	transform: TwinTransform;
 }
@@ -331,6 +338,17 @@ const defaultTransform = (): TwinTransform => ({
 	scale: [1, 1, 1],
 });
 
+/** V8 工程设备对象：动作仍由丝饼运行时驱动，但选中、整体变换和数据绑定都拥有独立 ObjectId。 */
+export const createSilkCakeEquipmentObjectDefinitions = (parentObjectId = 'silk-cake-line-procedural'): TwinSceneObjectDefinition[] => [
+	{ objectId: 'silk-equipment-robot', name: '1×6 上料机器人', kind: 'equipment', equipment: { equipmentType: 'loading-robot', parentObjectId }, transform: { position: [-6.5, 0, -7.9], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-turntable', name: '双面丝车旋转台', kind: 'equipment', equipment: { equipmentType: 'silk-cart-turntable', parentObjectId }, transform: { position: [-6.4, 0, -10.5], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-gantry', name: '2×3 丝饼码垛桁架', kind: 'equipment', equipment: { equipmentType: 'gantry-stacker', parentObjectId }, transform: defaultTransform() },
+	{ objectId: 'silk-equipment-cover', name: '天盖安装机', kind: 'equipment', equipment: { equipmentType: 'cover-applicator', parentObjectId }, transform: { position: [33, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-labeler', name: '贴标机', kind: 'equipment', equipment: { equipmentType: 'labeler', parentObjectId }, transform: { position: [37.5, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-wrapper', name: '缠膜机', kind: 'equipment', equipment: { equipmentType: 'wrapper', parentObjectId }, transform: { position: [42, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-inbound-lift', name: '入库提升机', kind: 'equipment', equipment: { equipmentType: 'inbound-lift', parentObjectId }, transform: { position: [48, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+];
+
 export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 	schemaVersion: twinSceneSchemaVersion,
 	sceneId: createId('scene'),
@@ -425,6 +443,7 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 			procedural: { preset: 'silk-cake-packaging-line', palletCount: 80 },
 			transform: defaultTransform(),
 		},
+		...createSilkCakeEquipmentObjectDefinitions(),
 	],
 	bindings: [],
 	routes: [
@@ -567,6 +586,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 	const allowedConveyorSizeClasses: TwinConveyorSizeClass[] = ['small', 'large'];
 	const allowedTransportUnitTypes: TwinTransportUnitType[] = ['plastic-pallet', 'wooden-pallet', 'carton'];
 	const allowedProcessTypes: TwinProcessType[] = ['robot-loading', 'external-inspection', 'bagging', 'gantry-stacking', 'scan'];
+	const allowedEquipmentTypes: TwinEquipmentType[] = ['loading-robot', 'silk-cart-turntable', 'gantry-stacker', 'cover-applicator', 'labeler', 'wrapper', 'inbound-lift'];
 	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'];
 	if (manifest.schemaVersion !== twinSceneSchemaVersion) {
 		diagnostics.push({ severity: 'error', code: 'twin.schema.unsupported', message: `不支持的场景合同版本：${manifest.schemaVersion}` });
@@ -602,11 +622,14 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 
 	const routeIds = new Set<string>();
 	const objectIds = new Set<string>();
+	const objectKinds = new Map<string, TwinSceneObjectDefinition['kind']>();
+	const equipmentSlots = new Set<string>();
 	for (const [objectIndex, sceneObject] of manifest.objects.entries()) {
 		if (!sceneObject.objectId?.trim() || objectIds.has(sceneObject.objectId)) {
 			diagnostics.push({ severity: 'error', code: 'twin.object.id.invalid', message: '对象 ID 为空或重复。', path: `objects[${objectIndex}].objectId` });
 		}
 		objectIds.add(sceneObject.objectId);
+		objectKinds.set(sceneObject.objectId, sceneObject.kind);
 		if (sceneObject.kind === 'model' && !sceneObject.resourceId) {
 			diagnostics.push({ severity: 'error', code: 'twin.object.resource.required', message: '模型对象必须选择资源库模型。', path: `objects[${objectIndex}].resourceId` });
 		}
@@ -619,6 +642,22 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (['silk-cake-line', 'silk-cake-packaging-line'].includes(sceneObject.procedural?.preset || '') && silkSimulation && sceneObject.procedural?.palletCount !== silkSimulation.palletCount) {
 			diagnostics.push({ severity: 'warning', code: 'twin.silk-line.pallet-count.mismatch', message: '程序化对象与丝饼仿真参数的托盘数不一致，运行时将以对象配置为准。', path: `objects[${objectIndex}].procedural.palletCount` });
 		}
+		if (sceneObject.kind === 'equipment') {
+			if (!sceneObject.equipment) diagnostics.push({ severity: 'error', code: 'twin.equipment.definition.required', message: '整机对象必须包含 equipment 定义。', path: `objects[${objectIndex}].equipment` });
+			else {
+				if (!allowedEquipmentTypes.includes(sceneObject.equipment.equipmentType)) diagnostics.push({ severity: 'error', code: 'twin.equipment.type.invalid', message: '整机对象类型不受支持。', path: `objects[${objectIndex}].equipment.equipmentType` });
+				if (!sceneObject.equipment.parentObjectId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.equipment.parent.required', message: '整机对象必须引用所属程序化产线。', path: `objects[${objectIndex}].equipment.parentObjectId` });
+				const slot = `${sceneObject.equipment.parentObjectId}\n${sceneObject.equipment.equipmentType}`;
+				if (equipmentSlots.has(slot)) diagnostics.push({ severity: 'error', code: 'twin.equipment.duplicate', message: '同一程序化产线不能重复映射同一种整机设备。', path: `objects[${objectIndex}].equipment.equipmentType` });
+				equipmentSlots.add(slot);
+			}
+		}
+	}
+	for (const [objectIndex, sceneObject] of manifest.objects.entries()) {
+		if (sceneObject.kind !== 'equipment' || !sceneObject.equipment?.parentObjectId) continue;
+		const parentKind = objectKinds.get(sceneObject.equipment.parentObjectId);
+		if (!parentKind) diagnostics.push({ severity: 'error', code: 'twin.equipment.parent.invalid', message: '整机对象引用的父产线不存在。', path: `objects[${objectIndex}].equipment.parentObjectId` });
+		else if (parentKind !== 'procedural') diagnostics.push({ severity: 'error', code: 'twin.equipment.parent-kind.invalid', message: '整机对象的父对象必须是程序化产线。', path: `objects[${objectIndex}].equipment.parentObjectId` });
 	}
 
 	const bindingIds = new Set<string>();

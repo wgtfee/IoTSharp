@@ -19,6 +19,8 @@ export interface TwinSelectionInfo {
 	nodePath?: string;
 	entityType?: string;
 	entityId?: string;
+	equipmentType?: string;
+	equipmentId?: string;
 	runtimeData?: Record<string, unknown>;
 	routeId?: string;
 	routePointIndex?: number;
@@ -520,6 +522,21 @@ export class TwinRuntime {
 			this.packagingLine.group.userData.twinObjectId = silkLineDefinition.objectId;
 			this.applyTransform(this.packagingLine.group, silkLineDefinition);
 			this.objectIndex.set(silkLineDefinition.objectId, this.packagingLine.group);
+			const equipmentRoots = this.packagingLine.getEquipmentRoots();
+			for (const equipmentObject of this.manifest.objects.filter((item) => item.kind === 'equipment'
+				&& item.equipment?.parentObjectId === silkLineDefinition.objectId)) {
+				const equipmentRoot = equipmentRoots[equipmentObject.equipment!.equipmentType];
+				if (!equipmentRoot) continue;
+				equipmentRoot.name = equipmentObject.name;
+				equipmentRoot.userData = {
+					...equipmentRoot.userData,
+					twinObjectId: equipmentObject.objectId,
+					twinEquipmentType: equipmentObject.equipment!.equipmentType,
+					twinEquipmentId: equipmentObject.objectId,
+				};
+				this.applyTransform(equipmentRoot, equipmentObject);
+				this.objectIndex.set(equipmentObject.objectId, equipmentRoot);
+			}
 			this.scene.add(this.packagingLine.group);
 			return;
 		}
@@ -563,6 +580,9 @@ export class TwinRuntime {
 
 		const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.9, 24), accentMaterial);
 		motor.name = 'Motor_01';
+		motor.userData.twinEquipmentType = 'motor';
+		motor.userData.twinEquipmentId = `${definition.objectId}:drive-motor-01`;
+		motor.userData.equipmentRole = 'conveyor-drive';
 		motor.rotation.z = Math.PI / 2;
 		motor.position.set(5.7, 0.2, -3);
 		motor.castShadow = true;
@@ -805,6 +825,7 @@ export class TwinRuntime {
 		this.scene.add(this.selectionHelper);
 		const entityInfo = this.getTwinEntityInfo(selected);
 		const twinInfo = this.getTwinObjectInfo(selected);
+		const equipmentInfo = this.getTwinEquipmentInfo(selected);
 		this.events.onSelectionChange?.({
 			name: entityInfo?.entityId || selected.name || selected.type,
 			uuid: selected.uuid,
@@ -814,6 +835,8 @@ export class TwinRuntime {
 			nodePath: entityInfo ? undefined : twinInfo?.nodePath,
 			entityType: entityInfo?.entityType,
 			entityId: entityInfo?.entityId,
+			equipmentType: equipmentInfo?.equipmentType,
+			equipmentId: equipmentInfo?.equipmentId,
 			runtimeData: entityInfo ? this.packagingLine?.getEntityDetail(entityInfo.entityType, entityInfo.entityId) : undefined,
 		});
 	};
@@ -867,6 +890,21 @@ export class TwinRuntime {
 			}
 			current = current.parent;
 		}
+		return undefined;
+	}
+
+	private getTwinEquipmentInfo(object: any): { equipmentType: string; equipmentId?: string } | undefined {
+		let current = object;
+		while (current && current !== this.scene) {
+			const equipmentType = current.userData?.twinEquipmentType || current.userData?.equipmentType;
+			if (equipmentType) {
+				const equipmentId = current.userData?.twinEquipmentId || current.userData?.equipmentId;
+				return { equipmentType: String(equipmentType), equipmentId: equipmentId ? String(equipmentId) : undefined };
+			}
+			current = current.parent;
+		}
+		const semanticName = `${object?.name || ''} ${this.getObjectPath(object)}`.toLocaleLowerCase();
+		if (/motor|drive[_ -]?motor|电机|马达|减速机/.test(semanticName)) return { equipmentType: 'motor' };
 		return undefined;
 	}
 

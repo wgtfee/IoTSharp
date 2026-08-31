@@ -87,7 +87,7 @@
 }
 // 修复点击左侧菜单折叠再展开时，宽度不跟随问题
 .el-menu--collapse {
-	width: 64px !important;
+	width: 72px !important;
 }
 
 .el-menu--collapse {
@@ -108,6 +108,9 @@
 	.el-sub-menu__title [class*='el-icon'] {
 		width: 20px;
 		margin: 0 !important;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 }
 // 外部链接时
