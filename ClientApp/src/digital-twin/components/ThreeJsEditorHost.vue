@@ -202,6 +202,12 @@ const removeRoutePoint = (index: number) => host.value?.removeRoutePoint(index);
 const captureManifest = (manifest: TwinSceneManifest) => host.value?.captureManifest(manifest) || manifest;
 const focusSelected = () => host.value?.focusSelected();
 const removeObject = (objectId: string) => host.value?.removeObject(objectId);
+const worldPositionFromClientPoint = async (clientX: number, clientY: number, groundY = 0) => {
+	await ready;
+	return host.value?.worldPositionFromClientPoint(clientX, clientY, groundY);
+};
+const setObjectWorldPosition = (objectId: string, position: TwinVector3) => host.value?.setObjectWorldPosition(objectId, position);
+const reloadProceduralReferences = () => host.value?.reloadProceduralReferences();
 
 defineExpose({
 	loadGlbBuffer,
@@ -219,6 +225,9 @@ defineExpose({
 	updateRoutePoint,
 	addRoutePoint,
 	removeRoutePoint,
+	worldPositionFromClientPoint,
+	setObjectWorldPosition,
+	reloadProceduralReferences,
 });
 
 onBeforeUnmount(() => {

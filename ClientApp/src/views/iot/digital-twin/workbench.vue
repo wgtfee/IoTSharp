@@ -203,11 +203,19 @@
 				</template>
 			</aside>
 
-			<section class="twin-viewport-shell">
+			<section
+				class="twin-viewport-shell"
+				:class="{ 'is-resource-drag-over': resourceDragOver }"
+				@dragenter.prevent="handleViewportDragEnter"
+				@dragover.prevent="handleViewportDragOver"
+				@dragleave="handleViewportDragLeave"
+				@drop.prevent="handleViewportDrop"
+			>
 				<el-button class="twin-panel-toggle twin-panel-toggle--left" circle size="small" :title="leftPanelCollapsed ? '展开场景与路线' : '收起场景与路线'" @click="leftPanelCollapsed = !leftPanelCollapsed">{{ leftPanelCollapsed ? '›' : '‹' }}</el-button>
 				<el-button class="twin-panel-toggle twin-panel-toggle--right" circle size="small" :title="rightPanelCollapsed ? '展开对象与数据绑定' : '收起对象与数据绑定'" @click="rightPanelCollapsed = !rightPanelCollapsed">{{ rightPanelCollapsed ? '‹' : '›' }}</el-button>
 				<ThreeJsEditorHost v-if="viewportMode === 'editor'" :key="editorInstanceKey" ref="professionalEditor" :manifest="manifest" @selection-change="handleSelectionChange" @route-change="applyRuntimeRoute" @changed="markEditorChanged" @error="ElMessage.error($event)" />
 				<div v-else ref="viewport" class="twin-viewport"></div>
+				<div v-if="resourceDragOver" class="twin-resource-drop-target"><strong>释放到这里</strong><span>将按当前鼠标落点创建或移动对象</span></div>
 				<div class="twin-viewport__hint"><template v-if="viewportMode === 'editor'">专业编辑是唯一工程坐标场景：模型、V7组件、Port、Connection、Section 与 Route 同图编辑；路线点可直接选择和拖动。</template><template v-else>运行预览只负责仿真/实时状态；工程位置以专业编辑场景为准。</template></div>
 				<div v-if="viewportMode === 'runtime'" class="twin-progress"><i :style="{ width: `${Math.round(metrics.progress * 100)}%` }"></i></div>
 			</section>
@@ -272,13 +280,21 @@
 			<template #footer><el-button @click="deviceStatusDialogVisible = false">关闭</el-button><el-button type="primary" @click="openSelectedBindingPanel">配置数据绑定</el-button></template>
 		</el-dialog>
 
-		<el-drawer v-model="resourceDrawerVisible" title="模型资源库" size="520px">
+		<el-drawer v-model="resourceDrawerVisible" title="模型资源库" size="520px" :modal="false" :lock-scroll="false" :close-on-click-modal="false">
 			<input ref="uploadInput" class="is-hidden" type="file" accept=".glb,model/gltf-binary" @change="uploadModel" />
 			<div class="resource-actions"><el-button type="success" @click="router.push('/iot/digital-twin/model-generator')">图片生成模型</el-button><el-button type="primary" :loading="uploading" @click="uploadInput?.click()">上传 GLB</el-button><el-button type="warning" plain :loading="registeringComponents" @click="registerAllBuiltInComponents">组件入库</el-button><el-button @click="loadModels">刷新</el-button></div>
-			<el-alert title="GLB 继续来自数据库模型资源；内置参数化/智能模型由 Component Registry 生成，实例参数随场景草稿和发布版本保存。" type="info" :closable="false" />
+			<el-alert title="按住任意资源卡片可拖到专业编辑画布；也可点击“放入场景”。GLB 来自数据库，参数化组件由 Component Registry 生成。" type="info" :closable="false" />
+			<el-divider>丝饼线整机设备</el-divider>
+			<div class="resource-grid">
+				<div v-for="equipment in equipmentLibraryItems" :key="equipment.equipmentType" class="resource-card is-draggable" draggable="true" @dragstart="beginResourceDrag($event, { kind: 'equipment', equipmentType: equipment.equipmentType })" @dragend="endResourceDrag">
+					<div><strong>{{ equipment.name }}</strong><small>程序化整机 · {{ equipment.equipmentType }}</small><small>可整体选择、移动并绑定设备数据</small></div>
+					<el-tag size="small" :type="isEquipmentInScene(equipment.equipmentType) ? 'success' : 'info'">{{ isEquipmentInScene(equipment.equipmentType) ? '场景中已装配' : '内置整机' }}</el-tag>
+					<el-button type="primary" plain @click="placeEquipmentTemplate(equipment.equipmentType)">{{ isEquipmentInScene(equipment.equipmentType) ? '定位对象' : '放入场景' }}</el-button>
+				</div>
+			</div>
 			<el-divider>内置参数化 / 智能模型</el-divider>
 			<div class="resource-grid">
-				<div v-for="template in componentTemplates" :key="template.resourceKey" class="resource-card">
+				<div v-for="template in componentTemplates" :key="template.resourceKey" class="resource-card is-draggable" draggable="true" @dragstart="beginResourceDrag($event, { kind: 'component', resourceKey: template.resourceKey })" @dragend="endResourceDrag">
 					<div><strong>{{ template.name }}</strong><small>{{ template.resourceType }} · {{ template.componentType }}</small><small>{{ template.tags.join(' · ') }}</small></div>
 					<el-tag size="small" :type="registeredComponentResource(template.resourceKey) ? 'success' : 'warning'">{{ registeredComponentResource(template.resourceKey) ? '数据库已注册' : '待注册' }}</el-tag>
 					<el-button type="primary" plain @click="placeComponentTemplate(template.resourceKey)">放入场景</el-button>
@@ -286,7 +302,7 @@
 			</div>
 			<el-divider>GLB 模型资源</el-divider>
 			<div class="resource-grid">
-				<div v-for="model in glbModels" :key="model.id" class="resource-card"><div><strong>{{ model.name }}</strong><small>{{ model.originalFileName }} · {{ formatBytes(model.fileSize) }}</small><small>{{ model.modelMetadata.meshCount || 0 }} Mesh · {{ formatNumber(model.modelMetadata.triangleCount || 0) }} triangles</small></div><el-tag size="small" :type="model.processingStatus === 'Ready' ? 'success' : 'warning'">{{ model.processingStatus }}</el-tag><el-button type="primary" plain :disabled="model.processingStatus !== 'Ready'" @click="placeModel(model)">放入场景</el-button></div>
+				<div v-for="model in glbModels" :key="model.id" class="resource-card" :class="{ 'is-draggable': model.processingStatus === 'Ready', 'is-disabled': model.processingStatus !== 'Ready' }" :draggable="model.processingStatus === 'Ready'" @dragstart="beginResourceDrag($event, { kind: 'model', modelId: model.id })" @dragend="endResourceDrag"><div><strong>{{ model.name }}</strong><small>{{ model.originalFileName }} · {{ formatBytes(model.fileSize) }}</small><small>{{ model.modelMetadata.meshCount || 0 }} Mesh · {{ formatNumber(model.modelMetadata.triangleCount || 0) }} triangles</small></div><el-tag size="small" :type="model.processingStatus === 'Ready' ? 'success' : 'warning'">{{ model.processingStatus }}</el-tag><el-button type="primary" plain :disabled="model.processingStatus !== 'Ready'" @click="placeModel(model)">放入场景</el-button></div>
 			</div>
 			<el-divider>本次上传授权信息</el-divider>
 			<el-form label-position="top"><el-form-item label="许可证"><el-input v-model="uploadForm.licenseType" /></el-form-item><el-form-item label="作者/来源方"><el-input v-model="uploadForm.author" /></el-form-item><el-form-item label="来源链接"><el-input v-model="uploadForm.sourceUrl" /></el-form-item><el-form-item><el-checkbox v-model="uploadForm.commercialUseAllowed">已确认允许当前项目商业使用</el-checkbox></el-form-item></el-form>
@@ -305,7 +321,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
-import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinVector3 } from '/@/digital-twin/contracts';
+import { cloneTwinManifest, createDefaultTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeEquipmentObjectDefinitions, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBindingTargetKind, type TwinEquipmentType, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { builtInComponentResourceRegistrations, builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
@@ -338,9 +354,18 @@ const playing = ref(false), liveMode = ref(false), routeDrawMode = ref(false);
 const viewportMode = ref<'editor' | 'runtime'>('editor');
 const editorInstanceKey = ref(0);
 const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), versionsDrawerVisible = ref(false), deviceStatusDialogVisible = ref(false);
+const resourceDragOver = ref(false);
 const latestBindingUpdates = ref<Record<string, TwinDataUpdate>>({});
 let snapshotTimer: number | undefined;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
+type TwinLibraryDragPayload =
+	| { kind: 'component'; resourceKey: string }
+	| { kind: 'model'; modelId: string }
+	| { kind: 'equipment'; equipmentType: TwinEquipmentType };
+type TwinPlacementOptions = { position?: TwinVector3; keepLibraryOpen?: boolean };
+const twinLibraryDragMime = 'application/x-iotsharp-twin-resource';
+const activeLibraryDrag = ref<TwinLibraryDragPayload>();
+let viewportDragDepth = 0;
 const apiErrorMessage = (error: any, fallback: string) => error?.msg
 	|| error?.response?.data?.msg
 	|| (typeof error?.response?.data === 'string' ? error.response.data : '')
@@ -367,6 +392,7 @@ const decisionPoints = computed(() => junctionPoints.value.filter((point) => rou
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || item.kind === 'equipment' || (item as any).kind === 'component'));
 const glbModels = computed(() => models.value.filter((item) => item.runtimeFormat !== 'application/vnd.iotsharp.twin-component+json'));
 const componentTemplates = builtInComponentTemplates;
+const equipmentLibraryItems = createSilkCakeEquipmentObjectDefinitions().map((item) => ({ name: item.name, equipmentType: item.equipment!.equipmentType }));
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
 const selectedEquipmentBindings = computed(() => {
 	const nodePath = selected.value?.nodePath || '';
@@ -1036,7 +1062,7 @@ const uploadModel = async (event: Event) => {
 	} finally { uploading.value = false; }
 };
 
-const placeComponentTemplate = async (resourceKey: string) => {
+const placeComponentTemplate = async (resourceKey: string, options: TwinPlacementOptions = {}) => {
 	const template = componentTemplates.find((item) => item.resourceKey === resourceKey);
 	if (!template) { ElMessage.error(`未找到组件模板 ${resourceKey}`); return; }
 	let registered = registeredComponentResource(template.resourceKey);
@@ -1054,10 +1080,11 @@ const placeComponentTemplate = async (resourceKey: string) => {
 	const objectId = createId('component');
 	const sectionId = `section-${objectId}`;
 	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
-	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] } });
+	const position: TwinVector3 = options.position ? [...options.position] : [0, 0, 0];
+	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position, rotation: [0,0,0], scale: [1,1,1] } });
 	manifest.value.connections ||= [];
 	upsertGeneratedComponentRoute(manifest.value);
-	resourceDrawerVisible.value = false;
+	if (!options.keepLibraryOpen) resourceDrawerVisible.value = false;
 	if (viewportMode.value === 'editor') {
 		professionalEditor.value?.reloadComponent(objectId);
 		professionalEditor.value?.selectObject(objectId);
@@ -1066,10 +1093,12 @@ const placeComponentTemplate = async (resourceKey: string) => {
 	ElMessage.success(`${template.name} 已放入场景；右侧 V7 属性面板可直接改参数、吸附端口并生成 Section / Route。`);
 };
 
-const placeModel = async (model: TwinModelResource) => {
+const placeModel = async (model: TwinModelResource, options: TwinPlacementOptions = {}) => {
+	if (model.processingStatus !== 'Ready') { ElMessage.warning(`${model.name} 尚未处理完成，暂时不能放入场景`); return; }
 	const objectId = createId('object');
 	if (!manifest.value.resources.some((item) => item.resourceId === model.id)) manifest.value.resources.push({ resourceId: model.id, name: model.name, sourceFileName: model.originalFileName, status: 'ready' });
-	manifest.value.objects.push({ objectId, name: model.name, kind: 'model', resourceId: model.id, assetId: manifest.value.rootAssetId || undefined, transform: { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] } });
+	const position: TwinVector3 = options.position ? [...options.position] : [0, 0, 0];
+	manifest.value.objects.push({ objectId, name: model.name, kind: 'model', resourceId: model.id, assetId: manifest.value.rootAssetId || undefined, transform: { position, rotation: [0,0,0], scale: [1,1,1] } });
 	adapter.value?.loadManifest(manifest.value);
 	try {
 		let cached = modelBufferCache.get(model.id);
@@ -1082,9 +1111,101 @@ const placeModel = async (model: TwinModelResource) => {
 		const object = manifest.value.objects.find((item) => item.objectId === objectId)!;
 		if (viewportMode.value === 'editor') await professionalEditor.value?.loadGlbBuffer(object, cached.fileName, cached.buffer);
 		else await adapter.value?.loadGlbBuffer(objectId, cached.fileName, cached.buffer);
-		resourceDrawerVisible.value = false; refreshDiagnostics(); ElMessage.success('模型已放入 threejs-editor；保存后资源绑定和编辑快照会写入数据库');
+		if (!options.keepLibraryOpen) resourceDrawerVisible.value = false;
+		refreshDiagnostics(); ElMessage.success(options.position ? '模型已按落点放入 threejs-editor；保存后资源绑定会写入数据库' : '模型已放入 threejs-editor；保存后资源绑定会写入数据库');
 	}
 	catch { removeModelObject(objectId); ElMessage.error('模型内容下载或解析失败'); }
+};
+
+const silkProceduralParent = () => manifest.value.objects.find((item) => item.kind === 'procedural'
+	&& ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
+const equipmentObject = (equipmentType: TwinEquipmentType) => manifest.value.objects.find((item) => item.kind === 'equipment'
+	&& item.equipment?.equipmentType === equipmentType
+	&& item.equipment.parentObjectId === silkProceduralParent()?.objectId);
+const isEquipmentInScene = (equipmentType: TwinEquipmentType) => Boolean(equipmentObject(equipmentType));
+
+const placeEquipmentTemplate = async (equipmentType: TwinEquipmentType, options: TwinPlacementOptions = {}) => {
+	const parent = silkProceduralParent();
+	if (!parent) {
+		ElMessage.warning('程序化整机依赖丝饼产线，请先应用“丝饼完整工艺”模板');
+		return;
+	}
+	let object = equipmentObject(equipmentType);
+	let created = false;
+	if (!object) {
+		const template = createSilkCakeEquipmentObjectDefinitions(parent.objectId).find((item) => item.equipment?.equipmentType === equipmentType);
+		if (!template) { ElMessage.error(`未找到整机模板 ${equipmentType}`); return; }
+		object = JSON.parse(JSON.stringify(template)) as TwinSceneObjectDefinition;
+		if (manifest.value.objects.some((item) => item.objectId === object!.objectId)) object.objectId = createId('equipment');
+		if (manifest.value.rootAssetId) object.assetId = manifest.value.rootAssetId;
+		manifest.value.objects.push(object);
+		created = true;
+	}
+	if (!options.keepLibraryOpen) resourceDrawerVisible.value = false;
+	if (viewportMode.value === 'editor') {
+		if (created) professionalEditor.value?.reloadProceduralReferences();
+		if (options.position) professionalEditor.value?.setObjectWorldPosition(object.objectId, options.position);
+		professionalEditor.value?.selectObject(object.objectId);
+		if (!options.position) professionalEditor.value?.focusSelected();
+	} else adapter.value?.loadManifest(manifest.value);
+	refreshDiagnostics();
+	ElMessage.success(options.position ? `${object.name} 已移动到拖拽落点` : created ? `${object.name} 已作为独立整机对象放入场景` : `${object.name} 已在场景中定位`);
+};
+
+const isTwinLibraryDragPayload = (value: any): value is TwinLibraryDragPayload => value?.kind === 'component' && typeof value.resourceKey === 'string'
+	|| value?.kind === 'model' && typeof value.modelId === 'string'
+	|| value?.kind === 'equipment' && typeof value.equipmentType === 'string';
+const beginResourceDrag = (event: DragEvent, payload: TwinLibraryDragPayload) => {
+	activeLibraryDrag.value = payload;
+	if (!event.dataTransfer) return;
+	const serialized = JSON.stringify(payload);
+	event.dataTransfer.effectAllowed = 'copyMove';
+	event.dataTransfer.setData(twinLibraryDragMime, serialized);
+	event.dataTransfer.setData('text/plain', serialized);
+};
+const endResourceDrag = () => {
+	activeLibraryDrag.value = undefined;
+	resourceDragOver.value = false;
+	viewportDragDepth = 0;
+};
+const handleViewportDragEnter = () => {
+	if (!activeLibraryDrag.value) return;
+	viewportDragDepth += 1;
+	resourceDragOver.value = true;
+};
+const handleViewportDragOver = (event: DragEvent) => {
+	if (!activeLibraryDrag.value) return;
+	resourceDragOver.value = true;
+	if (event.dataTransfer) event.dataTransfer.dropEffect = activeLibraryDrag.value.kind === 'equipment' && isEquipmentInScene(activeLibraryDrag.value.equipmentType) ? 'move' : 'copy';
+};
+const handleViewportDragLeave = () => {
+	viewportDragDepth = Math.max(0, viewportDragDepth - 1);
+	if (viewportDragDepth === 0) resourceDragOver.value = false;
+};
+const placeLibraryResource = async (payload: TwinLibraryDragPayload, position: TwinVector3) => {
+	const options: TwinPlacementOptions = { position, keepLibraryOpen: true };
+	if (payload.kind === 'component') return placeComponentTemplate(payload.resourceKey, options);
+	if (payload.kind === 'equipment') return placeEquipmentTemplate(payload.equipmentType, options);
+	const model = models.value.find((item) => item.id === payload.modelId);
+	if (!model) { ElMessage.error('拖拽的 GLB 模型资源已经不存在，请刷新模型库'); return; }
+	return placeModel(model, options);
+};
+const handleViewportDrop = async (event: DragEvent) => {
+	const serialized = event.dataTransfer?.getData(twinLibraryDragMime) || event.dataTransfer?.getData('text/plain');
+	let payload = activeLibraryDrag.value;
+	try {
+		const parsed = serialized ? JSON.parse(serialized) : undefined;
+		if (isTwinLibraryDragPayload(parsed)) payload = parsed;
+	} catch { /* 仅接受 IoTSharp 模型库产生的结构化拖拽数据。 */ }
+	resourceDragOver.value = false;
+	viewportDragDepth = 0;
+	if (!payload) return;
+	const clientX = event.clientX, clientY = event.clientY;
+	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
+	await nextTick();
+	const position = await professionalEditor.value?.worldPositionFromClientPoint(clientX, clientY, 0) as TwinVector3 | undefined;
+	if (!position) { ElMessage.warning('当前视角没有与场景地面相交，请调整视角后重试'); return; }
+	await placeLibraryResource(payload, position);
 };
 const removeModelObject = (objectId: string) => {
 	removeConnectionsForObject(manifest.value, objectId);
@@ -1400,8 +1521,8 @@ onBeforeUnmount(() => { stopSnapshotPolling(); adapter.value?.dispose(); adapter
 .silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-route-process-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px;padding:7px;border:1px solid rgba(56,189,248,.26);border-radius:7px}.twin-route-process-grid :deep(.el-input-number){width:100%}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
 .twin-secondary-route{border-color:rgba(168,85,247,.28)}.twin-secondary-route>.twin-inline-control strong{font-size:12px;color:#e9d5ff}.twin-secondary-route>.twin-inline-control small{text-align:right}
-.twin-viewport-shell{grid-column:2;position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
-.twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px 1fr;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
+.twin-viewport-shell{grid-column:2;position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport-shell.is-resource-drag-over{box-shadow:inset 0 0 0 2px #38bdf8}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-resource-drop-target{position:absolute;inset:18px;z-index:30;display:grid;place-content:center;gap:5px;border:2px dashed rgba(56,189,248,.8);border-radius:18px;color:#e0f2fe;background:rgba(3,15,28,.58);text-align:center;pointer-events:none;backdrop-filter:blur(2px)}.twin-resource-drop-target strong{font-size:18px}.twin-resource-drop-target span{font-size:11px;color:#7dd3fc}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}
+.twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px 1fr;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px;transition:border-color .15s ease,box-shadow .15s ease,opacity .15s ease}.resource-card.is-draggable{cursor:grab;user-select:none}.resource-card.is-draggable:hover{border-color:#409eff;box-shadow:0 5px 18px rgba(64,158,255,.14)}.resource-card.is-draggable:active{cursor:grabbing}.resource-card.is-disabled{opacity:.62}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
 .device-status-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding-right:26px}.device-status-heading>div{display:flex;min-width:0;flex-direction:column;gap:4px}.device-status-heading small{font-size:10px;font-weight:800;letter-spacing:.16em;color:#0ea5e9}.device-status-heading strong{font-size:20px;color:var(--el-text-color-primary)}.device-status-heading span{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.device-status-section{display:flex;flex-direction:column;gap:12px;margin-top:18px}.device-status-section>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.device-status-section>div small{color:var(--el-text-color-secondary)}.device-status-section code{color:#0284c7;font-weight:700}
 @media(max-width:1200px){.twin-layout{grid-template-columns:260px minmax(360px,1fr) 280px}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(360px,1fr) 280px}.twin-layout.is-right-collapsed{grid-template-columns:260px minmax(360px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(360px,1fr) 0}.twin-toolbar{align-items:flex-start;flex-direction:column}.twin-status-strip{grid-template-columns:repeat(3,1fr)}}
 </style>

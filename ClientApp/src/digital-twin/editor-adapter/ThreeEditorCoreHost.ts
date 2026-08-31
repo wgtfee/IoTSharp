@@ -269,6 +269,53 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.renderScene?.();
 	}
 
+	/** 将浏览器客户区坐标投影到专业编辑器的水平工程地面。 */
+	worldPositionFromClientPoint(clientX: number, clientY: number, groundY = 0): TwinVector3 | undefined {
+		if (this.disposed || !Number.isFinite(clientX) || !Number.isFinite(clientY) || !Number.isFinite(groundY)) return undefined;
+		const bounds = this.container.getBoundingClientRect();
+		if (bounds.width <= 0 || bounds.height <= 0) return undefined;
+		const pointer = new THREE.Vector2(
+			((clientX - bounds.left) / bounds.width) * 2 - 1,
+			-((clientY - bounds.top) / bounds.height) * 2 + 1,
+		);
+		const raycaster = new THREE.Raycaster();
+		raycaster.setFromCamera(pointer, this.editor.viewer.camera);
+		const point = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -groundY), new THREE.Vector3());
+		return point ? [point.x, point.y, point.z] : undefined;
+	}
+
+	/** 把顶层对象或程序化整机移动到指定世界坐标，并同步其 Manifest 局部变换。 */
+	setObjectWorldPosition(objectId: string, position: TwinVector3) {
+		const model = this.loadedModels.get(objectId);
+		const object = this.manifest.objects.find((item) => item.objectId === objectId);
+		if (!model?.root || !object) return false;
+		const localPosition = new THREE.Vector3(...position);
+		model.root.parent?.updateWorldMatrix?.(true, false);
+		model.root.parent?.worldToLocal(localPosition);
+		model.root.position.copy(localPosition);
+		model.root.updateMatrixWorld?.(true);
+		object.transform.position = [localPosition.x, localPosition.y, localPosition.z];
+		this.editor.viewer.renderScene?.();
+		this.selectObject(objectId);
+		this.events.onChanged?.();
+		return true;
+	}
+
+	/** 场景新增整机映射后，重建程序化参考及其独立可选对象。 */
+	reloadProceduralReferences() {
+		this.editor.viewer.transformControls.detach();
+		for (const item of [...this.loadedModels.values()].filter((candidate) => candidate.kind === 'equipment')) {
+			this.loadedModels.delete(item.objectId);
+		}
+		for (const item of [...this.loadedModels.values()].filter((candidate) => candidate.kind === 'procedural')) {
+			this.removeObject(item.objectId, false);
+		}
+		this.loadManifestProceduralReferences();
+		this.engineeringOverlay.rebuild(this.manifest);
+		this.editor.viewer.renderScene?.();
+		this.events.onChanged?.();
+	}
+
 	/**
 	 * 在专业编辑器中加载程序化产线的静态工程参考。
 	 * 输送机仍由 V7 Component 绘制；这里补齐运行时拥有的机器人、旋转台、丝车、桁架、托盘和后包装设备。
