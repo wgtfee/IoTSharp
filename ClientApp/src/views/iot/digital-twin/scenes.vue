@@ -10,13 +10,13 @@
 				<div class="scene-title"><div><small>{{ scene.sceneKey }}</small><h3>{{ scene.name }}</h3></div><el-tag :type="publicationState(scene).type">{{ publicationState(scene).label }}</el-tag></div>
 				<p>{{ scene.description || '暂无描述' }}</p>
 				<dl><div><dt>根 Asset</dt><dd>{{ scene.rootAssetName || scene.rootAssetId }}</dd></div><div><dt>草稿</dt><dd>r{{ scene.revision }}</dd></div><div><dt>线上版本</dt><dd>{{ scene.publishedVersion ? `v${scene.publishedVersion}` : '未发布' }}</dd></div><div><dt>更新时间</dt><dd>{{ formatDate(scene.updatedAt) }}</dd></div></dl>
-				<footer><el-button size="small" @click="edit(scene)">编辑草稿</el-button><el-button size="small" @click="viewDraft(scene)">查看草稿</el-button><el-button size="small" type="primary" :loading="publishingSceneId === scene.id" :disabled="scene.publishedSourceRevision === scene.revision" @click="publish(scene)">{{ scene.publishedVersion ? '发布新版本' : '发布' }}</el-button><el-button size="small" :disabled="!scene.publishedVersion" type="success" @click="viewPublished(scene)">查看线上</el-button><el-button size="small" @click="openVersions(scene)">版本历史</el-button><el-button size="small" type="danger" plain :loading="deletingSceneId === scene.id" @click="remove(scene)">删除</el-button></footer>
+				<footer><el-button size="small" @click="edit(scene)">3D 编辑</el-button><el-button size="small" type="primary" plain @click="edit2D(scene)">2D 编辑</el-button><el-button size="small" @click="viewDraft(scene)">3D 草稿</el-button><el-button size="small" type="primary" :loading="publishingSceneId === scene.id" :disabled="scene.publishedSourceRevision === scene.revision" @click="publish(scene)">{{ scene.publishedVersion ? '发布新版本' : '发布' }}</el-button><el-button size="small" :disabled="!scene.publishedVersion" type="success" @click="viewPublished(scene)">3D 线上</el-button><el-button size="small" :disabled="!scene.publishedVersion" type="success" plain @click="view2DPublished(scene)">2D 线上</el-button><el-button size="small" @click="openVersions(scene)">版本历史</el-button><el-button size="small" type="danger" plain :loading="deletingSceneId === scene.id" @click="remove(scene)">删除</el-button></footer>
 			</article>
 		</div>
 		<el-drawer v-model="drawer" :title="`${selected?.name || ''} · 版本历史`" size="600px">
 			<el-empty v-if="versions.length === 0" description="尚无发布版本" />
 			<el-timeline v-else><el-timeline-item v-for="version in versions" :key="version.id" :timestamp="formatDate(version.createdAt)" :type="version.isCurrent ? 'success' : 'primary'">
-				<div class="version"><strong>v{{ version.version }} <el-tag v-if="version.isCurrent" size="small" type="success">线上</el-tag></strong><span>来源草稿 r{{ version.sourceDraftRevision }} · {{ version.changeSummary || '无说明' }}</span><small>{{ version.manifestHash.slice(0, 20) }}…</small><div><el-button size="small" @click="viewVersion(version.version)">只读查看</el-button><el-button v-if="!version.isCurrent" size="small" type="warning" @click="restoreDraft(version.version)">创建回退草稿</el-button></div></div>
+				<div class="version"><strong>v{{ version.version }} <el-tag v-if="version.isCurrent" size="small" type="success">线上</el-tag></strong><span>来源草稿 r{{ version.sourceDraftRevision }} · {{ version.changeSummary || '无说明' }}</span><small>{{ version.manifestHash.slice(0, 20) }}…</small><div><el-button size="small" @click="viewVersion(version.version)">3D 查看</el-button><el-button size="small" type="primary" plain @click="view2DVersion(version.version)">2D 查看</el-button><el-button v-if="!version.isCurrent" size="small" type="warning" @click="restoreDraft(version.version)">创建回退草稿</el-button></div></div>
 			</el-timeline-item></el-timeline>
 		</el-drawer>
 	</div>
@@ -43,8 +43,10 @@ const publicationState = (scene: DigitalTwinSceneSummary) => !scene.publishedVer
 	? { label: '仅草稿', type: 'info' as const }
 	: scene.publishedSourceRevision === scene.revision ? { label: '已发布', type: 'success' as const } : { label: '发布后已修改', type: 'warning' as const };
 const edit = (scene: DigitalTwinSceneSummary) => router.push({ path: '/iot/digital-twin/workbench', query: { sceneId: scene.id } });
+const edit2D = (scene: DigitalTwinSceneSummary) => router.push({ path: '/iot/digital-twin/2d-scene', query: { sceneId: scene.id } });
 const viewDraft = (scene: DigitalTwinSceneSummary) => router.push({ path: '/iot/digital-twin/viewer', query: { sceneId: scene.id, mode: 'draft' } });
 const viewPublished = (scene: DigitalTwinSceneSummary) => router.push({ path: '/iot/digital-twin/viewer', query: { sceneId: scene.id, version: scene.publishedVersion } });
+const view2DPublished = (scene: DigitalTwinSceneSummary) => router.push({ path: '/iot/digital-twin/2d-viewer', query: { sceneId: scene.id, version: scene.publishedVersion } });
 const publish = async (scene: DigitalTwinSceneSummary) => {
 	const confirmed = await ElMessageBox.confirm(`发布 ${scene.name} 的草稿 r${scene.revision}？发布后将生成不可变线上版本。`, '发布场景', { type: 'warning' })
 		.then(() => true).catch(() => false);
@@ -86,6 +88,7 @@ const remove = async (scene: DigitalTwinSceneSummary) => {
 };
 const openVersions = async (scene: DigitalTwinSceneSummary) => { selected.value = scene; versions.value = apiData(await digitalTwinApi.listVersions(scene.id)); drawer.value = true; };
 const viewVersion = (version: number) => selected.value && router.push({ path: '/iot/digital-twin/viewer', query: { sceneId: selected.value.id, version } });
+const view2DVersion = (version: number) => selected.value && router.push({ path: '/iot/digital-twin/2d-viewer', query: { sceneId: selected.value.id, version } });
 const restoreDraft = async (version: number) => {
 	if (!selected.value) return;
 	await ElMessageBox.confirm(`从 v${version} 创建新草稿，不改变当前线上版本。`, '创建回退草稿');

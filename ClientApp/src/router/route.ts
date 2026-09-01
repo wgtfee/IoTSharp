@@ -29,6 +29,18 @@ export const digitalTwinSupplementalRoutes: Array<RouteRecordRaw> = [
 		component: () => import('/@/views/iot/digital-twin/viewer.vue'),
 		meta: { title: '孪生只读运行态', isHide: true, isKeepAlive: false, roles: ['admin', 'common'] },
 	},
+	{
+		path: '/iot/digital-twin/2d-viewer',
+		name: 'digitaltwin2dviewer',
+		component: () => import('/@/views/iot/digital-twin/2d-viewer.vue'),
+		meta: { title: '2D 孪生只读运行态', isHide: true, isKeepAlive: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
+	},
+	{
+		path: '/iot/digital-twin/2d-scene',
+		name: 'digitaltwin2dscene',
+		component: () => import('/@/views/iot/digital-twin/2d-scene.vue'),
+		meta: { title: '2D 场景', isLink: '', isHide: false, isKeepAlive: false, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
+	},
 ];
 
 export const dynamicRoutes: Array<RouteRecordRaw> = [

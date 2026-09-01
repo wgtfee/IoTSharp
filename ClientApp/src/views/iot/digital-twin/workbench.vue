@@ -11,6 +11,7 @@
 				</el-tag>
 			</div>
 			<div class="twin-toolbar__actions">
+				<el-button @click="router.push('/iot/digital-twin/2d-scene')">2D 场景</el-button>
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button @click="createDialogVisible = true">新建场景</el-button>
 				<el-button type="warning" plain @click="applySilkCakeLineTemplate">完整工艺 V6</el-button>

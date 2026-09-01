@@ -221,6 +221,10 @@ internal static class TwinManifestInspector
     {
         var objectIds = new HashSet<string>(StringComparer.Ordinal);
         var objectKinds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var supportedObjectKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "procedural", "model", "equipment", "component", "visual"
+        };
         var equipmentReferences = new List<(string Path, string ParentObjectId, string EquipmentType)>();
         var supportedEquipmentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -248,6 +252,10 @@ internal static class TwinManifestInspector
             var assetId = TryGetGuid(sceneObject, "assetId", out var parsedAssetId) ? parsedAssetId : rootAssetId;
             var hasKind = TryGetNonEmptyString(sceneObject, "kind", out var kind);
             objectKinds[objectId] = hasKind ? kind : string.Empty;
+            if (!hasKind || !supportedObjectKinds.Contains(kind))
+            {
+                result.Diagnostics.Add(Error("twin.object.kind.invalid", "对象 kind 必须是 procedural、model、equipment、component 或 visual。", $"{path}.kind"));
+            }
             var requiresDatabaseResource = hasKind && (kind.Equals("model", StringComparison.OrdinalIgnoreCase) || kind.Equals("component", StringComparison.OrdinalIgnoreCase));
             if (requiresDatabaseResource && resourceId == null)
             {

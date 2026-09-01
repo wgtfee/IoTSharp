@@ -54,7 +54,8 @@ export interface TwinObjectBindingDefinition {
 export interface TwinSceneObjectDefinition {
 	objectId: string;
 	name: string;
-	kind: 'procedural' | 'model' | 'equipment';
+	/** visual 是无 3D 模型资源的共享业务对象，供 2D 图元、绑定和路线引用。 */
+	kind: 'procedural' | 'model' | 'equipment' | 'visual';
 	resourceId?: string;
 	assetId?: string;
 	procedural?: {
