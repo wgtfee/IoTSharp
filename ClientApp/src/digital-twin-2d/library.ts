@@ -1,4 +1,5 @@
 import type { Twin2DObjectView, Twin2DSymbolKey } from './types';
+import { cloneTwin2DState } from './clone';
 
 export interface Twin2DLibraryItem {
 	resourceKey: string;
@@ -46,7 +47,7 @@ export const createTwin2DLibraryObject = (item: Twin2DLibraryItem, x: number, y:
 	componentSchema: item.componentSchema,
 	ports: item.ports,
 	bindingSlots: item.bindingSlots,
-	properties: structuredClone(item.defaultProperties || {}),
+	properties: cloneTwin2DState(item.defaultProperties || {}),
 	layerId: ['pallet', 'carton', 'agv'].includes(item.symbolKey) ? 'material-flow' : item.symbolKey === 'label' ? 'labels' : 'production',
 	x,
 	y,

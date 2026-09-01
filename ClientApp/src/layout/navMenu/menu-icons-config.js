@@ -12,6 +12,8 @@ import digitaltwin from '~icons/material-symbols/3d-rotation'
 import digitaltwinmodelgenerator from '~icons/material-symbols/deployed-code'
 import digitaltwinworkbench from '~icons/material-symbols/view-in-ar'
 import digitaltwinscenes from '~icons/material-symbols/schema'
+import digitaltwin2dscene from '~icons/material-symbols/edit-square-outline'
+import digitaltwinytpack2d from '~icons/material-symbols/conveyor-belt'
 import aicenter from '~icons/material-symbols/smart-toy'
 import aiworkbench from '~icons/material-symbols/psychology'
 import mcpservice from '~icons/material-symbols/account-tree'
@@ -30,6 +32,8 @@ export const menuIconList = {
     digitaltwinmodelgenerator,
     digitaltwinworkbench,
     digitaltwinscenes,
+    digitaltwin2dscene,
+    digitaltwinytpack2d,
     aicenter,
     aiworkbench,
     mcpservice,

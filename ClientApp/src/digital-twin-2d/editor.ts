@@ -1,4 +1,5 @@
 import type { Twin2DObjectView } from './types';
+import { cloneTwin2DState } from './clone';
 
 export interface Twin2DPoint { x: number; y: number }
 export interface Twin2DRect { x: number; y: number; width: number; height: number }
@@ -6,7 +7,7 @@ export type Twin2DAlignMode = 'left' | 'center-x' | 'right' | 'top' | 'center-y'
 export type Twin2DDistributeMode = 'horizontal' | 'vertical';
 export interface Twin2DAlignmentGuides { vertical: number[]; horizontal: number[] }
 
-const clone = <T>(value: T): T => structuredClone(value);
+const clone = cloneTwin2DState;
 const right = (item: Twin2DObjectView) => item.x + item.width;
 const bottom = (item: Twin2DObjectView) => item.y + item.height;
 

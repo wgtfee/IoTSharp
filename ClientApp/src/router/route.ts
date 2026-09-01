@@ -39,7 +39,13 @@ export const digitalTwinSupplementalRoutes: Array<RouteRecordRaw> = [
 		path: '/iot/digital-twin/2d-scene',
 		name: 'digitaltwin2dscene',
 		component: () => import('/@/views/iot/digital-twin/2d-scene.vue'),
-		meta: { title: '2D 场景', isLink: '', isHide: false, isKeepAlive: false, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
+		meta: { title: '2D 场景设计器', isLink: '', isHide: false, isKeepAlive: false, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
+	},
+	{
+		path: '/iot/digital-twin/yt-pack-2d',
+		name: 'digitaltwinytpack2d',
+		component: () => import('/@/views/iot/digital-twin/yt-pack-2d/index.vue'),
+		meta: { title: '亚特包装线 2D', isLink: '', isHide: false, isKeepAlive: true, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-shuju' },
 	},
 ];
 

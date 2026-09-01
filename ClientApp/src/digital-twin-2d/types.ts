@@ -1,5 +1,6 @@
 import type { TwinSceneManifest } from '/@/digital-twin/contracts';
 import { isSafeTwin2DSvg } from './svg';
+import { cloneTwin2DState } from './clone';
 
 export type Twin2DSymbolKey =
 	| 'conveyor-small'
@@ -127,7 +128,7 @@ export const ensureTwin2DView = (manifest: TwinSceneManifestWith2D): Twin2DViewD
 		manifest.view2d.layers ||= createDefaultTwin2DView().layers;
 		manifest.view2d.showMinimap ??= true;
 		for (const item of manifest.view2d.objects) item.layerId ||= item.symbolKey === 'label' ? 'labels' : ['pallet', 'carton', 'agv'].includes(item.symbolKey) ? 'material-flow' : 'production';
-		return structuredClone(manifest.view2d);
+		return cloneTwin2DState(manifest.view2d);
 	}
 	const view = createDefaultTwin2DView();
 	const objects = (manifest.objects || []) as any[];

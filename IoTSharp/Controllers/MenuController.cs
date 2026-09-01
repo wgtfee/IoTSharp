@@ -101,7 +101,8 @@ namespace IoTSharp.Controllers
                     {
                         new() { text = "模型生成", i18n = "", vi18n="iot.digitaltwin.modelgenerator", routename="digitaltwinmodelgenerator", link = "/iot/digital-twin/model-generator", vpath = "/iot/digital-twin/model-generator", },
                         new() { text = "三维场景", i18n = "", vi18n="iot.digitaltwin.workbench", routename="digitaltwinworkbench", link = "/iot/digital-twin/workbench", vpath = "/iot/digital-twin/workbench", },
-                        new() { text = "2D 场景", i18n = "", vi18n="iot.digitaltwin.2dscene", routename="digitaltwin2dscene", link = "/iot/digital-twin/2d-scene", vpath = "/iot/digital-twin/2d-scene", },
+                        new() { text = "2D 场景设计器", i18n = "", vi18n="iot.digitaltwin.2dscene", routename="digitaltwin2dscene", link = "/iot/digital-twin/2d-scene", vpath = "/iot/digital-twin/2d-scene", icon = "iconfont icon-bianji", },
+                        new() { text = "亚特包装线 2D", i18n = "", vi18n="iot.digitaltwin.ytpack2d", routename="digitaltwinytpack2d", link = "/iot/digital-twin/yt-pack-2d", vpath = "/iot/digital-twin/yt-pack-2d", icon = "iconfont icon-shuju", },
                     }
                 });
                 if (User.IsInRole(nameof(UserRole.CustomerAdmin)) || User.IsInRole(nameof(UserRole.TenantAdmin)))

@@ -12,6 +12,7 @@
           <el-button @click="zoomBy(1.18)">缩小</el-button>
           <el-button @click="resetView">复位</el-button>
         </el-button-group>
+        <el-button size="small" type="primary" plain @click="router.push('/iot/digital-twin/2d-scene')">2D 场景设计器</el-button>
         <el-button size="small" @click="router.push('/iot/digital-twin/workbench')">三维场景</el-button>
       </div>
     </header>

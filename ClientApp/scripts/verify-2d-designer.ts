@@ -1,8 +1,10 @@
 import { createDefaultTwinSceneManifest } from '../src/digital-twin/contracts';
+import { reactive } from 'vue';
 import { createTwin2DLibraryObject, twin2DBuiltInLibrary } from '../src/digital-twin-2d/library';
 import { createDefaultTwin2DView, ensureTwin2DView, validateTwin2DView } from '../src/digital-twin-2d/types';
 import { resolveTwin2DRuntimeStates } from '../src/digital-twin-2d/runtime';
-import { snapObjectsToAlignmentGuides } from '../src/digital-twin-2d/editor';
+import { moveObjects, snapObjectsToAlignmentGuides } from '../src/digital-twin-2d/editor';
+import { cloneTwin2DState } from '../src/digital-twin-2d/clone';
 import { isSafeTwin2DSvg, sanitizeTwin2DSvg } from '../src/digital-twin-2d/svg';
 import { mapModelResourceTo2DLibraryItem } from '../src/digital-twin-2d/library-store';
 
@@ -20,6 +22,10 @@ const view = createDefaultTwin2DView();
 const conveyor = createTwin2DLibraryObject(twin2DBuiltInLibrary[0], 100, 200, 1);
 view.objects.push(conveyor);
 assert(validateTwin2DView(view, manifest).every((item) => item.severity !== 'error'), '合法 2D View 不应产生 Error');
+const reactiveConveyor = reactive(conveyor);
+assert(cloneTwin2DState(reactiveConveyor).id === conveyor.id, 'Vue Proxy 场景对象无法创建安全快照');
+const movedReactive = moveObjects([reactiveConveyor], 40, 20);
+assert(movedReactive[0].x === 140 && movedReactive[0].y === 220, 'Vue Proxy 场景对象拖动坐标计算失败');
 const stationary = createTwin2DLibraryObject(twin2DBuiltInLibrary[0], 400, 200, 2);
 const nearAligned = { ...structuredClone(conveyor), x: 155 };
 const alignment = snapObjectsToAlignmentGuides([nearAligned], [stationary], 6);
