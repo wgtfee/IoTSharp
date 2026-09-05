@@ -518,6 +518,11 @@ export const revalidateComponentConnections = (
 	manifest.connections = (manifest.connections || []).filter((connection) => {
 		const from = index.get(portKey(connection.from.objectId, connection.from.portId));
 		const to = index.get(portKey(connection.to.objectId, connection.to.portId));
+		if (connection.metadata?.topologyBridge === true) {
+			const validBridge = Boolean(from && to && areComponentPortsCompatible(from, to));
+			if (!validBridge) removedConnectionIds.push(connection.connectionId);
+			return validBridge;
+		}
 		const valid = Boolean(from && to
 			&& areComponentPortsCompatible(from, to)
 			&& portsFaceEachOther(from, to, maxAngleDegrees)

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyComponentIdentity, createComponentResult, createMaterial, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
+import { applyComponentIdentity, createComponentResult, createMaterial, resolveNumber, setTransform } from './geometry';
 import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export class TurntableComponent implements TwinComponentGenerator {
@@ -20,6 +20,8 @@ export class TurntableComponent implements TwinComponentGenerator {
 		root.name = definition.name;
 		const baseMaterial = createMaterial(0x1e293b, { roughness: 0.6, metalness: 0.74 });
 		const accentMaterial = createMaterial(0xf59e0b, { roughness: 0.4, metalness: 0.68, emissive: 0x78350f, emissiveIntensity: 0.12 });
+		const chainMaterial = createMaterial(0x111827, { roughness: 0.38, metalness: 0.9 });
+		const chainSprocketMaterial = createMaterial(0x64748b, { roughness: 0.34, metalness: 0.9 });
 		const cartMaterial = createMaterial(0x475569, { roughness: 0.55, metalness: 0.68 });
 		const wheelMaterial = createMaterial(0x111827, { roughness: 0.72, metalness: 0.3 });
 		const silkMaterial = createMaterial(0xf8fafc, { roughness: 0.78, metalness: 0.0 });
@@ -34,18 +36,31 @@ export class TurntableComponent implements TwinComponentGenerator {
 		rotatingDeck.userData.rotationAxis = 'y';
 		rotatingDeck.userData.homeAngle = 0;
 		rotatingDeck.userData.carriesSilkCart = withSilkCart;
-		rotatingDeck.add(createStraightRollerGeometry({
-			length: deckLength,
-			width,
-			height,
-			rollerDiameter: 0.14,
-			rollerPitch: 0.48,
-			frameHeight: 0.16,
-			frameThickness: 0.1,
-			supportSpacing: Math.max(1.2, deckLength),
-			frameColor: 0x475569,
-			rollerColor: 0x94a3b8,
-		}));
+		const chainDeck = new THREE.Group();
+		chainDeck.name = 'Turntable-Chain-Deck';
+		chainDeck.userData.conveyorSurfaceHeight = height;
+		chainDeck.userData.conveyorSurfaceKind = 'chain';
+		const chainSpacing = Math.min(width * 0.56, Math.max(0.45, width - 0.34));
+		for (const z of [-width / 2 + 0.08, width / 2 - 0.08]) {
+			const frame = new THREE.Mesh(new THREE.BoxGeometry(deckLength, 0.16, 0.12), cartMaterial);
+			frame.position.set(0, height - 0.16, z);
+			chainDeck.add(frame);
+		}
+		for (const z of [-chainSpacing / 2, chainSpacing / 2]) {
+			const chain = new THREE.Mesh(new THREE.BoxGeometry(deckLength - 0.16, 0.08, 0.12), chainMaterial);
+			chain.name = z < 0 ? 'Turntable-Chain-Left' : 'Turntable-Chain-Right';
+			chain.position.set(0, height - 0.04, z);
+			chainDeck.add(chain);
+			for (const x of [-deckLength / 2 + 0.14, deckLength / 2 - 0.14]) {
+				const sprocket = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.10, 18), chainSprocketMaterial);
+				sprocket.name = `Turntable-Chain-Sprocket-${x < 0 ? 'In' : 'Out'}-${z < 0 ? 'L' : 'R'}`;
+				sprocket.position.set(x, height - 0.08, z);
+				sprocket.rotation.x = Math.PI / 2;
+				sprocket.userData.runtimeSpin = { axis: [0, 1, 0], speedDegPerSecond: 300 };
+				chainDeck.add(sprocket);
+			}
+		}
+		rotatingDeck.add(chainDeck);
 
 		if (withSilkCart) {
 			const cart = new THREE.Group();
@@ -145,6 +160,7 @@ export class TurntableComponent implements TwinComponentGenerator {
 		root.userData.generator = this.generator;
 		root.userData.withSilkCart = withSilkCart;
 		root.userData.silkCartLoaded = silkCartLoaded;
+		root.userData.deckConveyorType = 'chain';
 		root.userData.capabilities = ['material-flow', 'capacity', 'rotation', 'plc-binding'];
 		root.userData.properties = { ...props, deckLength, width, height, baseRadius, withSilkCart, silkCartLoaded };
 		setTransform(root, definition.transform);

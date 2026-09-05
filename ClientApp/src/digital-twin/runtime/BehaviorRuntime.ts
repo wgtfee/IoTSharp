@@ -80,6 +80,7 @@ export class BehaviorRuntime {
 	private readonly bindingValues = new Map<string, unknown>();
 	private readonly staleBindingIds = new Set<string>();
 	private running = false;
+	private actorFilter?: string;
 	private disposed = false;
 
 	constructor(
@@ -140,7 +141,18 @@ export class BehaviorRuntime {
 	setRunning(running: boolean) {
 		this.running = Boolean(running) && this.manifest.runtime.dataMode === 'simulation';
 		for (const channel of this.channels.values()) {
-			if (!this.running && channel.status !== 'completed' && channel.status !== 'error') channel.status = 'paused';
+			const enabled = !this.actorFilter || channel.actorObjectId === this.actorFilter;
+			if ((!this.running || !enabled) && channel.status !== 'completed' && channel.status !== 'error') channel.status = 'paused';
+			else if (this.running && enabled && channel.status === 'paused') channel.status = 'acting';
+		}
+	}
+
+	setActorFilter(objectId?: string) {
+		this.actorFilter = objectId?.trim() || undefined;
+		for (const channel of this.channels.values()) {
+			const enabled = !this.actorFilter || channel.actorObjectId === this.actorFilter;
+			if (!enabled && channel.status !== 'completed' && channel.status !== 'error') channel.status = 'paused';
+			else if (this.running && enabled && channel.status === 'paused') channel.status = 'acting';
 		}
 	}
 
@@ -158,7 +170,7 @@ export class BehaviorRuntime {
 			channel.phase = 0;
 			channel.waitElapsed = 0;
 			channel.waitRecordedFor = undefined;
-			channel.status = this.running ? 'acting' : 'paused';
+			channel.status = this.running && (!this.actorFilter || channel.actorObjectId === this.actorFilter) ? 'acting' : 'paused';
 			channel.cycleCount = 0;
 			channel.completedActions = 0;
 			channel.interlockWaitCount = 0;
@@ -170,7 +182,10 @@ export class BehaviorRuntime {
 	updateFixed(deltaSeconds: number) {
 		if (this.disposed || !this.running || this.manifest.runtime.dataMode !== 'simulation') return;
 		if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
-		for (const channel of this.channels.values()) this.updateChannel(channel, deltaSeconds);
+		for (const channel of this.channels.values()) {
+			if (this.actorFilter && channel.actorObjectId !== this.actorFilter) continue;
+			this.updateChannel(channel, deltaSeconds);
+		}
 	}
 
 	setSignal(source: string, value: unknown) {

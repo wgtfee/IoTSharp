@@ -13,7 +13,8 @@ import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlo
 import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 import { BehaviorRuntime } from '/@/digital-twin/runtime/BehaviorRuntime';
-import { createComponentDefinitionFromTemplate, defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, migrateSilkLineInfrastructureToV7, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { advanceComponentVisualRuntime } from '/@/digital-twin/components/ComponentVisualRuntime';
+import { createComponentDefinitionFromTemplate, defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, migrateSilkLineInfrastructureToV7, resolveComponentInternalFlows, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 export interface TwinSelectionInfo {
 	name: string;
@@ -160,6 +161,10 @@ export class TwinRuntime {
 	private componentProcessRuntime?: ComponentProcessRuntime;
 	private behaviorRuntime?: BehaviorRuntime;
 	private runtimeRunning = false;
+	private componentTestObjectId?: string;
+	private componentTestPath: THREE.Vector3[] = [];
+	private componentTestDistance = 0;
+	private componentTestMarker?: THREE.Mesh;
 	private routeLine?: any;
 	private ground?: any;
 	private selectionHelper?: any;
@@ -252,10 +257,43 @@ export class TwinRuntime {
 
 	setRunning(running: boolean) {
 		this.runtimeRunning = running;
+		if (this.componentTestObjectId) {
+			this.componentProcessRuntime?.setRunning(false);
+			this.routeEngine.setRunning(false);
+			this.packagingLine?.setRunning(false);
+			this.behaviorRuntime?.setRunning(running);
+			return;
+		}
 		if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(running);
 		else this.routeEngine.setRunning(running);
 		this.packagingLine?.setRunning(running);
 		this.behaviorRuntime?.setRunning(running);
+	}
+
+	setComponentTestObject(objectId?: string) {
+		this.componentTestObjectId = objectId?.trim() || undefined;
+		this.behaviorRuntime?.setActorFilter(this.componentTestObjectId);
+		this.clearComponentTestMarker();
+		if (this.componentTestObjectId) {
+			this.componentProcessRuntime?.setRunning(false);
+			this.routeEngine.setRunning(false);
+			this.packagingLine?.setRunning(false);
+			this.behaviorRuntime?.reset();
+			this.behaviorRuntime?.setRunning(this.runtimeRunning);
+			this.buildComponentTestPath(this.componentTestObjectId);
+			return;
+		}
+		this.behaviorRuntime?.reset();
+		this.behaviorRuntime?.setRunning(this.runtimeRunning);
+		if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(this.runtimeRunning);
+		else this.routeEngine.setRunning(this.runtimeRunning);
+		this.packagingLine?.setRunning(this.runtimeRunning);
+	}
+
+	resetComponentTest() {
+		this.behaviorRuntime?.reset();
+		this.componentTestDistance = 0;
+		if (this.componentTestMarker && this.componentTestPath.length) this.componentTestMarker.position.copy(this.componentTestPath[0]);
 	}
 
 	setSpeed(speed: number) {
@@ -530,6 +568,8 @@ export class TwinRuntime {
 			this.syncProceduralProcessComponentAnimations();
 			this.accumulator -= this.fixedStep;
 		}
+		if (this.runtimeRunning) advanceComponentVisualRuntime(this.scene, deltaSeconds, 1);
+		if (this.runtimeRunning && this.componentTestObjectId) this.advanceComponentTestPath(deltaSeconds);
 		this.routeEngine.render(this.accumulator / this.fixedStep);
 		this.orbitControls.update();
 		this.renderer.render(this.scene, this.camera);
@@ -754,7 +794,67 @@ export class TwinRuntime {
 			(message) => this.events.onError?.(message),
 		);
 		this.behaviorRuntime.setBindingContext(this.bindingEngine.getSignalSnapshot());
+		this.behaviorRuntime.setActorFilter(this.componentTestObjectId);
 		this.behaviorRuntime.setRunning(this.runtimeRunning);
+	}
+
+	private buildComponentTestPath(objectId: string) {
+		const object = (this.manifest.objects as any[]).find((item) => item.objectId === objectId && item.kind === 'component');
+		if (!object) return;
+		const flow = resolveComponentInternalFlows(object)[0];
+		if (!flow?.points?.length) return;
+		const pointMap = new Map(flow.points.map((point) => [point.pointId, point.worldPosition.clone()]));
+		const path: THREE.Vector3[] = [];
+		if (flow.edges?.length) {
+			let edge = flow.edges[0];
+			const first = pointMap.get(edge.fromPointId);
+			if (first) path.push(first);
+			const visited = new Set<string>();
+			while (edge && !visited.has(edge.edgeId)) {
+				visited.add(edge.edgeId);
+				const nextPoint = pointMap.get(edge.toPointId);
+				if (nextPoint) path.push(nextPoint);
+				edge = flow.edges.find((candidate) => !visited.has(candidate.edgeId) && candidate.fromPointId === edge.toPointId) as any;
+			}
+		}
+		if (path.length < 2) path.push(...flow.points.map((point) => point.worldPosition.clone()));
+		this.componentTestPath = path.filter((point, index) => index === 0 || point.distanceTo(path[index - 1]) > 0.001);
+		if (this.componentTestPath.length < 2) return;
+		this.componentTestDistance = 0;
+		const marker = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 12), new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x14532d, emissiveIntensity: 0.55 }));
+		marker.name = 'Component-Isolated-Test-Marker';
+		marker.userData.helper = true;
+		marker.position.copy(this.componentTestPath[0]);
+		this.scene.add(marker);
+		this.componentTestMarker = marker;
+	}
+
+	private advanceComponentTestPath(deltaSeconds: number) {
+		if (!this.componentTestMarker || this.componentTestPath.length < 2) return;
+		const lengths: number[] = [];
+		let total = 0;
+		for (let index = 1; index < this.componentTestPath.length; index += 1) {
+			total += this.componentTestPath[index - 1].distanceTo(this.componentTestPath[index]);
+			lengths.push(total);
+		}
+		if (total <= 0.001) return;
+		this.componentTestDistance = (this.componentTestDistance + deltaSeconds) % total;
+		let segment = lengths.findIndex((value) => this.componentTestDistance <= value);
+		if (segment < 0) segment = lengths.length - 1;
+		const segmentStart = segment === 0 ? 0 : lengths[segment - 1];
+		const segmentLength = Math.max(0.001, lengths[segment] - segmentStart);
+		const ratio = (this.componentTestDistance - segmentStart) / segmentLength;
+		this.componentTestMarker.position.lerpVectors(this.componentTestPath[segment], this.componentTestPath[segment + 1], ratio);
+	}
+
+	private clearComponentTestMarker() {
+		this.componentTestPath = [];
+		this.componentTestDistance = 0;
+		if (!this.componentTestMarker) return;
+		this.scene.remove(this.componentTestMarker);
+		this.componentTestMarker.geometry.dispose();
+		(this.componentTestMarker.material as THREE.Material).dispose();
+		this.componentTestMarker = undefined;
 	}
 
 	private rebuildComponentProcessRuntime() {

@@ -22,6 +22,8 @@ export * from './ComponentBindingResolver';
 export * from './BuiltInComponentCatalog';
 export * from './ComponentTemplateFactory';
 export * from './ComponentActuatorSync';
+export * from './ComponentVisualRuntime';
+export * from './RgvAndChainComponents';
 export * from './ComponentResourceRegistration';
 export * from './ComponentConnectionEngine';
 export * from './SilkV7ComponentMigration';

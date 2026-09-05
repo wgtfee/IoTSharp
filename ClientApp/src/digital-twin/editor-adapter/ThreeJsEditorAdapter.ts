@@ -18,6 +18,14 @@ export class ThreeJsEditorAdapter {
 		this.runtime.setRunning(running);
 	}
 
+	setComponentTestObject(objectId?: string) {
+		this.runtime.setComponentTestObject(objectId);
+	}
+
+	resetComponentTest() {
+		this.runtime.resetComponentTest();
+	}
+
 	setSpeed(speed: number) {
 		this.runtime.setSpeed(speed);
 	}

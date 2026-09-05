@@ -13,6 +13,7 @@ import { DualExternalInspectionComponent } from './DualExternalInspectionCompone
 import { BaggingMachineComponent } from './BaggingMachineComponent';
 import { VacuumFilmTuckComponent } from './VacuumFilmTuckComponent';
 import { IndustrialRobotComponent } from './IndustrialRobotComponent';
+import { ChainConveyorComponent, RgvComponent } from './RgvAndChainComponents';
 import { PalletComponent, SmallPalletComponent } from './PalletComponent';
 import { CartonComponent } from './CartonComponent';
 import { LabelingMachineComponent, SilkGantryComponent, TopCoverGantryComponent, WrapperMachineComponent } from './PackagingLineComponents';
@@ -85,6 +86,8 @@ export const createDefaultComponentRegistry = () => new ComponentRegistry()
 	.register(new BaggingMachineComponent())
 	.register(new VacuumFilmTuckComponent())
 	.register(new IndustrialRobotComponent())
+	.register(new ChainConveyorComponent())
+	.register(new RgvComponent())
 	.register(new SilkGantryComponent())
 	.register(new TopCoverGantryComponent())
 	.register(new WrapperMachineComponent())

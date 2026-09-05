@@ -13,6 +13,8 @@ export type TwinComponentType =
 	| 'external-inspection'
 	| 'bagging-machine'
 	| 'industrial-robot'
+	| 'chain-conveyor'
+	| 'rgv'
 	| 'silk-gantry'
 	| 'top-cover-gantry'
 	| 'wrapper-machine'

@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { defaultComponentRegistry } from '../components/ComponentRegistry';
+import { advanceComponentVisualRuntime } from '../components/ComponentVisualRuntime';
 import { createStudioPart } from './types';
 import type {
 	ComponentStudioDefinition,
@@ -724,6 +725,7 @@ export class ComponentStudioViewport {
 		const delta = Math.min(0.05, (now - this.lastFrame) / 1000);
 		this.lastFrame = now;
 		if (this.mode === 'test' && this.runtimeState.run && this.runtimeState.visible) {
+			advanceComponentVisualRuntime(this.componentGroup, delta, this.runtimeState.speedMultiplier);
 			for (const animation of this.definition.animations) {
 				if (animation.kind !== 'rotate') continue;
 				const object = this.partObjects.get(animation.targetPartId);

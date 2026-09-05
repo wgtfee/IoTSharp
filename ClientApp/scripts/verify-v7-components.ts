@@ -5,6 +5,8 @@ import { ComponentProcessStateMachine } from '../src/digital-twin/runtime/Compon
 import { ProcessStationManager } from '../src/digital-twin/runtime/ProcessStationManager';
 import { ComponentProcessRuntime } from '../src/digital-twin/runtime/ComponentProcessRuntime';
 import {
+	advanceComponentVisualRuntime,
+	applyComponentSnap,
 	buildComponentFromTemplate,
 	buildComponentGraphRoutes,
 	builtInComponentResourceRegistrations,
@@ -18,6 +20,7 @@ import {
 	hasCompleteSilkV7Infrastructure,
 	migrateSilkLineInfrastructureToV7,
 	revalidateComponentConnections,
+	resolveComponentPorts,
 	resolveSceneComponentSnapOptions,
 	snapSceneComponent,
 	SILK_V7_MIGRATION_VERSION,
@@ -83,6 +86,58 @@ for (const template of builtInComponentTemplates) {
 	if (template.capabilities.includes('material-flow')) assert(Boolean(registration?.ports.length), `${template.name} 的数据库注册元数据缺少物料 ports`);
 	assert(Array.isArray(registration?.bindingSlots), `${template.name} 的数据库注册元数据缺少 bindingSlots 数组`);
 }
+
+const chainTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-chain-conveyor');
+assert(chainTemplate?.name === '链式输送机', '组件库缺少链式输送机');
+const chainBuilt = buildComponentFromTemplate('builtin-chain-conveyor', { objectId: 'verify-chain-conveyor' });
+try {
+	assert(chainBuilt.ports.some((item) => item.portId === 'input') && chainBuilt.ports.some((item) => item.portId === 'output'), '链式输送机缺少入口/出口');
+	assert(Boolean(chainBuilt.root.getObjectByName('Chain-Sprocket-In-L')) && Boolean(chainBuilt.root.getObjectByName('Chain-Sprocket-Out-R')), '链式输送机没有生成双链条链轮');
+	assert(Number(chainBuilt.root.getObjectByName('Chain-Sprocket-In-L')?.userData?.runtimeSpin?.speedDegPerSecond || 0) > 0, '链式输送机 Run 缺少链轮动画 metadata');
+} finally { chainBuilt.dispose(); }
+
+for (const [resourceKey, stationCount] of [['builtin-rgv-single', 1], ['builtin-rgv-double', 2]] as const) {
+	const template = builtInComponentTemplates.find((item) => item.resourceKey === resourceKey);
+	assert(Boolean(template), `${stationCount} 工位 RGV 没有进入组件库`);
+	const built = buildComponentFromTemplate(resourceKey, { objectId: `verify-rgv-${stationCount}` });
+	try {
+		assert(Boolean(built.root.getObjectByName('RGV-Carriage')), `${stationCount} 工位 RGV 缺少轨道移动载台`);
+		assert(built.ports.length === stationCount * 2, `${stationCount} 工位 RGV 物料端口数量错误`);
+		assert(built.root.userData?.actuatorDefinitions?.some((item: any) => item.actuatorId === 'rgv-x' && item.kind === 'linear-axis'), `${stationCount} 工位 RGV 缺少 rgv-x 行走轴`);
+	} finally { built.dispose(); }
+}
+
+const cartonRobotTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-carton-palletizing-robot');
+assert(cartonRobotTemplate?.name === '码垛纸箱机器人' && cartonRobotTemplate.defaultProperties.toolType === 'carton-gripper', '组件库缺少码垛纸箱机器人或没有默认纸箱夹具');
+const cartonRobotBuilt = buildComponentFromTemplate('builtin-carton-palletizing-robot', { objectId: 'verify-carton-robot' });
+try {
+	assert(Boolean(cartonRobotBuilt.root.getObjectByName('Robot-Carton-Gripper')), '码垛纸箱机器人没有生成纸箱夹具');
+	assert(Boolean(cartonRobotBuilt.root.getObjectByName('Carton-Gripper-Jaw-L')) && Boolean(cartonRobotBuilt.root.getObjectByName('Carton-Gripper-Jaw-R')), '纸箱夹具缺少左右夹板');
+	assert(cartonRobotBuilt.root.getObjectByName('Robot-Carton-Gripper')?.userData?.actuator?.kind === 'gripper', '纸箱夹具没有 gripper actuator');
+} finally { cartonRobotBuilt.dispose(); }
+
+const rollerVisualBuilt = buildComponentFromTemplate('builtin-small-roller-conveyor', { objectId: 'verify-roller-visual' });
+try {
+	const rollers = rollerVisualBuilt.root.getObjectByName('Rollers') as THREE.InstancedMesh;
+	assert(Boolean(rollers?.isInstancedMesh && rollers.userData?.runtimeSpinInstances), '小辊道没有 Run 滚筒动画 metadata');
+	assert(Boolean(rollerVisualBuilt.root.getObjectByName('RollerRotationMarkers')), '小辊道缺少可见滚筒旋转标记，Component Studio Run 肉眼无法判断是否运行');
+	const before = new THREE.Matrix4(); const after = new THREE.Matrix4();
+	rollers.getMatrixAt(0, before);
+	advanceComponentVisualRuntime(rollerVisualBuilt.root, 0.25, 1);
+	rollers.getMatrixAt(0, after);
+	assert(before.elements.some((value, index) => Math.abs(value - after.elements[index]) > 0.000001), '组件设计器 Run 的可视运行时没有真正旋转滚筒实例');
+} finally { rollerVisualBuilt.dispose(); }
+
+const manualSnapManifest = createManifest(createSmallRoller('manual-snap-a', 0), createSmallRoller('manual-snap-b', 20));
+const manualFromObject = (manualSnapManifest.objects as TwinV7SceneObjectDefinition[])[0];
+const manualToObject = (manualSnapManifest.objects as TwinV7SceneObjectDefinition[])[1];
+const manualFrom = resolveComponentPorts(manualFromObject).find((item) => item.portId === 'output')!;
+const manualTo = resolveComponentPorts(manualToObject).find((item) => item.portId === 'input')!;
+const manualConnection = applyComponentSnap(manualSnapManifest, 'manual-snap-a', { moving: manualFrom, target: manualTo, distance: manualFrom.worldPosition.distanceTo(manualTo.worldPosition), directionDot: manualFrom.worldDirection.dot(manualTo.worldDirection) });
+assert(Boolean(manualConnection), '端口下拉等价的指定端口连接没有自动移动吸附');
+const manualAfterFrom = resolveComponentPorts(manualFromObject).find((item) => item.portId === 'output')!;
+const manualAfterTo = resolveComponentPorts(manualToObject).find((item) => item.portId === 'input')!;
+assert(manualAfterFrom.worldPosition.distanceTo(manualAfterTo.worldPosition) < 0.001 && manualAfterFrom.worldDirection.dot(manualAfterTo.worldDirection) < -0.999, '指定端口连接后设备没有真正吸附到目标端口');
 
 const createActuatorSyncComponent = (resourceKey: string, objectId: string): TwinV7SceneObjectDefinition => {
 	const template = builtInComponentTemplates.find((item) => item.resourceKey === resourceKey)!;
@@ -353,6 +408,9 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(referenceLineV11.routes.length > 0 && referenceLineV11.routes.every((item) => item.routeId.startsWith('component-route-')), '参考图 V11 仍在持久化旧手工 Route，而不是组件自动 Route');
 	assert(!referenceLineV11.routes.some((item) => item.routeId.startsWith('reference-') || item.routeId === 'reference-bottom-lane-b'), '参考图 V11 仍残留旧 reference-* 手工路线');
 	assert((referenceLineV11.connections?.length || 0) > 0, '参考图 V11 没有持久化组件 Port Connection');
+	assert((referenceLineV11.connections || []).some((item) => item.metadata?.topologyBridge === true), '参考图当前版本没有 topologyBridge，跨设备物流网络会重新碎片化');
+	const referenceSmallRoutes = referenceLineV11.routes.filter((route) => route.edges.some((edge) => edge.enabled !== false && edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'));
+	assert(referenceSmallRoutes.some((route) => route.edges.length >= 10), '参考图小托盘 Route 仍全部碎片化，没有形成可连续运行的主工艺网络');
 	const referenceV12WorkPointIds = new Set((referenceLineV11.workPoints || []).map((item) => item.workPointId));
 	for (const workPointId of [
 		'reference-v12-turntable-west-pick',
@@ -670,7 +728,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			}
 		} finally { built.dispose(); }
 	}
-	assert(validateV7ComponentManifest(referenceLineV11).every((item) => item.severity !== 'error'), '参考图 V11 组件/自动路线校验存在错误');
+	const referenceV7Diagnostics = validateV7ComponentManifest(referenceLineV11);
+	assert(referenceV7Diagnostics.every((item) => item.severity !== 'error'), '参考图当前组件/自动路线校验存在错误：' + referenceV7Diagnostics.filter((item) => item.severity === 'error').map((item) => `${item.code}:${item.message}`).join(' | '));
 
 	// 已经保存成组件化 V11 的场景也必须继续升级到 V12；这正是旧草稿中少数辊道高度无法被后续修正刷新的场景。
 	const savedComponentizedV11 = structuredClone(referenceLineV11);
@@ -766,6 +825,7 @@ for (const objectId of ['reference-turntable-west', 'reference-turntable-east'])
 	try {
 		const rotatingDeck = builtTurntable.root.getObjectByName('RotatingDeck');
 		const cart = builtTurntable.root.getObjectByName('SilkCart');
+		assert(Boolean(builtTurntable.root.getObjectByName('Turntable-Chain-Deck')), objectId + ' 旋转台载台仍不是链式输送结构');
 		assert(Boolean(rotatingDeck && cart), objectId + ' 没有生成 RotatingDeck 下的 SilkCart');
 		assert(cart?.parent === rotatingDeck, objectId + ' 丝车没有挂在旋转盘下，转台旋转时不会跟随');
 		assert(cart?.userData?.doubleSided === true && cart?.userData?.rows === 3 && cart?.userData?.columnsPerSide === 6, objectId + ' 丝车不是双面 3×6 结构');

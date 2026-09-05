@@ -112,8 +112,9 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 		const to = portRefsByObject.get(connection.to.objectId)?.get(connection.to.portId);
 		if (from && to) {
 			if (!areComponentPortsCompatible(from, to)) diagnostics.push({ severity: 'error', code: 'twin.connection.compatibility.invalid', message: 'Connection 的端口方向或输送对象类型不兼容。', path });
-			if (from.worldPosition.distanceTo(to.worldPosition) > CONNECTION_DISTANCE_TOLERANCE) diagnostics.push({ severity: 'error', code: 'twin.connection.position.detached', message: 'Connection 两端口已经分离，请重新吸附或断开连接。', path });
-			if (from.worldDirection.dot(to.worldDirection) > CONNECTION_FACING_DOT) diagnostics.push({ severity: 'error', code: 'twin.connection.direction.invalid', message: 'Connection 两端口方向必须在 15°容差内相向。', path });
+			const topologyBridge = connection.metadata?.topologyBridge === true;
+			if (!topologyBridge && from.worldPosition.distanceTo(to.worldPosition) > CONNECTION_DISTANCE_TOLERANCE) diagnostics.push({ severity: 'error', code: 'twin.connection.position.detached', message: 'Connection 两端口已经分离，请重新吸附或断开连接。', path });
+			if (!topologyBridge && from.worldDirection.dot(to.worldDirection) > CONNECTION_FACING_DOT) diagnostics.push({ severity: 'error', code: 'twin.connection.direction.invalid', message: 'Connection 两端口方向必须在 15°容差内相向。', path });
 		}
 	}
 	return [...diagnostics, ...validateEngineeringLayout(manifest)];

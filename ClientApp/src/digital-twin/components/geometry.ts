@@ -85,6 +85,7 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	rollers.userData.conveyorSurfaceHeight = height;
 	rollers.userData.rollerCenterY = rollerCenterY;
 	rollers.userData.rollerRadius = rollerRadius;
+	rollers.userData.runtimeSpinInstances = { axis: [0, 1, 0], speedDegPerSecond: 360 };
 	const dummy = new THREE.Object3D();
 	for (let index = 0; index < rollerCount; index += 1) {
 		const t = rollerCount <= 1 ? 0 : index / (rollerCount - 1);
@@ -95,6 +96,23 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	}
 	rollers.instanceMatrix.needsUpdate = true;
 	root.add(rollers);
+
+	// 圆柱滚筒本身轴对称，虽然 Run/Test 时实例矩阵持续旋转，但肉眼几乎看不出变化。
+	// 增加与滚筒同轴旋转的窄标记，让组件设计器和 3D 单组件测试能直观看到滚筒正在运行。
+	const markerGeometry = new THREE.BoxGeometry(Math.max(0.012, rollerRadius * 0.28), Math.max(0.1, width - frameThickness * 2.35), Math.max(0.012, rollerRadius * 0.22));
+	const markerMaterial = createMaterial(0x1e293b, { roughness: 0.44, metalness: 0.72 });
+	const rollerMarkers = new THREE.InstancedMesh(markerGeometry, markerMaterial, rollerCount);
+	rollerMarkers.name = 'RollerRotationMarkers';
+	rollerMarkers.userData.runtimeSpinInstances = { axis: [0, 1, 0], speedDegPerSecond: 360 };
+	for (let index = 0; index < rollerCount; index += 1) {
+		const t = rollerCount <= 1 ? 0 : index / (rollerCount - 1);
+		dummy.position.set(-length / 2 + t * length, rollerCenterY, rollerRadius * 0.82);
+		dummy.rotation.set(Math.PI / 2, 0, 0);
+		dummy.updateMatrix();
+		rollerMarkers.setMatrixAt(index, dummy.matrix);
+	}
+	rollerMarkers.instanceMatrix.needsUpdate = true;
+	root.add(rollerMarkers);
 
 	const supportCount = Math.max(2, Math.ceil(length / Math.max(0.8, options.supportSpacing)) + 1);
 	const legHeight = Math.max(0.1, rollerCenterY - frameHeight);

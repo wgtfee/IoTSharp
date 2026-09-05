@@ -293,6 +293,25 @@
 						<el-button v-if="selected?.objectId && modelObjects.some((item) => item.objectId === selected?.objectId)" size="small" type="danger" plain @click="removeModelObject(selected.objectId)">删除当前模型</el-button>
 					</div>
 				</div>
+				<div v-if="selectedComponentPorts.length" class="twin-card twin-port-connect-editor">
+					<div class="twin-inline-control"><span class="twin-card__label">端口连接 / 自动吸附</span><el-tag size="small" type="info">{{ selectedComponentPorts.length }} Ports</el-tag></div>
+					<small>仍保留拖动自动吸附；也可以直接选择目标端口，设备会自动移动、转向并吸附到位。入口只列兼容出口，出口只列兼容入口。</small>
+					<div v-for="port in selectedComponentPorts" :key="port.portId" class="twin-port-connect-row">
+						<div><strong>{{ port.name }}</strong><small>{{ port.type }} · {{ port.portId }}</small></div>
+						<el-select :model-value="connectedTargetValue(port.portId)" clearable filterable size="small" placeholder="选择目标端口" @change="connectSelectedPort(port.portId, String($event || ''))">
+							<el-option v-for="option in compatiblePortOptions(port.portId)" :key="option.value" :label="option.label" :value="option.value" />
+						</el-select>
+					</div>
+				</div>
+				<div v-if="selectedComponentObject" class="twin-card twin-component-test-editor">
+					<div class="twin-inline-control"><span class="twin-card__label">组件独立单测</span><el-tag v-if="componentTestObjectId === selectedComponentObject.objectId" size="small" type="success">运行中</el-tag><el-tag v-else size="small">隔离模式</el-tag></div>
+					<small>只运行当前组件：设备执行自己的 Behavior / Pose / Axis；输送组件按 internalFlow 显示绿色测试载荷，整线 Route 与其它设备保持暂停。</small>
+					<div class="twin-component-test-actions">
+						<el-button size="small" type="success" :disabled="componentTestObjectId === selectedComponentObject.objectId" @click="runSelectedComponentTest">运行单测</el-button>
+						<el-button size="small" :disabled="componentTestObjectId !== selectedComponentObject.objectId" @click="resetSelectedComponentTest">复位</el-button>
+						<el-button size="small" type="danger" plain :disabled="componentTestObjectId !== selectedComponentObject.objectId" @click="stopSelectedComponentTest">停止</el-button>
+					</div>
+				</div>
 				<div v-if="selected?.kind === 'scene-object' && selected?.objectId" class="twin-card twin-behavior-editor">
 					<div class="twin-inline-control"><span class="twin-card__label">工作点 / 动作 / 联锁</span><el-tag size="small" type="success">声明式</el-tag></div>
 					<small>工作点坐标始终相对所属组件；运行时只解释结构化动作，不执行脚本。Live 模式由 PLC / Telemetry 接管。</small>
@@ -413,7 +432,7 @@ import { deviceApi } from '/@/api/devices';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinBindingDeviceOption, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createBlankTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeEquipmentObjectDefinitions, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinActuatorDefinition, type TwinBehaviorDefinition, type TwinBindingTargetKind, type TwinEquipmentType, type TwinInterlockDefinition, type TwinObjectBindingDefinition, type TwinPoseDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
-import { builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, snapSceneComponent, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
+import { applyComponentSnap, areComponentPortsCompatible, builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, resolveComponentPorts, snapSceneComponent, upsertGeneratedComponentRoute, upsertGeneratedComponentRoutes, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { createReferencePackagingLineTwinSceneManifest, upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { resolveTwinDiagnosticObjectId } from '/@/digital-twin/diagnostics/diagnosticLocator';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
@@ -451,6 +470,7 @@ const selected = ref<TwinSelectionInfo | null>(null);
 const diagnostics = ref(validateTwinSceneManifest(manifest.value));
 const pageLoading = ref(false), saving = ref(false), creating = ref(false), publishing = ref(false), uploading = ref(false), registeringComponents = ref(false);
 const playing = ref(false), liveMode = ref(false), routeEditMode = ref(false);
+const componentTestObjectId = ref('');
 const viewportMode = ref<'editor' | 'runtime'>('editor');
 const editorInstanceKey = ref(0);
 const createDialogVisible = ref(false), resourceDrawerVisible = ref(false), versionsDrawerVisible = ref(false), deviceStatusDialogVisible = ref(false);
@@ -535,6 +555,93 @@ const filteredGlbModels = computed(() => {
 	return glbModels.value.filter((item) => `${item.name} ${item.originalFileName || ''} ${item.resourceKey || ''}`.toLocaleLowerCase().includes(keyword));
 });
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
+const selectedComponentObject = computed(() => {
+	const object = manifest.value.objects.find((item) => item.objectId === selected.value?.objectId) as any;
+	return object?.kind === 'component' && object.component ? object : undefined;
+});
+const selectedComponentPorts = computed(() => selectedComponentObject.value ? resolveComponentPorts(selectedComponentObject.value) : []);
+const connectedTargetValue = (portId: string) => {
+	const objectId = selectedComponentObject.value?.objectId;
+	if (!objectId) return '';
+	const connection = (manifest.value.connections || []).find((item) =>
+		(item.from.objectId === objectId && item.from.portId === portId) || (item.to.objectId === objectId && item.to.portId === portId));
+	if (!connection) return '';
+	const other = connection.from.objectId === objectId && connection.from.portId === portId ? connection.to : connection.from;
+	return `${other.objectId}|${other.portId}`;
+};
+const compatiblePortOptions = (portId: string) => {
+	const moving = selectedComponentPorts.value.find((item) => item.portId === portId);
+	if (!moving) return [];
+	return (manifest.value.objects as any[])
+		.filter((object) => object.kind === 'component' && object.component && object.objectId !== moving.objectId)
+		.flatMap((object) => resolveComponentPorts(object))
+		.filter((target) => areComponentPortsCompatible(moving, target))
+		.map((target) => ({ value: `${target.objectId}|${target.portId}`, label: `${target.objectName} · ${target.name} (${target.type})` }))
+		.sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
+};
+const connectSelectedPort = (portId: string, targetValue: string) => {
+	const movingObject = selectedComponentObject.value;
+	if (!movingObject) return;
+	if (!targetValue) {
+		manifest.value.connections = (manifest.value.connections || []).filter((item) =>
+			!((item.from.objectId === movingObject.objectId && item.from.portId === portId) || (item.to.objectId === movingObject.objectId && item.to.portId === portId)));
+		upsertGeneratedComponentRoutes(manifest.value);
+		professionalEditor.value?.reloadAllComponents();
+		refreshDiagnostics();
+		return;
+	}
+	const separator = targetValue.indexOf('|');
+	if (separator <= 0) return;
+	const targetObjectId = targetValue.slice(0, separator);
+	const targetPortId = targetValue.slice(separator + 1);
+	const moving = resolveComponentPorts(movingObject).find((item) => item.portId === portId);
+	const targetObject = (manifest.value.objects as any[]).find((item) => item.objectId === targetObjectId && item.kind === 'component');
+	const target = targetObject ? resolveComponentPorts(targetObject).find((item) => item.portId === targetPortId) : undefined;
+	if (!moving || !target || !areComponentPortsCompatible(moving, target)) { ElMessage.error('选择的两个端口不兼容'); return; }
+	// 一个物料端口只允许占用一条 Connection；重新选择目标时先释放两端旧连接。
+	manifest.value.connections = (manifest.value.connections || []).filter((item) => {
+		const usesMoving = (item.from.objectId === moving.objectId && item.from.portId === moving.portId) || (item.to.objectId === moving.objectId && item.to.portId === moving.portId);
+		const usesTarget = (item.from.objectId === target.objectId && item.from.portId === target.portId) || (item.to.objectId === target.objectId && item.to.portId === target.portId);
+		return !usesMoving && !usesTarget;
+	});
+	const connection = applyComponentSnap(manifest.value, movingObject.objectId, {
+		moving,
+		target,
+		distance: moving.worldPosition.distanceTo(target.worldPosition),
+		directionDot: moving.worldDirection.dot(target.worldDirection),
+	});
+	if (!connection) { ElMessage.error('端口自动吸附失败'); return; }
+	upsertGeneratedComponentRoutes(manifest.value);
+	professionalEditor.value?.reloadAllComponents();
+	professionalEditor.value?.selectObject(movingObject.objectId);
+	refreshDiagnostics();
+	ElMessage.success(`${moving.name} 已自动吸附到 ${target.objectName} · ${target.name}`);
+};
+const runSelectedComponentTest = async () => {
+	const objectId = selectedComponentObject.value?.objectId;
+	if (!objectId) return;
+	if (liveMode.value) { ElMessage.warning('组件单测只在 Simulation 模式运行，请先关闭实时模式。'); return; }
+	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
+	componentTestObjectId.value = objectId;
+	adapter.value?.setComponentTestObject(objectId);
+	playing.value = true;
+	adapter.value?.setRunning(true);
+	ElMessage.success(`${selectedComponentObject.value?.name || objectId} 已进入独立单测，整线运行已隔离。`);
+};
+const resetSelectedComponentTest = () => {
+	if (!componentTestObjectId.value) return;
+	adapter.value?.resetComponentTest();
+	ElMessage.success('当前组件单测已复位到起始状态。');
+};
+const stopSelectedComponentTest = () => {
+	if (!componentTestObjectId.value) return;
+	adapter.value?.setRunning(false);
+	adapter.value?.setComponentTestObject();
+	adapter.value?.resetComponentTest();
+	componentTestObjectId.value = '';
+	playing.value = false;
+	ElMessage.info('组件独立单测已停止。');
+};
 const routeSlotBindings = computed(() => manifest.value.bindings.filter((item) => item.transform.kind === 'routeSlotArray'));
 const selectedWorkPoints = computed(() => (manifest.value.workPoints || []).filter((item) => item.objectId === selected.value?.objectId));
 const selectedActuators = computed(() => (manifest.value.actuators || []).filter((item) => item.objectId === selected.value?.objectId));
@@ -1799,6 +1906,7 @@ const switchViewportMode = async (value: string | number | boolean) => {
 		ElMessage.warning(`专业编辑快照同步失败，已继续打开运行预览：${error?.message || '未知错误'}`);
 	}
 	const nextMode = value === 'runtime' ? 'runtime' : 'editor';
+	componentTestObjectId.value = '';
 	viewportMode.value = nextMode;
 	if (nextMode === 'editor') deviceStatusDialogVisible.value = false;
 	playing.value = false; routeEditMode.value = false;
@@ -2073,6 +2181,8 @@ onBeforeUnmount(() => { if (runtimeStatusFrame) cancelAnimationFrame(runtimeStat
 .twin-left-tabs{position:sticky;top:54px;z-index:3;margin:0 -6px 8px;padding:7px 6px 0;background:var(--panel)}.twin-left-tabs :deep(.el-tabs__header){margin:0}.twin-left-tabs :deep(.el-tabs__content){display:none}.twin-left-tabs :deep(.el-tabs__item){height:34px;padding:0 5px;font-size:11px}.twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}.twin-library-panel{display:flex;flex-direction:column;gap:9px;padding-bottom:12px}.twin-library-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.twin-library-actions{display:flex;gap:6px}.twin-library-actions :deep(.el-button){flex:1;margin:0}.twin-library-tip{color:#64748b;font-size:10px;line-height:1.45}.twin-library-group-title{display:flex;align-items:center;justify-content:space-between;margin-top:5px;padding-top:8px;border-top:1px solid var(--border)}.twin-library-group-title strong{font-size:11px;color:#e2e8f0}.twin-library-group-title span{font-size:10px;color:#64748b}.twin-library-list{display:flex;flex-direction:column;gap:6px}.twin-library-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(15,31,52,.65);transition:border-color .15s ease,background .15s ease,opacity .15s ease}.twin-library-item.is-draggable{cursor:grab;user-select:none}.twin-library-item.is-draggable:hover{border-color:rgba(56,189,248,.55);background:rgba(14,40,65,.75)}.twin-library-item.is-draggable:active{cursor:grabbing}.twin-library-item.is-disabled{opacity:.55}.twin-library-item__main{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-library-item__main strong,.twin-library-item__main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.twin-library-item__main strong{font-size:11px;color:#f8fafc}.twin-library-item__main small{font-size:9px;color:#7890a8}.twin-library-item :deep(.el-tag){max-width:62px}.twin-library-item :deep(.el-button){margin:0;padding-left:4px;padding-right:4px}
 .twin-runtime-detail{max-height:230px;margin:0;padding:9px;border:1px solid rgba(56,189,248,.22);border-radius:8px;background:rgba(2,8,23,.72);overflow:auto;color:#bae6fd;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
 .twin-behavior-editor{border-color:rgba(34,197,94,.28)}.twin-behavior-item{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(2,8,23,.38)}.twin-behavior-item__head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:5px}.twin-behavior-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}.twin-action-row{display:flex;flex-direction:column;gap:5px;padding:7px;border-left:2px solid rgba(56,189,248,.5);background:rgba(15,31,52,.55)}.twin-action-row__head{display:grid;grid-template-columns:22px minmax(0,1fr) 28px;align-items:center;gap:5px}.twin-action-row__head>span{display:grid;place-items:center;height:22px;border-radius:6px;background:rgba(14,165,233,.18);font-size:10px;color:#7dd3fc}.twin-condition-row{display:grid;grid-template-columns:minmax(0,1fr) 82px 28px;gap:5px}.twin-behavior-editor :deep(.el-input-number){width:100%}
+.twin-port-connect-editor{border-color:rgba(56,189,248,.32)}.twin-port-connect-row{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);align-items:center;gap:7px;padding:7px;border:1px solid var(--border);border-radius:8px;background:rgba(2,8,23,.34)}.twin-port-connect-row>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-port-connect-row strong{font-size:11px;color:#e0f2fe}.twin-port-connect-row small{overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.twin-port-connect-row :deep(.el-select){width:100%}
+.twin-component-test-editor{border-color:rgba(34,197,94,.34)}.twin-component-test-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.twin-component-test-actions :deep(.el-button){margin:0}
 .silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-route-process-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px;padding:7px;border:1px solid rgba(56,189,248,.26);border-radius:7px}.twin-route-process-grid :deep(.el-input-number){width:100%}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
 .twin-secondary-route{border-color:rgba(168,85,247,.28)}.twin-secondary-route>.twin-inline-control strong{font-size:12px;color:#e9d5ff}.twin-secondary-route>.twin-inline-control small{text-align:right}
