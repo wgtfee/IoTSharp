@@ -2637,23 +2637,40 @@ export class ProceduralPackagingLine {
 				// 满托先移动到天盖桁架正下方；夹具默认带盖等待，不再临时生成一个“执行头”。
 				const travelProgress = Math.min(1, wood.progress * 1.8);
 				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-stack', travelProgress, WOOD_STACK_POSITION, COVER_POSITION);
+				this.coverStationRoot.userData.palletPresent = travelProgress >= 1;
+				this.coverStationRoot.userData.processActive = Boolean(this.coverTargetWood) && this.coverGantryState === 'placing';
 				if (travelProgress >= 1 && !wood.coverApplied && !this.coverTargetWood
 					&& this.coverGantryState === 'waiting' && this.activeCoverBlank) {
 					this.coverTargetWood = wood;
 					this.coverGantryState = 'placing';
+					this.coverStationRoot.userData.coverGantryState = 'placing';
 					this.coverGantryProgress = 0;
+					this.coverStationRoot.userData.processActive = true;
 				}
 				continue;
 			}
 			if (wood.stage === 'wrapping') {
-				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-cover', Math.min(1, wood.progress * 0.25), COVER_POSITION, WRAP_POSITION);
+				// 先把满托完整送到缠膜中心，再允许旋臂和膜车动作。运输阶段严禁空转。
+				const travelBoundary = 0.25;
+				const travelProgress = THREE.MathUtils.clamp(wood.progress / travelBoundary, 0, 1);
+				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-cover', travelProgress, COVER_POSITION, WRAP_POSITION);
+				this.wrapperStationRoot.userData.palletPresent = travelProgress >= 1;
+				if (travelProgress < 1) {
+					this.wrapperFilm.visible = false;
+					this.wrapperFilmCarriage.position.y = this.wrapperFilmCarriageHomeY;
+					this.wrapperStationRoot.userData.wrapperState = 'waiting-pallet';
+					this.wrapperStationRoot.userData.processActive = false;
+					continue;
+				}
+				const wrapProgress = THREE.MathUtils.clamp((wood.progress - travelBoundary) / (1 - travelBoundary), 0, 1);
 				this.wrapperFilm.visible = true;
 				this.wrapperStationRoot.userData.wrapperState = 'wrapping';
+				this.wrapperStationRoot.userData.processActive = true;
 				// 悬臂绕静止满托 360° 连续公转；膜车沿立杆上下往复形成螺旋缠膜。
 				this.wrapperRotaryArm.rotation.y += deltaSeconds * 2.5;
 				const minCarriageY = Number(this.wrapperFilmCarriage.userData.minLocalY ?? this.wrapperFilmCarriageHomeY);
 				const maxCarriageY = Number(this.wrapperFilmCarriage.userData.maxLocalY ?? this.wrapperFilmCarriageHomeY);
-				const liftTriangle = 1 - Math.abs(wood.progress * 2 - 1);
+				const liftTriangle = 1 - Math.abs(wrapProgress * 2 - 1);
 				this.wrapperFilmCarriage.position.y = THREE.MathUtils.lerp(minCarriageY, maxCarriageY, liftTriangle);
 				this.wrapperStationRoot.userData.rotaryArmAngle = this.wrapperRotaryArm.rotation.y;
 				this.wrapperStationRoot.userData.filmCarriageLocalY = this.wrapperFilmCarriage.position.y;
@@ -2664,6 +2681,8 @@ export class ProceduralPackagingLine {
 					this.wrapperFilm.visible = false;
 					this.wrapperFilmCarriage.position.y = this.wrapperFilmCarriageHomeY;
 					this.wrapperStationRoot.userData.wrapperState = 'idle';
+					this.wrapperStationRoot.userData.processActive = false;
+					this.wrapperStationRoot.userData.palletPresent = false;
 				}
 				continue;
 			}
@@ -2737,6 +2756,8 @@ export class ProceduralPackagingLine {
 		if (this.coverGantryState === 'waiting') {
 			this.applyCoverGantryPose(wait);
 			this.ensureCoverLoaded();
+			this.coverStationRoot.userData.processActive = false;
+			this.coverStationRoot.userData.palletPresent = false;
 			return;
 		}
 
@@ -2754,13 +2775,18 @@ export class ProceduralPackagingLine {
 			if (p >= 0.48 && this.coverTargetWood && !this.coverTargetWood.coverApplied) {
 				this.attachCover(this.coverTargetWood);
 				this.coverTargetWood.coverApplied = true;
-				this.coverTargetWood.stage = 'wrapping';
-				this.coverTargetWood.progress = 0;
 			}
 			if (p >= 1) {
+				if (this.coverTargetWood) {
+					this.coverTargetWood.stage = 'wrapping';
+					this.coverTargetWood.progress = 0;
+				}
 				this.coverTargetWood = undefined;
 				this.coverGantryState = 'reload-to-stock';
+				this.coverStationRoot.userData.coverGantryState = 'reload-to-stock';
 				this.coverGantryProgress = 0;
+				this.coverStationRoot.userData.processActive = false;
+				this.coverStationRoot.userData.palletPresent = false;
 			}
 			return;
 		}
@@ -2772,6 +2798,7 @@ export class ProceduralPackagingLine {
 			this.applyCoverGantryPose(pose);
 			if (p >= 1) {
 				this.coverGantryState = 'reload-pick';
+				this.coverStationRoot.userData.coverGantryState = 'reload-pick';
 				this.coverGantryProgress = 0;
 			}
 			return;
@@ -2782,6 +2809,7 @@ export class ProceduralPackagingLine {
 			this.ensureCoverLoaded();
 			this.coverStockTable.userData.pickCount = Number(this.coverStockTable.userData.pickCount || 0) + 1;
 			this.coverGantryState = 'reload-return';
+			this.coverStationRoot.userData.coverGantryState = 'reload-return';
 			this.coverGantryProgress = 0;
 			return;
 		}
@@ -2793,8 +2821,11 @@ export class ProceduralPackagingLine {
 			this.applyCoverGantryPose(pose);
 			if (p >= 1) {
 				this.coverGantryState = 'waiting';
+				this.coverStationRoot.userData.coverGantryState = 'waiting';
 				this.coverGantryProgress = 0;
 				this.applyCoverGantryPose(wait);
+				this.coverStationRoot.userData.processActive = false;
+				this.coverStationRoot.userData.palletPresent = false;
 			}
 		}
 	}

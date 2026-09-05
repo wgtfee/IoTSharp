@@ -26,6 +26,9 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 		const frameThickness = resolveNumber(props, 'frameThickness', 0.1, 0.04, 0.5);
 		const supportSpacing = resolveNumber(props, 'supportSpacing', 2, 0.8, 8);
 		const capacityPerLane = Math.max(1, Math.round(resolveNumber(props, 'capacityPerLane', 4, 1, 999)));
+		const laneAReverse = props.laneAReverse === true;
+		const laneBReverse = props.laneBReverse === true;
+		const routeTaps = Array.isArray(props.routeTaps) ? props.routeTaps as Array<Record<string, unknown>> : [];
 
 		const root = new THREE.Group();
 		root.name = definition.name;
@@ -85,30 +88,64 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 			root.add(laneRoot);
 		}
 
-		const ports: TwinComponentPortDefinition[] = [
-			{ portId: 'a-input', name: 'A排入口', type: 'material-input', localPosition: [-length / 2, height, -laneSpacing / 2], localDirection: [-1, 0, 0], metadata: { laneId: 'A', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
-			{ portId: 'a-output', name: 'A排出口', type: 'material-output', localPosition: [length / 2, height, -laneSpacing / 2], localDirection: [1, 0, 0], metadata: { laneId: 'A', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
-			{ portId: 'b-input', name: 'B排入口', type: 'material-input', localPosition: [-length / 2, height, laneSpacing / 2], localDirection: [-1, 0, 0], metadata: { laneId: 'B', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
-			{ portId: 'b-output', name: 'B排出口', type: 'material-output', localPosition: [length / 2, height, laneSpacing / 2], localDirection: [1, 0, 0], metadata: { laneId: 'B', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
-		];
-		const internalFlows: TwinComponentInternalFlowDefinition[] = [
-			{
-				flowId: 'lane-a', name: 'A排内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
-				points: [
-					{ pointId: 'input', name: 'A排入口', localPosition: [-length / 2, height, -laneSpacing / 2], portId: 'a-input' },
-					{ pointId: 'output', name: 'A排出口', localPosition: [length / 2, height, -laneSpacing / 2], portId: 'a-output' },
-				],
-				edges: [{ edgeId: 'through', fromPointId: 'input', toPointId: 'output', capacity: capacityPerLane, speedLimit: Number(props.speedLimit || 1.2) }],
-			},
-			{
-				flowId: 'lane-b', name: 'B排内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
-				points: [
-					{ pointId: 'input', name: 'B排入口', localPosition: [-length / 2, height, laneSpacing / 2], portId: 'b-input' },
-					{ pointId: 'output', name: 'B排出口', localPosition: [length / 2, height, laneSpacing / 2], portId: 'b-output' },
-				],
-				edges: [{ edgeId: 'through', fromPointId: 'input', toPointId: 'output', capacity: capacityPerLane, speedLimit: Number(props.speedLimit || 1.2) }],
-			},
-		];
+		const ports: TwinComponentPortDefinition[] = [];
+		const internalFlows: TwinComponentInternalFlowDefinition[] = [];
+		for (const lane of [
+			{ id: 'A' as const, key: 'a', z: -laneSpacing / 2, reverse: laneAReverse },
+			{ id: 'B' as const, key: 'b', z: laneSpacing / 2, reverse: laneBReverse },
+		]) {
+			const startX = lane.reverse ? length / 2 : -length / 2;
+			const endX = lane.reverse ? -length / 2 : length / 2;
+			const travelSign = lane.reverse ? -1 : 1;
+			ports.push(
+				{ portId: `${lane.key}-input`, name: `${lane.id}排入口`, type: 'material-input', localPosition: [startX, height, lane.z], localDirection: [-travelSign, 0, 0], metadata: { laneId: lane.id, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
+				{ portId: `${lane.key}-output`, name: `${lane.id}排出口`, type: 'material-output', localPosition: [endX, height, lane.z], localDirection: [travelSign, 0, 0], metadata: { laneId: lane.id, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' } },
+			);
+			const taps = routeTaps
+				.filter((tap) => String(tap.lane || '').toUpperCase() === lane.id && Number.isFinite(Number(tap.localX)))
+				.map((tap) => ({
+					tapId: String(tap.tapId || `tap-${lane.id.toLowerCase()}`),
+					localX: THREE.MathUtils.clamp(Number(tap.localX), -length / 2, length / 2),
+					terminal: tap.terminal === true,
+					direction: Array.isArray(tap.localDirection) && tap.localDirection.length === 3
+						? (tap.localDirection.map(Number) as [number, number, number])
+						: [0, 0, tap.side === 'negative' ? -1 : 1] as [number, number, number],
+				}))
+				.sort((left, right) => travelSign * (left.localX - right.localX));
+			const flowPoints: TwinComponentInternalFlowDefinition['points'] = [
+				{ pointId: 'input', name: `${lane.id}排入口`, localPosition: [startX, height, lane.z], portId: `${lane.key}-input` },
+			];
+			let terminalSeen = false;
+			for (const tap of taps) {
+				if (terminalSeen) break;
+				const portId = `${lane.key}-${tap.tapId}`;
+				ports.push({
+					portId,
+					name: `${lane.id}排中间接驳 · ${tap.tapId}`,
+					type: 'material-bidirectional',
+					localPosition: [tap.localX, height, lane.z],
+					localDirection: tap.direction,
+					metadata: { laneId: lane.id, routeTap: true, terminal: tap.terminal, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' },
+				});
+				flowPoints.push({ pointId: `tap-${tap.tapId}`, name: `${lane.id}排中间接驳 · ${tap.tapId}`, localPosition: [tap.localX, height, lane.z], portId });
+				terminalSeen = tap.terminal;
+			}
+			if (!terminalSeen) flowPoints.push({ pointId: 'output', name: `${lane.id}排出口`, localPosition: [endX, height, lane.z], portId: `${lane.key}-output` });
+			internalFlows.push({
+				flowId: `lane-${lane.key}`,
+				name: `${lane.id}排内置路线`,
+				conveyorSizeClass: 'small',
+				transportUnitType: 'plastic-pallet',
+				points: flowPoints,
+				edges: flowPoints.slice(1).map((point, index) => ({
+					edgeId: index === 0 && flowPoints.length === 2 ? 'through' : `segment-${index + 1}`,
+					fromPointId: flowPoints[index].pointId,
+					toPointId: point.pointId,
+					capacity: capacityPerLane,
+					speedLimit: Number(props.speedLimit || 1.2),
+				})),
+			});
+		}
 
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
@@ -124,6 +161,9 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 			frameThickness,
 			supportSpacing,
 			capacityPerLane,
+			laneAReverse,
+			laneBReverse,
+			routeTaps: structuredClone(routeTaps),
 			conveyorSizeClass: 'small',
 			transportUnitType: 'plastic-pallet',
 		};

@@ -172,6 +172,8 @@ export interface TwinRuntimeDefinition {
 	silkV7InfrastructureMigrationVersion?: number;
 	/** 用户参考图双套袋包装产线布局版本；V12 支持已组件化 V11 场景继续迁移并统一辊面。 */
 	referencePackagingLayoutVersion?: number;
+	/** 参考包装线 simulation 多托盘使用的主工艺闭环，由组件 internalFlows + Port Connection 派生。 */
+	primarySmallPalletRouteId?: string;
 	/** 每条小辊道路线的托盘槽位初始化。live 由 telemetry routeSlotArray 接管，simulation 使用默认数量。 */
 	routePalletInitializers?: TwinRoutePalletInitializerDefinition[];
 	silkLineSimulation?: SilkLineSimulationOptions;

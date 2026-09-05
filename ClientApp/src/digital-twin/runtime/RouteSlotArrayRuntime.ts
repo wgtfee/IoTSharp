@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { TwinObjectBindingDefinition, TwinRouteDefinition, TwinSceneManifest, TwinTransportUnitType } from '/@/digital-twin/contracts';
 import { parseRouteSlotArray, routeSlotProgress } from '/@/digital-twin/bindings/RouteSlotArray';
 import { createComponentDefinitionFromTemplate, defaultComponentRegistry } from '/@/digital-twin/components';
+import { RouteEngine } from '/@/digital-twin/routes/RouteEngine';
+import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 
 interface RouteSlotEntity {
 	key: string;
@@ -15,6 +17,10 @@ interface RouteSlotEntity {
 	transportUnitType: TwinTransportUnitType;
 	resourceKey: string;
 	root: THREE.Group;
+	simulationEngine?: RouteEngine;
+	simulationProcess?: ComponentProcessRuntime;
+	routeCode?: 'A' | 'B';
+	initialProgress?: number;
 }
 
 interface RouteCurveInfo {
@@ -34,11 +40,13 @@ export class RouteSlotArrayRuntime {
 	private readonly curves = new Map<string, RouteCurveInfo>();
 	private readonly bindingRouteIds = new Map<string, string>();
 	private readonly group = new THREE.Group();
+	private running = false;
 
 	constructor(
 		private readonly scene: THREE.Scene,
 		manifest: TwinSceneManifest,
 		private readonly reportError?: (message: string) => void,
+		private readonly getComponentRoot?: (objectId: string) => THREE.Group | undefined,
 	) {
 		this.manifest = structuredClone(manifest);
 		this.group.name = 'IoTSharp Route Slot Array Runtime';
@@ -48,6 +56,11 @@ export class RouteSlotArrayRuntime {
 	}
 
 	setManifest(manifest: TwinSceneManifest) {
+		// Simulation route engines carry resolved branch/process state. Recreate them from the new Manifest
+		// so a layout/route upgrade never keeps stale path state. Stable pallet IDs are recreated unchanged.
+		for (const entity of [...this.entities.values()]) {
+			if (entity.simulationEngine) this.removeEntity(entity.key);
+		}
 		this.manifest = structuredClone(manifest);
 		this.curves.clear();
 		this.bindingRouteIds.clear();
@@ -90,8 +103,9 @@ export class RouteSlotArrayRuntime {
 			if (capacity <= 0) continue;
 			const count = THREE.MathUtils.clamp(Math.floor(Number(initializer.simulationDefaultCount) || 0), 0, capacity);
 			const emptyValue = initializer.emptyValue ?? 0;
-			const slots: unknown[] = Array.from({ length: capacity }, () => emptyValue);
-			for (let index = 0; index < count; index += 1) slots[index] = `SIM-${initializer.routeId}-${index + 1}`;
+			// 仿真默认托盘不是 PLC 槽位快照。只创建 count 个稳定 ID，让 routeSlotProgress 将它们均匀铺开，
+			// 后续由各自 RouteEngine 沿完整工艺闭环推进；live 模式仍只服从真实数组索引。
+			const slots: unknown[] = Array.from({ length: count }, (_, index) => `SIM-${initializer.routeId}-${index + 1}`);
 			const bindingId = this.simulationBindingId(initializer.routeId);
 			const binding: TwinObjectBindingDefinition = {
 				bindingId,
@@ -164,9 +178,32 @@ export class RouteSlotArrayRuntime {
 					transportUnitType,
 					resourceKey,
 					root: this.createTransportUnitMesh(binding.bindingId, slot.palletId, transportUnitType, resourceKey),
+					initialProgress: progress,
 				};
 				this.entities.set(key, entity);
 				this.group.add(entity.root);
+				if (binding.bindingId.startsWith('simulation-route-slots:') && this.manifest.runtime.dataMode === 'simulation') {
+					const routeCode: 'A' | 'B' = slot.slotIndex % 2 === 0 ? 'A' : 'B';
+					const routingContext = { payload: { routeCode, palletId: slot.palletId }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
+					const engine = new RouteEngine(structuredClone(curveInfo.route), entity.root);
+					engine.setRoutingContext(routingContext);
+					engine.correctDistance(progress * engine.getSnapshot().lengthMeters);
+					engine.setRunning(this.running);
+					const process = new ComponentProcessRuntime({
+						route: structuredClone(curveInfo.route),
+						routeEngine: engine,
+						getComponentRoot: (objectId) => this.getComponentRoot?.(objectId),
+						getRoutingContext: () => routingContext,
+						entityId: slot.palletId,
+					});
+					process.setRunning(this.running);
+					entity.simulationEngine = engine;
+					entity.simulationProcess = process;
+					entity.routeCode = routeCode;
+					entity.root.userData.simulationRouteDriven = true;
+					entity.root.userData.routeCode = routeCode;
+					entity.root.userData.initialRouteProgress = progress;
+				}
 			} else {
 				entity.routeId = routeId;
 				entity.slotIndex = slot.slotIndex;
@@ -176,7 +213,7 @@ export class RouteSlotArrayRuntime {
 			}
 			entity.root.userData.slotIndex = slot.slotIndex;
 			entity.root.userData.slotCount = rawArray.length;
-			this.applyPose(entity, curveInfo, entity.currentProgress);
+			if (!entity.simulationEngine) this.applyPose(entity, curveInfo, entity.currentProgress);
 		}
 		for (const entity of existing) {
 			if (!activeKeys.has(entity.key)) this.removeEntity(entity.key);
@@ -188,6 +225,18 @@ export class RouteSlotArrayRuntime {
 		const blend = 1 - Math.exp(-Math.min(deltaSeconds, 0.25) * 10);
 		for (const entity of this.entities.values()) {
 			if (!entity.root.visible) continue;
+			if (entity.simulationEngine) {
+				const allowRouteStep = entity.simulationProcess?.updateFixed(deltaSeconds) ?? true;
+				if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
+				entity.simulationEngine.render(1);
+				const snapshot = entity.simulationEngine.getSnapshot();
+				entity.currentProgress = snapshot.progress;
+				entity.targetProgress = snapshot.progress;
+				entity.root.userData.routeProgress = snapshot.progress;
+				entity.root.userData.routeState = snapshot.state;
+				entity.root.userData.activeProcessComponentObjectId = entity.simulationProcess?.getSnapshot().activeComponentObjectId;
+				continue;
+			}
 			const curveInfo = this.curves.get(entity.routeId);
 			if (!curveInfo) continue;
 			let delta = entity.targetProgress - entity.currentProgress;
@@ -200,6 +249,51 @@ export class RouteSlotArrayRuntime {
 			else entity.currentProgress = THREE.MathUtils.clamp(entity.currentProgress, 0, 1);
 			this.applyPose(entity, curveInfo, entity.currentProgress);
 		}
+	}
+
+	setRunning(running: boolean) {
+		this.running = Boolean(running) && this.manifest.runtime.dataMode === 'simulation';
+		for (const entity of this.entities.values()) {
+			if (!entity.simulationEngine) continue;
+			entity.simulationEngine.setRunning(this.running);
+			entity.simulationProcess?.setRunning(this.running);
+		}
+	}
+
+	reset() {
+		this.running = false;
+		for (const entity of this.entities.values()) {
+			if (!entity.simulationEngine) continue;
+			entity.simulationProcess?.reset();
+			entity.simulationEngine.reset();
+			entity.simulationEngine.setRoutingContext({
+				payload: { routeCode: entity.routeCode || 'A', palletId: entity.palletId },
+				bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [],
+			});
+			const snapshot = entity.simulationEngine.getSnapshot();
+			const initialProgress = THREE.MathUtils.clamp(Number(entity.initialProgress) || 0, 0, 1);
+			entity.simulationEngine.correctDistance(initialProgress * snapshot.lengthMeters);
+			entity.simulationEngine.render(1);
+			entity.currentProgress = initialProgress;
+			entity.targetProgress = initialProgress;
+			entity.root.userData.routeProgress = initialProgress;
+			entity.root.userData.routeState = 'paused';
+			delete entity.root.userData.activeProcessComponentObjectId;
+		}
+	}
+
+	getSimulationSnapshot() {
+		return [...this.entities.values()]
+			.filter((entity) => Boolean(entity.simulationEngine))
+			.map((entity) => ({
+				palletId: entity.palletId,
+				routeId: entity.routeId,
+				routeCode: entity.routeCode,
+				progress: entity.simulationEngine!.getSnapshot().progress,
+				state: entity.simulationEngine!.getSnapshot().state,
+				position: entity.root.position.toArray() as [number, number, number],
+				activeProcessComponentObjectId: entity.simulationProcess?.getSnapshot().activeComponentObjectId,
+			}));
 	}
 
 	getEntityDetail(entityType: string, entityId: string): Record<string, unknown> | undefined {
@@ -219,6 +313,7 @@ export class RouteSlotArrayRuntime {
 	}
 
 	dispose() {
+		this.running = false;
 		for (const key of [...this.entities.keys()]) this.removeEntity(key);
 		this.scene.remove(this.group);
 		this.curves.clear();
@@ -334,6 +429,7 @@ export class RouteSlotArrayRuntime {
 	private removeEntity(key: string) {
 		const entity = this.entities.get(key);
 		if (!entity) return;
+		entity.simulationProcess?.dispose();
 		entity.root.parent?.remove(entity.root);
 		entity.root.traverse((object: any) => {
 			object.geometry?.dispose?.();

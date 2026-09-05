@@ -492,17 +492,38 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const gantryInterlockV12 = (referenceLineV11.interlocks || []).find((item) => item.interlockId === 'reference-v12-gantry-pallet-zone-exclusive');
 	assert(Boolean(gantryInterlockV12), '参考图 V12 缺少桁架木托共享区互锁');
 	assert((gantryInterlockV12?.conditions.length || 0) >= 2, '桁架木托共享区互锁条件不完整');
-	const expectedPalletInitializerRoutes = referenceLineV11.routes.filter((route) => route.routeId.startsWith('component-route-')
-		&& route.edges.some((edge) => edge.enabled !== false && edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'));
 	const palletInitializersV12 = referenceLineV11.runtime.routePalletInitializers || [];
-	assert(expectedPalletInitializerRoutes.length > 0, '参考图 V12 没有可初始化的小托盘自动路线');
-	assert(palletInitializersV12.length === expectedPalletInitializerRoutes.length, '参考图 V12 小托盘初始化配置没有覆盖全部自动小托盘路线');
-	for (const initializer of palletInitializersV12) {
-		const route = referenceLineV11.routes.find((item) => item.routeId === initializer.routeId);
-		assert(Boolean(route) && initializer.routeId.startsWith('component-route-'), `托盘初始化引用了不存在或非组件自动路线 ${initializer.routeId}`);
-		assert(route?.edges.some((edge) => edge.enabled !== false && edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet') === true, `${initializer.routeId} 不是小托盘路线却配置了托盘初始化`);
-		assert(initializer.simulationDefaultCount === 2, `${initializer.routeId} 仿真默认托盘数不是 V12 约定的 2`);
-		assert(initializer.telemetryKey === `PalletSlots.${initializer.routeId}`, `${initializer.routeId} PLC 托盘数组语义键不稳定`);
+	const primarySmallRouteIdV15 = referenceLineV11.runtime.primarySmallPalletRouteId;
+	assert(Boolean(primarySmallRouteIdV15), '参考图 V15 没有记录主小托盘工艺闭环');
+	assert(palletInitializersV12.length === 1 && palletInitializersV12[0].routeId === primarySmallRouteIdV15, '参考图 V15 仍在给局部 internalFlow 碎片路线分别初始化小托盘');
+	assert(palletInitializersV12[0].simulationDefaultCount >= 6, '参考图 V15 主工艺闭环仿真默认托盘少于 6 个');
+	assert(palletInitializersV12[0].telemetryKey === `PalletSlots.${primarySmallRouteIdV15}`, '参考图 V15 主路线 PLC 托盘数组语义键不稳定');
+	const primarySmallRouteV15 = referenceLineV11.routes.find((route) => route.routeId === primarySmallRouteIdV15)!;
+	assert(Boolean(primarySmallRouteV15) && primarySmallRouteV15.loop === true, '参考图 V15 主小托盘路线不是闭环');
+	for (const routeCode of ['A', 'B'] as const) {
+		const resolved = resolveRoutePath(primarySmallRouteV15, { payload: { routeCode }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] });
+		assert(resolved.closed === true, `参考图 V15 ${routeCode} 分支没有回到机器人形成闭环`);
+		const processTypes = resolved.points.filter((point) => point.kind === 'processStation' && point.process).map((point) => point.process!.type);
+		const robotIndex = processTypes.indexOf('robot-loading');
+		const inspectionIndex = processTypes.indexOf('external-inspection');
+		const bagIndex = processTypes.indexOf('bagging');
+		const gantryIndex = processTypes.indexOf('gantry-stacking');
+		assert(robotIndex >= 0 && inspectionIndex > robotIndex && bagIndex > inspectionIndex && gantryIndex > bagIndex, `参考图 V15 ${routeCode} 分支工艺顺序不是 机器人→外检→套袋→桁架`);
+	}
+	const v15PalletScene = new THREE.Scene();
+	const v15PalletRuntime = new RouteSlotArrayRuntime(v15PalletScene, referenceLineV11);
+	try {
+		const before = v15PalletRuntime.getSimulationSnapshot();
+		assert(before.length >= 6 && new Set(before.map((item) => item.palletId)).size === before.length, '参考图 V15 没有创建至少 6 个稳定 ID 的仿真小托盘');
+		assert(before.some((item) => item.routeCode === 'A') && before.some((item) => item.routeCode === 'B'), '参考图 V15 仿真小托盘没有交替分配 A/B 套袋分支');
+		v15PalletRuntime.setRunning(true);
+		for (let tick = 0; tick < 240; tick += 1) v15PalletRuntime.tick(1 / 30);
+		const after = v15PalletRuntime.getSimulationSnapshot();
+		assert(after.map((item) => item.palletId).join('|') === before.map((item) => item.palletId).join('|'), '参考图 V15 小托盘运行后稳定 ID 发生变化');
+		const moved = after.filter((item, index) => new THREE.Vector3(...item.position).distanceTo(new THREE.Vector3(...before[index].position)) > 0.05);
+		assert(moved.length >= 4, `参考图 V15 多托盘运行失败，8 秒内只有 ${moved.length} 个托盘发生有效位移`);
+	} finally {
+		v15PalletRuntime.dispose();
 	}
 
 	// V12 声明式动作必须真正驱动现有组件节点，而不是只停留在 Manifest 配置。
@@ -1107,7 +1128,7 @@ const referenceStackCarton = referenceComponents.find((item) => item.objectId ==
 assert(referenceStackCarton?.component?.resourceKey === 'builtin-carton', '大辊道码垛位必须放纸箱，不能继续放木托盘');
 const referenceGantry = referenceComponents.find((item) => item.objectId === 'reference-stacking-gantry')!;
 assert(Math.abs(referenceGantry.transform.rotation[1] - Math.PI / 2) < 0.001, '码垛桁架没有旋转 90°，暂存台无法落到大辊道左侧');
-assert(referenceObjects.some((item) => item.objectId === 'moving-package'), '参考图产线缺少运行预览移动物料对象');
+assert(!referenceObjects.some((item) => item.objectId === 'moving-package'), '参考图 V15 仍保留旧单一 moving-package，运行时会与多托盘重复');
 for (const item of referenceComponents) {
 	const built = defaultComponentRegistry.create({ objectId: item.objectId, name: item.name, resourceKey: item.component!.resourceKey, componentType: item.component!.componentType as any, generator: item.component!.generator, generatorVersion: item.component!.generatorVersion, resourceId: item.resourceId, properties: item.component!.properties, transform: item.transform, sectionId: item.component!.sectionId });
 	try { assert(!built.bounds.isEmpty(), '参考图组件 ' + item.name + ' 没有有效三维边界'); } finally { built.dispose(); }

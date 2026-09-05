@@ -192,7 +192,11 @@ export class TwinRuntime {
 		this.route = normalizeTwinRoute(structuredClone(this.manifest.routes[0]));
 		this.routeEngine = new RouteEngine(this.route, this.movingObject);
 		this.materialFlowRuntime = new TwinMaterialFlowRuntime(this.route);
-		this.routeSlotArrayRuntime = new RouteSlotArrayRuntime(this.scene, this.manifest, (message) => this.events.onError?.(message));
+		this.routeSlotArrayRuntime = new RouteSlotArrayRuntime(
+			this.scene, this.manifest,
+			(message) => this.events.onError?.(message),
+			(objectId) => this.componentModels.get(objectId)?.root,
+		);
 		this.rebuildRouteDistanceCurves();
 		this.bindingEngine = new BindingEngine(
 			this.manifest,
@@ -259,13 +263,19 @@ export class TwinRuntime {
 	setRunning(running: boolean) {
 		this.runtimeRunning = running;
 		if (this.componentTestObjectId) {
+			this.routeSlotArrayRuntime.setRunning(false);
 			this.componentProcessRuntime?.setRunning(false);
 			this.routeEngine.setRunning(false);
 			this.packagingLine?.setRunning(false);
 			this.behaviorRuntime?.setRunning(running);
 			return;
 		}
-		if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(running);
+		const routeSlotPrimary = this.isPrimaryRouteSlotSimulation();
+		this.routeSlotArrayRuntime.setRunning(running);
+		if (routeSlotPrimary) {
+			this.componentProcessRuntime?.setRunning(false);
+			this.routeEngine.setRunning(false);
+		} else if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(running);
 		else this.routeEngine.setRunning(running);
 		this.packagingLine?.setRunning(running);
 		this.behaviorRuntime?.setRunning(running);
@@ -276,6 +286,7 @@ export class TwinRuntime {
 		this.behaviorRuntime?.setActorFilter(this.componentTestObjectId);
 		this.clearComponentTestMarker();
 		if (this.componentTestObjectId) {
+			this.routeSlotArrayRuntime.setRunning(false);
 			this.componentProcessRuntime?.setRunning(false);
 			this.routeEngine.setRunning(false);
 			this.packagingLine?.setRunning(false);
@@ -286,7 +297,11 @@ export class TwinRuntime {
 		}
 		this.behaviorRuntime?.reset();
 		this.behaviorRuntime?.setRunning(this.runtimeRunning);
-		if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(this.runtimeRunning);
+		this.routeSlotArrayRuntime.setRunning(this.runtimeRunning);
+		if (this.isPrimaryRouteSlotSimulation()) {
+			this.componentProcessRuntime?.setRunning(false);
+			this.routeEngine.setRunning(false);
+		} else if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(this.runtimeRunning);
 		else this.routeEngine.setRunning(this.runtimeRunning);
 		this.packagingLine?.setRunning(this.runtimeRunning);
 	}
@@ -308,6 +323,7 @@ export class TwinRuntime {
 
 	resetRoute() {
 		this.routeEngine.reset();
+		this.routeSlotArrayRuntime.reset();
 		this.componentProcessRuntime?.reset();
 		this.packagingLine?.reset();
 		this.behaviorRuntime?.reset();
@@ -931,10 +947,17 @@ export class TwinRuntime {
 		this.componentTestMarker = undefined;
 	}
 
+	private isPrimaryRouteSlotSimulation() {
+		if (this.manifest.runtime.dataMode !== 'simulation') return false;
+		const routeId = this.manifest.runtime.primarySmallPalletRouteId;
+		if (!routeId || routeId !== this.route.routeId) return false;
+		return (this.manifest.runtime.routePalletInitializers || []).some((initializer) => initializer.routeId === routeId);
+	}
+
 	private rebuildComponentProcessRuntime() {
 		this.componentProcessRuntime?.dispose();
 		this.componentProcessRuntime = undefined;
-		if (this.packagingLine || !this.route.points.some((point) => point.kind === 'processStation' && point.process)) return;
+		if (this.packagingLine || this.isPrimaryRouteSlotSimulation() || !this.route.points.some((point) => point.kind === 'processStation' && point.process)) return;
 		this.componentProcessRuntime = new ComponentProcessRuntime({
 			route: this.route,
 			routeEngine: this.routeEngine,

@@ -465,6 +465,8 @@ let sawSeparatorCycle = false;
 let sawSeparatorPlaced = false;
 let sawCoverReload = false;
 let sawCoverReturnedReady = false;
+let sawCoverArrivalInterlock = false;
+let sawCoverIdleInterlock = false;
 let sawInspection = false;
 let sawBagging = false;
 let sawLayerEight = false;
@@ -474,6 +476,7 @@ let sawWrapped = false;
 let sawLabelArmMotion = false;
 let sawWrapperArmMotion = false;
 let sawWrapperFilmLift = false;
+let sawWrapperArrivalInterlock = false;
 let lastWrapperArmAngle = wrapperRotaryArm.rotation.y;
 let lastWrapperCarriageY = wrapperFilmCarriage.position.y;
 let sawReturning = false;
@@ -553,6 +556,15 @@ for (let tick = 0; tick < 7_000; tick += 1) {
 		}
 	}
 	const coverState = String(coverGantry.userData.coverGantryState || '');
+	if (coverState === 'placing') {
+		assert(coverGantry.userData.palletPresent === true, '天盖桁架在木托未到位时进入 placing');
+		assert(coverGantry.userData.processActive === true, '天盖桁架 placing 时没有进入 processActive');
+		sawCoverArrivalInterlock = true;
+	}
+	if (coverState === 'waiting') {
+		assert(coverGantry.userData.processActive !== true, '天盖桁架 waiting/无目标木托时仍在执行动作');
+		sawCoverIdleInterlock = true;
+	}
 	if (coverState === 'reload-to-stock' || coverState === 'reload-pick' || coverState === 'reload-return') sawCoverReload = true;
 	if (Number(coverStockTable.userData.pickCount || 0) > 0 && coverState === 'waiting' && Boolean(coverGripper.getObjectByName('TopCover-Ready'))) sawCoverReturnedReady = true;
 	const robotDetail = runtime.getEntityDetail('loading-robot', 'LoadingRobot-01') as any;
@@ -638,7 +650,13 @@ for (let tick = 0; tick < 7_000; tick += 1) {
 	sawLabeled ||= current.postProcess.labeled > 0;
 	sawWrapped ||= current.postProcess.wrapped > 0;
 	if (Number(labelStation.userData.armApplyFactor || 0) > 0.35) sawLabelArmMotion = true;
+	if (wrapperStation.userData.wrapperState === 'waiting-pallet') {
+		assert(wrapperStation.userData.palletPresent !== true && wrapperStation.userData.processActive !== true, '缠膜机木托未到位时错误进入 processActive');
+		assert(Math.abs(wrapperRotaryArm.rotation.y - lastWrapperArmAngle) <= 0.000001, '缠膜机木托未到位时旋臂仍在空转');
+		sawWrapperArrivalInterlock = true;
+	}
 	if (wrapperStation.userData.wrapperState === 'wrapping') {
+		assert(wrapperStation.userData.palletPresent === true && wrapperStation.userData.processActive === true, '缠膜机未确认木托到位就开始 wrapping');
 		if (Math.abs(wrapperRotaryArm.rotation.y - lastWrapperArmAngle) > 0.001) sawWrapperArmMotion = true;
 		if (Math.abs(wrapperFilmCarriage.position.y - lastWrapperCarriageY) > 0.001) sawWrapperFilmLift = true;
 	}
@@ -708,8 +726,10 @@ assert(sawCovered && sawLabeled && sawWrapped, '盖板、贴标、缠膜后处�
 assert(sawLabelArmMotion, '贴标周期中没有观察到三关节贴标臂实际伸出动作');
 assert(sawWrapperArmMotion, '悬臂缠膜机运行时没有观察到旋臂绕 Y 轴转动');
 assert(sawWrapperFilmLift, '悬臂缠膜机运行时没有观察到膜车沿 Y 轴升降');
+assert(sawWrapperArrivalInterlock, '没有覆盖缠膜机“木托到位前旋臂禁止动作”的联锁阶段');
 assert(sawCoverReload, '天盖放置后没有立即去右侧存货台补抓下一块天盖');
 assert(sawCoverReturnedReady, '天盖补抓后没有回到大辊道上方带盖等待');
+assert(sawCoverArrivalInterlock && sawCoverIdleInterlock, '没有完整覆盖天盖桁架“到位才 placing / 无目标保持 waiting”的联锁');
 assert(snapshot.postProcess.stored > 0, '完整木托盘没有进入立体库');
 
 const storedWoodRoots: THREE.Object3D[] = [];
