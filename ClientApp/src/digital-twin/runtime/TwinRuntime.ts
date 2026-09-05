@@ -7,8 +7,13 @@ import { BindingEngine } from '/@/digital-twin/bindings/BindingEngine';
 import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
+import { upgradeSilkPackagingLayout } from '/@/digital-twin/runtime/SilkPackagingLayoutMigration';
+import { upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
-import { defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
+import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
+import { BehaviorRuntime } from '/@/digital-twin/runtime/BehaviorRuntime';
+import { createComponentDefinitionFromTemplate, defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, migrateSilkLineInfrastructureToV7, type TwinComponentDefinition } from '/@/digital-twin/components';
 
 export interface TwinSelectionInfo {
 	name: string;
@@ -25,6 +30,28 @@ export interface TwinSelectionInfo {
 	routeId?: string;
 	routePointIndex?: number;
 	routePointId?: string;
+	worldPosition?: TwinVector3;
+}
+
+export interface TwinRuntimeOptions {
+	readOnly?: boolean;
+}
+
+export const resolveRouteTransportUnitResourceKey = (route: TwinRouteDefinition) => {
+	const edge = route.edges.find((candidate) => candidate.enabled !== false && (candidate.transportUnitResourceKey || candidate.transportUnitType));
+	if (edge?.transportUnitResourceKey) return edge.transportUnitResourceKey;
+	const unitType = edge?.transportUnitType || 'plastic-pallet';
+	return unitType === 'carton' ? 'builtin-carton' : unitType === 'wooden-pallet' ? 'builtin-wooden-pallet' : 'builtin-plastic-pallet';
+};
+
+
+export interface TwinRuntimeScreenAnchor {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	visible: boolean;
+	worldPosition: TwinVector3;
 }
 
 export interface TwinModelSummary {
@@ -89,6 +116,13 @@ export interface TwinRuntimeEvents {
 
 const helperFlag = 'iotsharpTwinHelper';
 
+interface TwinRouteDistanceCurveInfo {
+	route: TwinRouteDefinition;
+	curve: THREE.Curve<THREE.Vector3>;
+	lengthMeters: number;
+	loop: boolean;
+}
+
 /**
  * IoTSharp 数字孪生 Phase 0 运行时。
  * 编辑器页面只能通过适配器调用本类，后续接入 threejs-editor 时保持运行边界不变。
@@ -115,11 +149,17 @@ export class TwinRuntime {
 	private readonly objectIndex = new Map<string, any>();
 	private readonly loadedModels = new Map<string, any>();
 	private readonly componentModels = new Map<string, { root: THREE.Group; dispose: () => void }>();
+	private readonly proceduralComponentAnimationBases = new Map<string, Map<THREE.Object3D, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>>();
+	private readonly routeDistanceCurves = new Map<string, TwinRouteDistanceCurveInfo>();
 	private readonly bindingEngine: BindingEngine;
 	private route: TwinRouteDefinition;
 	private routeEngine: RouteEngine;
 	private readonly materialFlowRuntime: TwinMaterialFlowRuntime;
+	private readonly routeSlotArrayRuntime: RouteSlotArrayRuntime;
 	private packagingLine?: ProceduralPackagingLine;
+	private componentProcessRuntime?: ComponentProcessRuntime;
+	private behaviorRuntime?: BehaviorRuntime;
+	private runtimeRunning = false;
 	private routeLine?: any;
 	private ground?: any;
 	private selectionHelper?: any;
@@ -133,25 +173,35 @@ export class TwinRuntime {
 	private routingContext: TwinRouteRoutingContext = { payload: {}, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
 	private transformDragging = false;
 	private disposed = false;
+	private readonly readOnly: boolean;
 
-	constructor(container: HTMLDivElement, manifest: TwinSceneManifest, events: TwinRuntimeEvents = {}) {
+	constructor(container: HTMLDivElement, manifest: TwinSceneManifest, events: TwinRuntimeEvents = {}, options: TwinRuntimeOptions = {}) {
 		this.container = container;
 		this.events = events;
+		this.readOnly = options.readOnly === true;
 		this.manifest = structuredClone(manifest);
-		this.route = normalizeTwinRoute(structuredClone(manifest.routes[0]));
+		upgradeReferencePackagingLineLayout(this.manifest);
+		upgradeSilkPackagingLayout(this.manifest);
+		migrateSilkLineInfrastructureToV7(this.manifest);
+		this.route = normalizeTwinRoute(structuredClone(this.manifest.routes[0]));
 		this.routeEngine = new RouteEngine(this.route, this.movingObject);
 		this.materialFlowRuntime = new TwinMaterialFlowRuntime(this.route);
+		this.routeSlotArrayRuntime = new RouteSlotArrayRuntime(this.scene, this.manifest, (message) => this.events.onError?.(message));
+		this.rebuildRouteDistanceCurves();
 		this.bindingEngine = new BindingEngine(
 			this.manifest,
 			(objectId) => this.objectIndex.get(objectId),
 			(progress) => this.routeEngine.correctDistance(Math.min(1, Math.max(0, progress)) * this.routeEngine.getSnapshot().lengthMeters),
 			(message) => this.events.onError?.(message),
-			(bindingId, value, stale) => this.applyRouteSignal(bindingId, value, stale)
+			(bindingId, value, stale) => this.applyRouteSignal(bindingId, value, stale),
+			(binding, value, stale) => this.routeSlotArrayRuntime.apply(binding, value, stale),
+			(binding, object, distanceMeters) => this.applyRouteDistance(binding, object, distanceMeters),
 		);
 
 		this.scene.background = new THREE.Color(manifest.world.background);
 		const isSilkCakeLine = manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
-		this.camera.position.set(...(isSilkCakeLine ? [32, 26, 38] as const : [11, 9, 13] as const));
+		const isLargeComponentScene = manifest.objects.filter((item: any) => item.kind === 'component').length >= 16;
+		this.camera.position.set(...(isSilkCakeLine ? [32, 26, 38] as const : isLargeComponentScene ? [28, 32, 38] as const : [11, 9, 13] as const));
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1;
@@ -163,14 +213,15 @@ export class TwinRuntime {
 
 		this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
 		this.orbitControls.enableDamping = true;
-		this.orbitControls.target.set(...(isSilkCakeLine ? [5, 1.2, -2] as const : [0, 0.8, 0] as const));
+		this.orbitControls.target.set(...(isSilkCakeLine ? [5, 1.2, -2] as const : isLargeComponentScene ? [0, 1, 2] as const : [0, 0.8, 0] as const));
 		this.orbitControls.maxPolarAngle = Math.PI * 0.49;
 		this.orbitControls.minDistance = 2;
-		this.orbitControls.maxDistance = 80;
+		this.orbitControls.maxDistance = isLargeComponentScene ? 120 : 80;
 
 		this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
 		this.transformControls.setMode('translate');
 		this.transformControls.setSpace('world');
+		this.transformControls.enabled = !this.readOnly;
 		this.transformControls.addEventListener('dragging-changed', (event: any) => {
 			this.transformDragging = Boolean(event.value);
 			this.orbitControls.enabled = !event.value;
@@ -200,8 +251,11 @@ export class TwinRuntime {
 	}
 
 	setRunning(running: boolean) {
-		this.routeEngine.setRunning(running);
+		this.runtimeRunning = running;
+		if (this.componentProcessRuntime) this.componentProcessRuntime.setRunning(running);
+		else this.routeEngine.setRunning(running);
 		this.packagingLine?.setRunning(running);
+		this.behaviorRuntime?.setRunning(running);
 	}
 
 	setSpeed(speed: number) {
@@ -213,7 +267,9 @@ export class TwinRuntime {
 
 	resetRoute() {
 		this.routeEngine.reset();
+		this.componentProcessRuntime?.reset();
 		this.packagingLine?.reset();
+		this.behaviorRuntime?.reset();
 	}
 
 	correctRouteDistance(distanceMeters: number) {
@@ -221,21 +277,29 @@ export class TwinRuntime {
 	}
 
 	setRouteDrawMode(enabled: boolean) {
+		if (this.readOnly) {
+			this.routeDrawMode = false;
+			this.clearSelection();
+			return;
+		}
 		this.routeDrawMode = enabled;
 		if (enabled) this.clearSelection();
 	}
 
 	setRouteCurveKind(curveKind: TwinRouteDefinition['curveKind']) {
+		if (this.readOnly) return;
 		this.route.curveKind = curveKind;
 		this.applyRouteChange();
 	}
 
 	setRouteLoop(loop: boolean) {
+		if (this.readOnly) return;
 		this.route.loop = loop;
 		this.applyRouteChange();
 	}
 
 	updateRoutePoint(index: number, position: TwinVector3) {
+		if (this.readOnly) return;
 		const point = this.route.points[index];
 		if (!point || position.some((component) => !Number.isFinite(component))) return;
 		point.position = [...position] as TwinVector3;
@@ -262,6 +326,7 @@ export class TwinRuntime {
 	}
 
 	addRoutePoint(position?: TwinVector3) {
+		if (this.readOnly) return;
 		const lastPoint = this.route.points[this.route.points.length - 1]?.position ?? [0, 0.72, 0];
 		const nextPosition = position ?? [lastPoint[0] + 2, lastPoint[1], lastPoint[2]];
 		const previousPoint = this.route.points[this.route.points.length - 1];
@@ -275,6 +340,7 @@ export class TwinRuntime {
 	}
 
 	removeRoutePoint(index: number) {
+		if (this.readOnly) return;
 		if (this.route.points.length <= 2 || index < 0 || index >= this.route.points.length) return;
 		const [removed] = this.route.points.splice(index, 1);
 		if (removed) {
@@ -304,9 +370,14 @@ export class TwinRuntime {
 	loadManifest(manifest: TwinSceneManifest) {
 		if (!manifest.routes[0]) return;
 		this.manifest = structuredClone(manifest);
-		this.route = normalizeTwinRoute(structuredClone(manifest.routes[0]));
-		this.scene.background = new THREE.Color(manifest.world.background);
+		upgradeReferencePackagingLineLayout(this.manifest);
+		upgradeSilkPackagingLayout(this.manifest);
+		migrateSilkLineInfrastructureToV7(this.manifest);
+		this.route = normalizeTwinRoute(structuredClone(this.manifest.routes[0]));
+		this.scene.background = new THREE.Color(this.manifest.world.background);
 		this.bindingEngine.setManifest(this.manifest);
+		this.routeSlotArrayRuntime.setManifest(this.manifest);
+		this.rebuildRouteDistanceCurves();
 		const routeBindingIds = new Set(this.manifest.bindings.filter((binding) => binding.enabled !== false && binding.transform.kind === 'routeEvent').map((binding) => binding.bindingId));
 		this.routingContext = {
 			...this.routingContext,
@@ -314,7 +385,7 @@ export class TwinRuntime {
 			staleBindingIds: (this.routingContext.staleBindingIds || []).filter((bindingId) => routeBindingIds.has(bindingId)),
 		};
 		this.routeEngine.setRoutingContext(this.routingContext);
-		for (const objectDefinition of manifest.objects) {
+		for (const objectDefinition of this.manifest.objects) {
 			const object = this.objectIndex.get(objectDefinition.objectId);
 			if (object) this.applyTransform(object, objectDefinition);
 		}
@@ -331,6 +402,7 @@ export class TwinRuntime {
 			sections: this.materialFlowRuntime.sections.getSnapshots(),
 			entities: this.materialFlowRuntime.entities.getAll(),
 			silkCakeLine: this.packagingLine?.getSnapshot(),
+			componentProcesses: this.componentProcessRuntime?.getSnapshot(),
 		};
 	}
 
@@ -378,6 +450,33 @@ export class TwinRuntime {
 		this.bindingEngine.apply(updates);
 	}
 
+	getSelectionScreenAnchor(): TwinRuntimeScreenAnchor | undefined {
+		const selectedObject = this.selectionHelper?.object as THREE.Object3D | undefined;
+		if (!selectedObject || this.disposed) return undefined;
+		selectedObject.updateWorldMatrix(true, true);
+		this.camera.updateMatrixWorld(true);
+		const box = new THREE.Box3().setFromObject(selectedObject);
+		const world = new THREE.Vector3();
+		const objectWorld = new THREE.Vector3();
+		selectedObject.getWorldPosition(objectWorld);
+		if (box.isEmpty()) world.copy(objectWorld);
+		else {
+			box.getCenter(world);
+			world.y = box.max.y;
+		}
+		const projected = world.clone().project(this.camera);
+		const width = this.renderer.domElement.clientWidth || this.container.clientWidth || 1;
+		const height = this.renderer.domElement.clientHeight || this.container.clientHeight || 1;
+		return {
+			x: (projected.x * 0.5 + 0.5) * width,
+			y: (-projected.y * 0.5 + 0.5) * height,
+			width,
+			height,
+			visible: projected.z >= -1 && projected.z <= 1 && projected.x >= -1.2 && projected.x <= 1.2 && projected.y >= -1.2 && projected.y <= 1.2,
+			worldPosition: [objectWorld.x, objectWorld.y, objectWorld.z],
+		};
+	}
+
 	focusSelected() {
 		const selectedObject = this.selectionHelper?.object;
 		if (selectedObject) this.focusObject(selectedObject);
@@ -395,6 +494,11 @@ export class TwinRuntime {
 		this.scene.remove(this.transformControls);
 		this.orbitControls.dispose();
 		this.bindingEngine.dispose();
+		this.routeSlotArrayRuntime.dispose();
+		this.behaviorRuntime?.dispose();
+		this.behaviorRuntime = undefined;
+		this.componentProcessRuntime?.dispose();
+		this.componentProcessRuntime = undefined;
 		for (const component of this.componentModels.values()) { this.scene.remove(component.root); component.dispose(); }
 		this.componentModels.clear();
 		this.objectIndex.clear();
@@ -416,8 +520,12 @@ export class TwinRuntime {
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
 			this.bindingEngine.tick(this.fixedStep);
-			this.routeEngine.updateFixed(this.fixedStep);
+			this.routeSlotArrayRuntime.tick(this.fixedStep);
+			const allowRouteStep = this.componentProcessRuntime?.updateFixed(this.fixedStep) ?? true;
+			if (allowRouteStep) this.routeEngine.updateFixed(this.fixedStep);
 			this.packagingLine?.updateFixed(this.fixedStep);
+			this.behaviorRuntime?.updateFixed(this.fixedStep);
+			this.syncProceduralProcessComponentAnimations();
 			this.accumulator -= this.fixedStep;
 		}
 		this.routeEngine.render(this.accumulator / this.fixedStep);
@@ -488,7 +596,8 @@ export class TwinRuntime {
 		directional.shadow.mapSize.set(2048, 2048);
 		this.scene.add(directional);
 
-		const environmentSize = this.manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')) ? 80 : 40;
+		const hasLargeComponentLayout = this.manifest.objects.filter((item: any) => item.kind === 'component').length >= 16;
+		const environmentSize = this.manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')) ? 80 : hasLargeComponentLayout ? 64 : 40;
 		if (showGrid) {
 			const grid = new THREE.GridHelper(environmentSize, environmentSize, 0x1d4ed8, 0x1f3a55);
 			grid.userData[helperFlag] = true;
@@ -591,12 +700,17 @@ export class TwinRuntime {
 	}
 
 	private rebuildComponents() {
+		this.behaviorRuntime?.dispose();
+		this.behaviorRuntime = undefined;
+		this.componentProcessRuntime?.dispose();
+		this.componentProcessRuntime = undefined;
 		for (const [objectId, component] of this.componentModels) {
 			this.scene.remove(component.root);
 			component.dispose();
 			this.objectIndex.delete(objectId);
 		}
 		this.componentModels.clear();
+		this.proceduralComponentAnimationBases.clear();
 		for (const objectDefinition of this.manifest.objects as any[]) {
 			if (objectDefinition.kind !== 'component') continue;
 			const component = objectDefinition.component;
@@ -625,6 +739,84 @@ export class TwinRuntime {
 				this.events.onError?.(`组件 ${objectDefinition.name || objectDefinition.objectId} 加载失败：${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
+		this.rebuildComponentProcessRuntime();
+		this.rebuildBehaviorRuntime();
+	}
+
+	private rebuildBehaviorRuntime() {
+		if (!(this.manifest.behaviors?.length || this.manifest.workPoints?.length)) return;
+		this.behaviorRuntime = new BehaviorRuntime(
+			this.manifest,
+			this.scene,
+			(objectId) => this.objectIndex.get(objectId),
+			(message) => this.events.onError?.(message),
+		);
+		this.behaviorRuntime.setRunning(this.runtimeRunning);
+	}
+
+	private rebuildComponentProcessRuntime() {
+		this.componentProcessRuntime?.dispose();
+		this.componentProcessRuntime = undefined;
+		if (this.packagingLine || !this.route.points.some((point) => point.kind === 'processStation' && point.process)) return;
+		this.componentProcessRuntime = new ComponentProcessRuntime({
+			route: this.route,
+			routeEngine: this.routeEngine,
+			getComponentRoot: (objectId) => this.componentModels.get(objectId)?.root,
+			getRoutingContext: () => this.routingContext,
+		});
+	}
+
+	private captureProceduralComponentBase(objectId: string, root: THREE.Group) {
+		let bases = this.proceduralComponentAnimationBases.get(objectId);
+		if (bases) return bases;
+		bases = new Map();
+		root.traverse((node) => bases!.set(node, { position: node.position.clone(), rotation: node.rotation.clone(), scale: node.scale.clone() }));
+		this.proceduralComponentAnimationBases.set(objectId, bases);
+		return bases;
+	}
+
+	private restoreProceduralComponent(objectId: string) {
+		for (const [node, base] of this.proceduralComponentAnimationBases.get(objectId) || []) {
+			node.position.copy(base.position);
+			node.rotation.copy(base.rotation);
+			node.scale.copy(base.scale);
+		}
+	}
+
+	/** 完整丝饼场景保留多托盘专用停车/背压逻辑，只把真实工艺进度同步给 V7 设备机械节点。 */
+	private syncProceduralProcessComponentAnimations() {
+		if (!this.packagingLine) return;
+		const snapshot = this.packagingLine.getSnapshot();
+		for (const [objectId, component] of this.componentModels) {
+			const root = component.root;
+			const resourceKey = String(root.userData?.componentResourceKey || root.userData?.resourceKey || '');
+			const processType = String(root.userData?.processType || '');
+			const isInspection = processType === 'external-inspection';
+			const isPrimaryBagging = processType === 'bagging' && resourceKey === 'builtin-bagging-machine';
+			if (!isInspection && !isPrimaryBagging) continue;
+			const process = isInspection ? snapshot.preProcess.inspection : snapshot.preProcess.bagging;
+			const active = process.state === 'processing' || process.state === 'waiting';
+			if (!active) {
+				this.restoreProceduralComponent(objectId);
+				continue;
+			}
+			const bases = this.captureProceduralComponentBase(objectId, root);
+			const progress = THREE.MathUtils.clamp(Number(process.progress) || 0, 0, 1);
+			const wave = Math.sin(Math.PI * progress);
+			if (isInspection) {
+				root.traverse((node) => {
+					if (node.userData?.rotaryInspectionGripper !== true) return;
+					const base = bases.get(node); if (!base) return;
+					node.rotation.y = base.rotation.y + progress * Math.PI * 6;
+					node.position.y = base.position.y - wave * 0.16;
+				});
+			} else {
+				const pickup = root.getObjectByName('Bagging-Vacuum-Pickup');
+				if (pickup) { const base = bases.get(pickup); if (base) pickup.position.z = base.position.z - wave * Math.abs(base.position.z) * 0.72; }
+				const lift = root.getObjectByName('Bagging-Z-Lift');
+				if (lift) { const base = bases.get(lift); if (base) lift.position.y = base.position.y - wave * 0.82; }
+			}
+		}
 	}
 
 	private createMovingObject() {
@@ -634,15 +826,23 @@ export class TwinRuntime {
 		if (!definition) return;
 		this.movingObject.userData.twinObjectId = definition.objectId;
 		this.objectIndex.set(definition.objectId, this.movingObject);
-		const body = new THREE.Mesh(
-			new THREE.BoxGeometry(0.72, 0.48, 0.54),
-			new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x3b2400, roughness: 0.5, metalness: 0.12 })
-		);
-		body.name = 'Package_Body';
-		body.position.y = 0.24;
-		body.castShadow = true;
-		body.receiveShadow = true;
-		this.movingObject.add(body);
+
+		// 运行预览物料必须服从主路线运输类型，不能再固定画成橙色纸箱。
+		const transportUnitType = this.route.edges.find((edge) => edge.enabled !== false && edge.transportUnitType)?.transportUnitType || 'plastic-pallet';
+		const resourceKey = resolveRouteTransportUnitResourceKey(this.route);
+		try {
+			const transportDefinition = createComponentDefinitionFromTemplate(resourceKey, {
+				objectId: definition.objectId + ':runtime-transport-unit',
+				name: transportUnitType === 'carton' ? '运行纸箱' : transportUnitType === 'wooden-pallet' ? '运行木托盘' : '运行小托盘',
+			});
+			const built = defaultComponentRegistry.create(transportDefinition);
+			built.root.name = 'RouteTransportUnit';
+			built.root.userData.runtimeTransportUnit = true;
+			built.root.userData.transportUnitType = transportUnitType;
+			this.movingObject.add(built.root);
+		} catch (error) {
+			this.events.onError?.('运行运输单元创建失败：' + (error instanceof Error ? error.message : String(error)));
+		}
 		this.scene.add(this.movingObject);
 		this.routeEngine.setTarget(this.movingObject);
 	}
@@ -729,13 +929,54 @@ export class TwinRuntime {
 	private applyRouteChange() {
 		this.materialFlowRuntime.setRoute(this.route);
 		this.routeEngine.setRoute(this.route);
+		this.componentProcessRuntime?.setRoute(this.route);
 		this.packagingLine?.setRoute(this.route);
+		this.rebuildRouteDistanceCurves();
 		this.rebuildRouteVisuals();
 		this.emitRouteChange();
 	}
 
 	private emitRouteChange() {
 		this.events.onRouteChange?.(structuredClone(this.route));
+	}
+
+	private rebuildRouteDistanceCurves() {
+		this.routeDistanceCurves.clear();
+		for (const route of this.manifest.routes || []) {
+			const vectors = (route.points || []).map((point) => new THREE.Vector3(point.position[0], point.position[1], point.position[2]));
+			if (vectors.length < 2) continue;
+			const loop = route.loop === true;
+			let curve: THREE.Curve<THREE.Vector3>;
+			if (route.curveKind === 'line' || vectors.length === 2) {
+				const path = new THREE.CurvePath<THREE.Vector3>();
+				for (let index = 1; index < vectors.length; index += 1) path.add(new THREE.LineCurve3(vectors[index - 1], vectors[index]));
+				if (loop && vectors.length > 2) path.add(new THREE.LineCurve3(vectors[vectors.length - 1], vectors[0]));
+				curve = path;
+			} else {
+				curve = new THREE.CatmullRomCurve3(vectors, loop, 'centripetal', 0.5);
+			}
+			const lengthMeters = curve.getLength();
+			if (lengthMeters > 0) this.routeDistanceCurves.set(route.routeId, { route, curve, lengthMeters, loop });
+		}
+	}
+
+	private applyRouteDistance(binding: TwinObjectBindingDefinition, object: any, distanceMeters: number) {
+		if (!Number.isFinite(distanceMeters)) return this.events.onError?.(`路线位置绑定 ${binding.bindingId} 收到的距离不是有效数字`);
+		const routeId = String((binding.transform as Record<string, unknown>).routeId || '').trim();
+		const info = this.routeDistanceCurves.get(routeId);
+		if (!info) return this.events.onError?.(`路线位置绑定 ${binding.bindingId} 引用的路线 ${routeId || '(空)'} 不存在或不可绘制`);
+		const corrected = info.loop
+			? ((distanceMeters % info.lengthMeters) + info.lengthMeters) % info.lengthMeters
+			: THREE.MathUtils.clamp(distanceMeters, 0, info.lengthMeters);
+		const progress = corrected / info.lengthMeters;
+		const position = info.curve.getPointAt(progress);
+		object.position.copy(position);
+		if (info.route.orientToPath !== false) {
+			const tangent = info.curve.getTangentAt(progress);
+			if (tangent.lengthSq() > 0.000001) object.lookAt(position.clone().add(tangent));
+		}
+		object.userData.routeId = routeId;
+		object.userData.routeDistanceMeters = corrected;
 	}
 
 	private applyRouteSignal(bindingId: string, value: unknown, stale: boolean) {
@@ -756,6 +997,7 @@ export class TwinRuntime {
 	}
 
 	private commitSelectedRoutePoint() {
+		if (this.readOnly) return;
 		if (this.selectedRoutePointIndex === null) return;
 		const object = this.transformControls.object;
 		if (!object) return;
@@ -785,6 +1027,10 @@ export class TwinRuntime {
 
 		const routePointHit = this.raycaster.intersectObjects(this.routePointGroup.children, false)[0];
 		if (routePointHit) {
+			if (this.readOnly) {
+				this.clearSelection();
+				return;
+			}
 			const routePointIndex = Number(routePointHit.object.userData.routePointIndex);
 			this.selectedRoutePointIndex = routePointIndex;
 			this.transformControls.attach(routePointHit.object);
@@ -811,11 +1057,13 @@ export class TwinRuntime {
 			}
 			return true;
 		});
-		const selected = hits[0]?.object;
-		if (!selected) {
+		const hitObject = hits[0]?.object;
+		if (!hitObject) {
 			this.clearSelection();
 			return;
 		}
+		const semantic = this.resolveRuntimeSelection(hitObject);
+		const selected = semantic.root;
 		this.transformControls.detach();
 		this.selectedRoutePointIndex = null;
 		this.removeSelectionHelper();
@@ -823,23 +1071,84 @@ export class TwinRuntime {
 		this.selectionHelper.object = selected;
 		this.selectionHelper.userData[helperFlag] = true;
 		this.scene.add(this.selectionHelper);
-		const entityInfo = this.getTwinEntityInfo(selected);
-		const twinInfo = this.getTwinObjectInfo(selected);
-		const equipmentInfo = this.getTwinEquipmentInfo(selected);
+		const entityInfo = semantic.entityInfo;
+		const twinInfo = semantic.twinInfo;
+		const equipmentInfo = semantic.equipmentInfo;
+		const objectDefinition = twinInfo?.objectId ? this.manifest.objects.find((item) => item.objectId === twinInfo.objectId) : undefined;
+		const worldPosition = new THREE.Vector3();
+		selected.getWorldPosition(worldPosition);
 		this.events.onSelectionChange?.({
-			name: entityInfo?.entityId || selected.name || selected.type,
+			name: entityInfo?.entityId || objectDefinition?.name || selected.name || selected.type,
 			uuid: selected.uuid,
 			path: this.getObjectPath(selected),
 			kind: entityInfo ? 'runtime-entity' : 'scene-object',
 			objectId: entityInfo ? undefined : twinInfo?.objectId,
-			nodePath: entityInfo ? undefined : twinInfo?.nodePath,
+			nodePath: undefined,
 			entityType: entityInfo?.entityType,
 			entityId: entityInfo?.entityId,
 			equipmentType: equipmentInfo?.equipmentType,
 			equipmentId: equipmentInfo?.equipmentId,
-			runtimeData: entityInfo ? this.packagingLine?.getEntityDetail(entityInfo.entityType, entityInfo.entityId) : undefined,
+			runtimeData: entityInfo
+				? this.routeSlotArrayRuntime.getEntityDetail(entityInfo.entityType, entityInfo.entityId) ?? this.packagingLine?.getEntityDetail(entityInfo.entityType, entityInfo.entityId)
+				: this.getSceneObjectRuntimeDetail(twinInfo?.objectId, equipmentInfo?.equipmentType, equipmentInfo?.equipmentId),
+			worldPosition: [worldPosition.x, worldPosition.y, worldPosition.z],
 		});
 	};
+
+	private resolveRuntimeSelection(object: THREE.Object3D) {
+		let current: THREE.Object3D | null = object;
+		let entityRoot: THREE.Object3D | undefined;
+		let equipmentRoot: THREE.Object3D | undefined;
+		let twinRoot: THREE.Object3D | undefined;
+		while (current && current !== this.scene) {
+			const data = current.userData || {};
+			if (!entityRoot && (data.twinEntityType || data.entityType) && (data.twinEntityId || data.entityId)) entityRoot = current;
+			if (!equipmentRoot && (data.twinEquipmentType || data.equipmentType)) equipmentRoot = current;
+			if (!twinRoot && data.twinObjectId) twinRoot = current;
+			current = current.parent;
+		}
+		// Runtime inspection is business-object oriented: a pallet/entity wins first,
+		// then the enclosing Twin component/object, and only truly standalone equipment
+		// may fall back to its equipment root. This prevents a motor/roller child Mesh
+		// from becoming the runtime selection instead of the whole component.
+		const root = entityRoot || twinRoot || equipmentRoot || object;
+		return {
+			root,
+			entityInfo: this.getTwinEntityInfo(root),
+			equipmentInfo: this.getTwinEquipmentInfo(root),
+			twinInfo: this.getTwinObjectInfo(root),
+		};
+	}
+
+	private getSceneObjectRuntimeDetail(objectId?: string, equipmentType?: string, equipmentId?: string): Record<string, unknown> | undefined {
+		const definition = objectId ? this.manifest.objects.find((item) => item.objectId === objectId) : undefined;
+		const behaviorDetail = objectId ? this.behaviorRuntime?.getObjectDetail(objectId) : undefined;
+		const packaging = this.packagingLine;
+		if (packaging) {
+			const snapshot = packaging.getSnapshot();
+			switch (equipmentType || definition?.equipment?.equipmentType) {
+				case 'loading-robot': return packaging.getEntityDetail('loading-robot', equipmentId || objectId || '') ?? snapshot.robot;
+				case 'gantry-stacker': return packaging.getEntityDetail('gantry-stacker', equipmentId || objectId || '') ?? snapshot.gantry;
+				case 'silk-cart-turntable': return snapshot.silkCart;
+				case 'cover-applicator': return { station: 'cover-applicator', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
+				case 'labeler': return { station: 'labeler', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
+				case 'wrapper': return { station: 'wrapper', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
+				case 'inbound-lift': return { station: 'inbound-lift', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
+			}
+			const semantic = `${definition?.name || ''} ${definition?.component?.resourceKey || ''} ${definition?.component?.componentType || ''}`.toLocaleLowerCase();
+			if (/external[-_ ]?inspection|外检/.test(semantic)) return { station: 'external-inspection', ...snapshot.preProcess.inspection };
+			if (/bagging|套袋/.test(semantic)) return { station: 'bagging', ...snapshot.preProcess.bagging };
+			if (/gantry|桁架/.test(semantic)) return snapshot.gantry;
+			if (/robot|机器人/.test(semantic)) return snapshot.robot;
+		}
+		if (definition?.component) return {
+			componentType: definition.component.componentType,
+			resourceKey: definition.component.resourceKey,
+			properties: definition.component.properties,
+			...(behaviorDetail || {}),
+		};
+		return behaviorDetail;
+	}
 
 	private clearSelection() {
 		this.transformControls.detach();

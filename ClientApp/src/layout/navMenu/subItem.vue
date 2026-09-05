@@ -3,9 +3,10 @@
     <el-sub-menu :index="val.path" :key="val.path" v-if="val.children && val.children.length > 0">
       <template #title>
         <!--				<SvgIcon :name="val.meta.icon" />-->
-        <el-icon class="z-menu-icon">
+        <el-icon v-if="menuIconList[val.name]" class="z-menu-icon">
           <component :is="menuIconList[val.name]"></component>
         </el-icon>
+        <SvgIcon v-else class="z-menu-icon" :name="val.meta.icon || 'iconfont icon-shuju'" :size="16" />
         <span>{{ $t(val.meta.title) }} </span>
       </template>
       <!--			<sub-item :chil="val.children" />-->
@@ -14,9 +15,10 @@
       <el-menu-item :index="val.path" :key="val.path">
         <template v-if="!val.meta.isLink || (val.meta.isLink && val.meta.isIframe)">
           <!--					<SvgIcon :name="val.meta.icon" />-->
-          <el-icon class="z-menu-icon">
+          <el-icon v-if="menuIconList[val.name]" class="z-menu-icon">
             <component :is="menuIconList[val.name]"></component>
           </el-icon>
+          <SvgIcon v-else class="z-menu-icon" :name="val.meta.icon || 'iconfont icon-shuju'" :size="16" />
           <!--         *  // 在这里修改子菜单-->
           <span >{{ $t(val.meta.title) }}</span>
         </template>
@@ -34,9 +36,11 @@
 <script lang="ts">
 import {computed, defineComponent} from 'vue';
 import {menuIconList} from "/@/layout/navMenu/menu-icons-config.js";
+import SvgIcon from '/@/components/svgIcon/index.vue';
 
 export default defineComponent({
   name: 'navMenuSubItem',
+  components: {SvgIcon},
   props: {
     chil: {
       type: Array,

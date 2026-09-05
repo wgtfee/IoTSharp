@@ -547,6 +547,95 @@ public sealed class DigitalTwinManifestInspectorTests
     }
 
     [Fact]
+    public void Inspect_AcceptsRouteSlotArrayTelemetryBinding()
+    {
+        var deviceId = Guid.NewGuid();
+        using var document = JsonDocument.Parse($$"""
+        {
+          "name": "Route Slot Array",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "route-slot-host:main", "name": "Main Route Slot Host", "kind": "visual",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [{
+            "bindingId": "pallet-slots", "objectId": "route-slot-host:main",
+            "source": { "kind": "telemetry", "deviceId": "{{deviceId:D}}", "key": "托盘数组" },
+            "target": { "kind": "customProperty", "property": "routeSlots:main" },
+            "transform": { "kind": "routeSlotArray", "routeId": "main", "emptyValue": 0 },
+            "staleAfterMs": 10000
+          }],
+          "routes": [{
+            "routeId": "main", "name": "Main", "type": "conveyor", "curveKind": "line", "defaultSpeed": 1, "loop": false,
+            "startPointId": "p1",
+            "points": [
+              { "pointId": "p1", "name": "Entry", "position": [0,0,0], "kind": "station" },
+              { "pointId": "p2", "name": "Exit", "position": [5,0,0], "kind": "station" }
+            ],
+            "edges": [{ "edgeId": "e1", "fromPointId": "p1", "toPointId": "p2", "enabled": true, "capacity": 6 }]
+          }],
+          "runtime": { "dataMode": "simulation", "maxPixelRatio": 2, "showGrid": true }
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+        var binding = Assert.Single(result.Bindings.Where(item => item.BindingKey == "pallet-slots"));
+        Assert.Equal("routeSlotArray", binding.TransformKind);
+        Assert.Equal(TwinBindingTargetKind.CustomProperty, binding.TargetKind);
+        Assert.Equal("routeSlots:main", binding.TargetPath);
+        Assert.Equal("托盘数组", binding.SourceKey);
+    }
+
+    [Fact]
+    public void Inspect_ValidatesTelemetryRouteDistanceBindingRoute()
+    {
+        var deviceId = Guid.NewGuid();
+        static string Payload(Guid deviceId, string bindingRouteId) => $$"""
+        {
+          "name": "RGV 路线距离绑定",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "rgv-1", "name": "RGV-01", "kind": "visual",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [{
+            "bindingId": "rgv-position", "objectId": "rgv-1",
+            "source": { "kind": "telemetry", "deviceId": "{{deviceId:D}}", "key": "PositionMeters" },
+            "target": { "kind": "routeDistance" },
+            "transform": { "kind": "routeDistance", "routeId": "{{bindingRouteId}}", "factor": 1, "offset": 0 },
+            "staleAfterMs": 10000
+          }],
+          "routes": [{
+            "routeId": "rgv-route", "name": "RGV 轨道", "type": "rgv", "curveKind": "line", "defaultSpeed": 1, "loop": false,
+            "startPointId": "p1",
+            "points": [
+              { "pointId": "p1", "name": "0m", "position": [0,0,0], "kind": "station" },
+              { "pointId": "p2", "name": "20m", "position": [20,0,0], "kind": "station" }
+            ],
+            "edges": [{ "edgeId": "e1", "fromPointId": "p1", "toPointId": "p2", "enabled": true, "capacity": 1 }]
+          }],
+          "runtime": { "dataMode": "simulation", "maxPixelRatio": 2, "showGrid": true }
+        }
+        """;
+
+        using var validDocument = JsonDocument.Parse(Payload(deviceId, "rgv-route"));
+        var valid = TwinManifestInspector.Inspect(validDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+        Assert.True(valid.Valid, string.Join("; ", valid.Diagnostics.Select(item => item.Message)));
+        var binding = Assert.Single(valid.Bindings.Where(item => item.BindingKey == "rgv-position"));
+        Assert.Equal(TwinBindingTargetKind.RouteDistance, binding.TargetKind);
+        Assert.Equal("routeDistance", binding.TransformKind);
+
+        using var invalidDocument = JsonDocument.Parse(Payload(deviceId, "missing-route"));
+        var invalid = TwinManifestInspector.Inspect(invalidDocument.RootElement, Guid.NewGuid(), Guid.NewGuid());
+        Assert.False(invalid.Valid);
+        Assert.Contains(invalid.Diagnostics, item => item.Code == "twin.binding.route-distance.route.invalid");
+    }
+
+    [Fact]
     public void Inspect_RejectsDuplicateOrOrphanEquipmentMappings()
     {
         using var document = JsonDocument.Parse("""

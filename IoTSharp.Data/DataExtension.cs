@@ -251,9 +251,11 @@ namespace IoTSharp.Data
                             switch (kvx.Value.ValueKind)
                             {
                                 case System.Text.Json.JsonValueKind.Undefined:
-                                case System.Text.Json.JsonValueKind.Object:
                                     break;
+                                case System.Text.Json.JsonValueKind.Object:
                                 case System.Text.Json.JsonValueKind.Array:
+                                    tdata.Type = DataType.Json;
+                                    tdata.Value_Json = kvx.Value.GetRawText();
                                     break;
                                 case System.Text.Json.JsonValueKind.String:
                                     tdata.Type = DataType.String;

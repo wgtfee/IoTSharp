@@ -19,7 +19,7 @@ internal static class TwinManifestInspector
     {
         "identity", "booleanVisibility", "booleanColor", "rangeColor", "numberScale",
         "numberRotation", "enumMap", "formatText", "alarmSeverityStyle",
-        "booleanAnimation", "routeProgress", "routeEvent"
+        "booleanAnimation", "routeProgress", "routeDistance", "routeEvent", "routeSlotArray"
     };
     private static readonly HashSet<string> AllowedRoutePointKinds = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -915,6 +915,40 @@ internal static class TwinManifestInspector
                 Enabled = GetBoolean(route, "enabled", true)
             });
             index += 1;
+        }
+
+        foreach (var binding in result.Bindings.Where(item => item.TransformKind.Equals("routeSlotArray", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (binding.SourceKind != TwinBindingSourceKind.Telemetry)
+            {
+                result.Diagnostics.Add(Error("twin.binding.route-slot.source.invalid", "托盘位置数组只能绑定 Telemetry 数据源。", $"bindings.{binding.BindingKey}.source.kind"));
+            }
+
+            using var transformDocument = JsonDocument.Parse(binding.TransformConfig);
+            var routeId = GetString(transformDocument.RootElement, "routeId");
+            if (string.IsNullOrWhiteSpace(routeId) && !string.IsNullOrWhiteSpace(binding.TargetPath) && binding.TargetPath.StartsWith("routeSlots:", StringComparison.Ordinal))
+            {
+                routeId = binding.TargetPath["routeSlots:".Length..];
+            }
+            if (string.IsNullOrWhiteSpace(routeId) || !routeKeys.Contains(routeId))
+            {
+                result.Diagnostics.Add(Error("twin.binding.route-slot.route.invalid", "托盘位置数组必须引用当前场景中存在的目标路线。", $"bindings.{binding.BindingKey}.transform.routeId"));
+            }
+        }
+
+        foreach (var binding in result.Bindings.Where(item => item.TransformKind.Equals("routeDistance", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (binding.SourceKind != TwinBindingSourceKind.Telemetry)
+            {
+                result.Diagnostics.Add(Error("twin.binding.route-distance.source.invalid", "路线实际位置只能绑定 Telemetry 数据源。", $"bindings.{binding.BindingKey}.source.kind"));
+            }
+
+            using var transformDocument = JsonDocument.Parse(binding.TransformConfig);
+            var routeId = GetString(transformDocument.RootElement, "routeId");
+            if (string.IsNullOrWhiteSpace(routeId) || !routeKeys.Contains(routeId))
+            {
+                result.Diagnostics.Add(Error("twin.binding.route-distance.route.invalid", "路线实际位置必须引用当前场景中存在的目标路线。", $"bindings.{binding.BindingKey}.transform.routeId"));
+            }
         }
     }
 

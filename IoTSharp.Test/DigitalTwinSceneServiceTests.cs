@@ -21,6 +21,99 @@ namespace IoTSharp.Test;
 public sealed class DigitalTwinSceneServiceTests
 {
     [Fact]
+    public async Task PublishedScene_CanContinueSavingDraftWithTelemetryBinding()
+    {
+        await using var services = BuildServices();
+        await using var scope = services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new DigitalTwinSceneService(context);
+
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "发布后编辑租户" };
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "发布后编辑客户", Tenant = tenant };
+        var device = new Device
+        {
+            Id = Guid.NewGuid(), Name = "RGV", DeviceType = DeviceType.Device, Timeout = 300,
+            TenantId = tenant.Id, CustomerId = customer.Id
+        };
+        var asset = new Asset
+        {
+            Id = Guid.NewGuid(), Name = "RGV产线", Description = string.Empty, AssetType = "Line",
+            Tenant = tenant, Customer = customer
+        };
+        context.AddRange(tenant, customer, device, asset);
+        await context.SaveChangesAsync();
+
+        var profile = new UserProfile
+        {
+            Id = Guid.NewGuid(), Name = "admin", Email = "admin@local",
+            Tenant = tenant.Id, Customer = customer.Id, Roles = ["SystemAdmin"]
+        };
+
+        JsonElement CreateManifest(string sourceKey)
+        {
+            using var document = JsonDocument.Parse($$"""
+            {
+              "schemaVersion":"iotsharp-twin-scene/v1",
+              "sceneId":"{{Guid.NewGuid():D}}",
+              "name":"发布后继续保存",
+              "description":"",
+              "rootAssetId":"{{asset.Id:D}}",
+              "world":{"unit":"meter","upAxis":"Y","background":"#07111f"},
+              "resources":[],
+              "objects":[{
+                "objectId":"rgv-1","name":"RGV","kind":"procedural","assetId":"{{asset.Id:D}}",
+                "transform":{"position":[0,0,0],"rotation":[0,0,0],"scale":[1,1,1]}
+              }],
+              "bindings":[{
+                "bindingId":"rgv-position","objectId":"rgv-1",
+                "source":{"kind":"telemetry","deviceId":"{{device.Id:D}}","key":"{{sourceKey}}"},
+                "target":{"kind":"customProperty","property":"position"},
+                "transform":{"kind":"identity"},"staleAfterMs":5000
+              }],
+              "routes":[{
+                "routeId":"main","name":"RGV主线","type":"rgv","defaultSpeed":1,"startPointId":"p1",
+                "points":[{"pointId":"p1","name":"P1","position":[0,0,0]},{"pointId":"p2","name":"P2","position":[10,0,0]}],
+                "edges":[{"edgeId":"e1","fromPointId":"p1","toPointId":"p2","enabled":true}]
+              }],
+              "runtime":{"dataMode":"live"}
+            }
+            """);
+            return document.RootElement.Clone();
+        }
+
+        var created = await service.CreateAsync(new DigitalTwinSceneCreateDto
+        {
+            Name = "发布后继续保存",
+            RootAssetId = asset.Id,
+            DraftPayload = CreateManifest("Position")
+        }, profile, CancellationToken.None);
+
+        var published = await service.PublishAsync(created.Id, new DigitalTwinPublishDto
+        {
+            Revision = created.Revision,
+            ChangeSummary = "首次发布"
+        }, profile, CancellationToken.None);
+
+        var afterPublish = await service.GetAsync(created.Id, profile, CancellationToken.None);
+        Assert.NotNull(afterPublish);
+
+        var saved = await service.SaveDraftAsync(created.Id, new DigitalTwinDraftSaveDto
+        {
+            Revision = afterPublish!.Revision,
+            Name = afterPublish.Name,
+            Description = afterPublish.Description,
+            RootAssetId = afterPublish.RootAssetId,
+            Payload = CreateManifest("PositionMm")
+        }, profile, CancellationToken.None);
+
+        Assert.Equal(afterPublish.Revision + 1, saved.Revision);
+        Assert.Equal(DigitalTwinSceneStatus.Published, saved.Status);
+        Assert.Equal(published.Version, saved.PublishedVersion);
+        Assert.Contains(saved.Bindings, item => item.BindingKey == "rgv-position" && item.SourceKey == "PositionMm" && item.SceneVersionId == null);
+        Assert.Single(await context.TwinObjectBindings.Where(item => item.SceneId == created.Id && item.SceneVersionId == published.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task SceneRevision_IsTheOnlyAggregateConcurrencyToken()
     {
         await using var services = BuildServices();
@@ -134,6 +227,56 @@ public sealed class DigitalTwinSceneServiceTests
         Assert.Equal(1, await context.DigitalTwinSceneVersions.CountAsync());
         Assert.Single(await context.TwinObjectBindings.Where(item => item.SceneVersionId == published.Id && !item.Deleted).ToListAsync());
         Assert.Single(await context.TwinRoutes.Where(item => item.SceneVersionId == published.Id && !item.Deleted).ToListAsync());
+    }
+
+    [Fact]
+    public async Task ListBindingDevices_IncludesScopedDevicesWithoutAssetRelation_AndPrioritizesRelatedDevice()
+    {
+        await using var services = BuildServices();
+        await using var scope = services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var service = new DigitalTwinSceneService(context);
+
+        var tenant = new Tenant { Id = Guid.NewGuid(), Name = "绑定租户" };
+        var customer = new Customer { Id = Guid.NewGuid(), Name = "绑定客户", Tenant = tenant };
+        var otherTenant = new Tenant { Id = Guid.NewGuid(), Name = "其他租户" };
+        var otherCustomer = new Customer { Id = Guid.NewGuid(), Name = "其他客户", Tenant = otherTenant };
+        var relatedDevice = new Device { Id = Guid.NewGuid(), Name = "包装线", DeviceType = DeviceType.Device, Timeout = 300, TenantId = tenant.Id, CustomerId = customer.Id };
+        var unlinkedDevice = new Device { Id = Guid.NewGuid(), Name = "未挂资产设备", DeviceType = DeviceType.Device, Timeout = 300, TenantId = tenant.Id, CustomerId = customer.Id };
+        var foreignDevice = new Device { Id = Guid.NewGuid(), Name = "越权设备", DeviceType = DeviceType.Device, Timeout = 300, TenantId = otherTenant.Id, CustomerId = otherCustomer.Id };
+        var asset = new Asset
+        {
+            Id = Guid.NewGuid(),
+            Name = "三维产线",
+            Description = string.Empty,
+            AssetType = "Line",
+            Tenant = tenant,
+            Customer = customer,
+            OwnedAssets =
+            [
+                new AssetRelation
+                {
+                    Id = Guid.NewGuid(), DeviceId = relatedDevice.Id, DataCatalog = DataCatalog.TelemetryLatest,
+                    KeyName = "托盘数组", Name = "托盘数组", Description = string.Empty
+                }
+            ]
+        };
+        context.AddRange(tenant, customer, otherTenant, otherCustomer, relatedDevice, unlinkedDevice, foreignDevice, asset);
+        await context.SaveChangesAsync();
+
+        var profile = new UserProfile
+        {
+            Id = Guid.NewGuid(), Name = "admin", Email = "admin@local",
+            Tenant = tenant.Id, Customer = customer.Id, Roles = ["SystemAdmin"]
+        };
+
+        var devices = await service.ListBindingDevicesAsync(asset.Id, profile, CancellationToken.None);
+
+        Assert.Equal(2, devices.Count);
+        Assert.Equal(relatedDevice.Id, devices[0].Id);
+        Assert.True(devices[0].AssetRelated);
+        Assert.Contains(devices, item => item.Id == unlinkedDevice.Id && !item.AssetRelated);
+        Assert.DoesNotContain(devices, item => item.Id == foreignDevice.Id);
     }
 
     [Fact]

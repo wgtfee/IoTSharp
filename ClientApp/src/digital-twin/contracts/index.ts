@@ -24,7 +24,7 @@ export interface TwinModelResourceReference {
 export type TwinEquipmentType = 'loading-robot' | 'silk-cart-turntable' | 'gantry-stacker' | 'cover-applicator' | 'labeler' | 'wrapper' | 'inbound-lift';
 
 export type TwinBindingSourceKind = 'telemetry' | 'attribute' | 'alarm' | 'connectivity' | 'commandFeedback' | 'constant' | 'simulation';
-export type TwinBindingTargetKind = 'visible' | 'color' | 'emissive' | 'opacity' | 'text' | 'number' | 'position' | 'rotation' | 'scale' | 'animation' | 'routeProgress' | 'customProperty';
+export type TwinBindingTargetKind = 'visible' | 'color' | 'emissive' | 'opacity' | 'text' | 'number' | 'position' | 'rotation' | 'scale' | 'animation' | 'routeProgress' | 'routeDistance' | 'customProperty';
 
 export interface TwinObjectBindingDefinition {
 	bindingId: string;
@@ -43,7 +43,7 @@ export interface TwinObjectBindingDefinition {
 		path?: string;
 	};
 	transform: {
-		kind: 'identity' | 'booleanVisibility' | 'booleanColor' | 'rangeColor' | 'numberScale' | 'numberRotation' | 'enumMap' | 'formatText' | 'alarmSeverityStyle' | 'booleanAnimation' | 'routeProgress' | 'routeEvent';
+		kind: 'identity' | 'booleanVisibility' | 'booleanColor' | 'rangeColor' | 'numberScale' | 'numberRotation' | 'enumMap' | 'formatText' | 'alarmSeverityStyle' | 'booleanAnimation' | 'routeProgress' | 'routeDistance' | 'routeEvent' | 'routeSlotArray';
 		[key: string]: unknown;
 	};
 	priority?: number;
@@ -123,6 +123,8 @@ export interface TwinRouteEdgeDefinition {
 	/** 辊道物理规格与允许输送对象，发布后由运行时强制校验。 */
 	conveyorSizeClass?: TwinConveyorSizeClass;
 	transportUnitType?: TwinTransportUnitType;
+	/** 同一物流类型可使用不同物理载具模型，例如绿色小托盘与蓝色塑料母托盘。 */
+	transportUnitResourceKey?: string;
 	conveyorObjectId?: string;
 	occupancyBindingId?: string;
 	fullBindingId?: string;
@@ -166,7 +168,77 @@ export interface TwinRuntimeDefinition {
 	dataMode: 'simulation' | 'live';
 	maxPixelRatio: number;
 	showGrid: boolean;
+	/** 丝饼 V7 基础设施迁移版本。达到当前版本后，用户删除的迁移组件不得再次自动补回。 */
+	silkV7InfrastructureMigrationVersion?: number;
+	/** 用户参考图双套袋包装产线布局版本；V12 支持已组件化 V11 场景继续迁移并统一辊面。 */
+	referencePackagingLayoutVersion?: number;
+	/** 每条小辊道路线的托盘槽位初始化。live 由 telemetry routeSlotArray 接管，simulation 使用默认数量。 */
+	routePalletInitializers?: TwinRoutePalletInitializerDefinition[];
 	silkLineSimulation?: SilkLineSimulationOptions;
+}
+
+export interface TwinRoutePalletInitializerDefinition {
+	routeId: string;
+	/** PLC/Telemetry 侧建议使用的语义键；实际 deviceId 仍由场景绑定配置。 */
+	telemetryKey: string;
+	simulationDefaultCount: number;
+	emptyValue?: string | number | boolean | null;
+}
+
+export type TwinWorkPointRole = 'pick' | 'place' | 'safe' | 'home' | 'buffer' | 'tcp' | 'stack';
+
+export interface TwinWorkPointDefinition {
+	workPointId: string;
+	name: string;
+	objectId: string;
+	nodePath?: string;
+	role: TwinWorkPointRole;
+	/** 始终相对 objectId 的局部坐标，禁止把场景世界坐标写进动作。 */
+	localPosition: TwinVector3;
+	localRotation?: TwinVector3;
+}
+
+export type TwinBehaviorActionKind = 'moveTo' | 'pick' | 'place' | 'wait' | 'home' | 'axisMove' | 'attach' | 'detach';
+
+export interface TwinBehaviorActionDefinition {
+	actionId: string;
+	kind: TwinBehaviorActionKind;
+	workPointId?: string;
+	actorNodePath?: string;
+	payloadType?: string;
+	approachOffset?: TwinVector3;
+	liftOffset?: TwinVector3;
+	axis?: 'x' | 'y' | 'z';
+	axisValue?: number;
+	speedRatio?: number;
+	waitForInterlockId?: string;
+	/** 纯结构化等待/动作时间，不允许脚本表达式。 */
+	waitSeconds?: number;
+	durationSeconds?: number;
+}
+
+export interface TwinBehaviorDefinition {
+	behaviorId: string;
+	name: string;
+	actorObjectId: string;
+	actions: TwinBehaviorActionDefinition[];
+	interlockIds?: string[];
+	enabled?: boolean;
+	/** false 表示执行一次后停在 completed；默认循环用于离线仿真。 */
+	loop?: boolean;
+}
+
+export interface TwinInterlockConditionDefinition {
+	source: string;
+	operator: 'equals' | 'notEquals' | 'truthy' | 'falsy';
+	value?: string | number | boolean | null;
+}
+
+export interface TwinInterlockDefinition {
+	interlockId: string;
+	name: string;
+	description?: string;
+	conditions: TwinInterlockConditionDefinition[];
 }
 
 export interface SilkLineSimulationOptions {
@@ -313,6 +385,10 @@ export interface TwinSceneManifest {
 	objects: TwinSceneObjectDefinition[];
 	bindings: TwinObjectBindingDefinition[];
 	routes: TwinRouteDefinition[];
+	/** 设备语义工作点、动作编排和联锁均为声明式配置；运行时不得执行任意脚本。 */
+	workPoints?: TwinWorkPointDefinition[];
+	behaviors?: TwinBehaviorDefinition[];
+	interlocks?: TwinInterlockDefinition[];
 	runtime: TwinRuntimeDefinition;
 	editorExtension: {
 		source: 'iotsharp-threejs-editor-adapter' | 'threejs-editor';
@@ -339,15 +415,48 @@ const defaultTransform = (): TwinTransform => ({
 	scale: [1, 1, 1],
 });
 
+/**
+ * 3D 设计器真正的空白启动清单。
+ * 保留一个 0 节点 / 0 边的路线容器，避免 routes[0] 依赖导致编辑器崩溃，
+ * 但画布不会显示任何路线、设备或运输单元。
+ */
+export const createBlankTwinSceneManifest = (): TwinSceneManifest => ({
+	schemaVersion: twinSceneSchemaVersion,
+	sceneId: createId('scene'),
+	name: '未命名 3D 场景',
+	description: '',
+	rootAssetId: null,
+	world: { unit: 'meter', upAxis: 'Y', background: '#07111f' },
+	resources: [],
+	objects: [],
+	bindings: [],
+	routes: [{
+		routeId: createId('route'),
+		name: '主路线',
+		type: 'conveyor',
+		curveKind: 'line',
+		defaultSpeed: 1,
+		loop: false,
+		orientToPath: true,
+		points: [],
+		edges: [],
+		junctionDecisions: {},
+		routingMode: 'manual',
+		decisionRules: [],
+	}],
+	runtime: { dataMode: 'simulation', maxPixelRatio: 2, showGrid: true },
+	editorExtension: { source: 'threejs-editor', payloadVersion: 2 },
+});
+
 /** V8 工程设备对象：动作仍由丝饼运行时驱动，但选中、整体变换和数据绑定都拥有独立 ObjectId。 */
 export const createSilkCakeEquipmentObjectDefinitions = (parentObjectId = 'silk-cake-line-procedural'): TwinSceneObjectDefinition[] => [
 	{ objectId: 'silk-equipment-robot', name: '1×6 上料机器人', kind: 'equipment', equipment: { equipmentType: 'loading-robot', parentObjectId }, transform: { position: [-6.5, 0, -7.9], rotation: [0, 0, 0], scale: [1, 1, 1] } },
 	{ objectId: 'silk-equipment-turntable', name: '双面丝车旋转台', kind: 'equipment', equipment: { equipmentType: 'silk-cart-turntable', parentObjectId }, transform: { position: [-6.4, 0, -10.5], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-	{ objectId: 'silk-equipment-gantry', name: '2×3 丝饼码垛桁架', kind: 'equipment', equipment: { equipmentType: 'gantry-stacker', parentObjectId }, transform: defaultTransform() },
-	{ objectId: 'silk-equipment-cover', name: '天盖安装机', kind: 'equipment', equipment: { equipmentType: 'cover-applicator', parentObjectId }, transform: { position: [33, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-	{ objectId: 'silk-equipment-labeler', name: '贴标机', kind: 'equipment', equipment: { equipmentType: 'labeler', parentObjectId }, transform: { position: [37.5, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-	{ objectId: 'silk-equipment-wrapper', name: '缠膜机', kind: 'equipment', equipment: { equipmentType: 'wrapper', parentObjectId }, transform: { position: [42, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
-	{ objectId: 'silk-equipment-inbound-lift', name: '入库提升机', kind: 'equipment', equipment: { equipmentType: 'inbound-lift', parentObjectId }, transform: { position: [48, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-gantry', name: '2×3 丝饼码垛桁架', kind: 'equipment', equipment: { equipmentType: 'gantry-stacker', parentObjectId }, transform: { position: [26, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-cover', name: '天盖安装机', kind: 'equipment', equipment: { equipmentType: 'cover-applicator', parentObjectId }, transform: { position: [40, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-wrapper', name: '缠膜机', kind: 'equipment', equipment: { equipmentType: 'wrapper', parentObjectId }, transform: { position: [50, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-labeler', name: '贴标机', kind: 'equipment', equipment: { equipmentType: 'labeler', parentObjectId }, transform: { position: [60, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+	{ objectId: 'silk-equipment-inbound-lift', name: '入库提升机', kind: 'equipment', equipment: { equipmentType: 'inbound-lift', parentObjectId }, transform: { position: [70, 0, -11], rotation: [0, 0, 0], scale: [1, 1, 1] } },
 ];
 
 export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
@@ -520,16 +629,16 @@ export const createSilkCakeLineTwinSceneManifest = (): TwinSceneManifest => ({
 			orientToPath: true,
 			points: [
 				{ pointId: 'silk-wood-stack', name: '木托盘码垛位', position: [26, 0.72, -11], kind: 'processStation', process: { type: 'gantry-stacking', cycleSeconds: 5 } },
-				{ pointId: 'silk-cover', name: '盖板工位', position: [33, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 3 } },
-				{ pointId: 'silk-label', name: '贴标工位', position: [37.5, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 2 } },
-				{ pointId: 'silk-wrap', name: '缠膜工位', position: [42, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 8 } },
-				{ pointId: 'silk-inbound', name: '入库口', position: [48, 0.72, -11], kind: 'station' },
+				{ pointId: 'silk-cover', name: '天盖工位', position: [40, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 3 } },
+				{ pointId: 'silk-wrap', name: '缠膜工位', position: [50, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 8 } },
+				{ pointId: 'silk-label', name: '贴标工位', position: [60, 0.72, -11], kind: 'processStation', process: { type: 'scan', cycleSeconds: 2 } },
+				{ pointId: 'silk-inbound', name: '入库口', position: [70, 0.72, -11], kind: 'station' },
 			],
 			edges: [
 				{ edgeId: 'silk-wood-edge-stack', fromPointId: 'silk-wood-stack', toPointId: 'silk-cover', name: '满木托盘输出段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
-				{ edgeId: 'silk-wood-edge-cover', fromPointId: 'silk-cover', toPointId: 'silk-label', name: '盖板后输送段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
-				{ edgeId: 'silk-wood-edge-label', fromPointId: 'silk-label', toPointId: 'silk-wrap', name: '贴标后输送段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
-				{ edgeId: 'silk-wood-edge-post-process', fromPointId: 'silk-wrap', toPointId: 'silk-inbound', name: '缠膜入库段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
+				{ edgeId: 'silk-wood-edge-cover', fromPointId: 'silk-cover', toPointId: 'silk-wrap', name: '天盖后缓冲输送段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
+				{ edgeId: 'silk-wood-edge-wrap', fromPointId: 'silk-wrap', toPointId: 'silk-label', name: '缠膜后贴标输送段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
+				{ edgeId: 'silk-wood-edge-post-process', fromPointId: 'silk-label', toPointId: 'silk-inbound', name: '贴标后入库段', bidirectional: false, enabled: true, capacity: 1, occupancyMode: 'simulation', reservationTimeoutSeconds: 60, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' },
 			],
 			startPointId: 'silk-wood-stack',
 			junctionDecisions: {},
@@ -661,6 +770,34 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		else if (parentKind !== 'procedural') diagnostics.push({ severity: 'error', code: 'twin.equipment.parent-kind.invalid', message: '整机对象的父对象必须是程序化产线。', path: `objects[${objectIndex}].equipment.parentObjectId` });
 	}
 
+	const workPointIds = new Set<string>();
+	for (const [index, workPoint] of (manifest.workPoints || []).entries()) {
+		if (!workPoint.workPointId?.trim() || workPointIds.has(workPoint.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.id.invalid', message: '工作点 ID 为空或重复。', path: `workPoints[${index}].workPointId` });
+		workPointIds.add(workPoint.workPointId);
+		if (!objectIds.has(workPoint.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.object.invalid', message: '工作点引用的场景对象不存在。', path: `workPoints[${index}].objectId` });
+		if (!isFiniteVector(workPoint.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.position.invalid', message: '工作点局部坐标必须是三个有限数值。', path: `workPoints[${index}].localPosition` });
+		if (workPoint.localRotation && !isFiniteVector(workPoint.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.rotation.invalid', message: '工作点局部旋转必须是三个有限数值。', path: `workPoints[${index}].localRotation` });
+	}
+	const interlockIds = new Set<string>();
+	for (const [index, interlock] of (manifest.interlocks || []).entries()) {
+		if (!interlock.interlockId?.trim() || interlockIds.has(interlock.interlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.interlock.id.invalid', message: '联锁 ID 为空或重复。', path: `interlocks[${index}].interlockId` });
+		interlockIds.add(interlock.interlockId);
+		if (!interlock.conditions?.length) diagnostics.push({ severity: 'warning', code: 'twin.behavior.interlock.conditions.empty', message: '联锁没有配置任何结构化条件。', path: `interlocks[${index}].conditions` });
+	}
+	const behaviorIds = new Set<string>();
+	for (const [behaviorIndex, behavior] of (manifest.behaviors || []).entries()) {
+		if (!behavior.behaviorId?.trim() || behaviorIds.has(behavior.behaviorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.id.invalid', message: '动作编排 ID 为空或重复。', path: `behaviors[${behaviorIndex}].behaviorId` });
+		behaviorIds.add(behavior.behaviorId);
+		if (!objectIds.has(behavior.actorObjectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actor.invalid', message: '动作编排引用的执行对象不存在。', path: `behaviors[${behaviorIndex}].actorObjectId` });
+		for (const [actionIndex, action] of (behavior.actions || []).entries()) {
+			if (!action.actionId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.required', message: '动作步骤必须有 actionId。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
+			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
+			if (action.waitForInterlockId && !interlockIds.has(action.waitForInterlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.interlock.invalid', message: '等待动作引用的联锁不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitForInterlockId` });
+			if (action.waitSeconds !== undefined && (!Number.isFinite(action.waitSeconds) || action.waitSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.wait.invalid', message: '等待秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitSeconds` });
+		}
+		for (const interlockId of behavior.interlockIds || []) if (!interlockIds.has(interlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.interlock.reference.invalid', message: '动作编排引用的联锁不存在。', path: `behaviors[${behaviorIndex}].interlockIds` });
+	}
+
 	const bindingIds = new Set<string>();
 	const routeBindingIds = new Set<string>();
 	for (const [bindingIndex, binding] of manifest.bindings.entries()) {
@@ -672,6 +809,16 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (!objectIds.has(binding.objectId)) diagnostics.push({ severity: 'error', code: 'twin.binding.object.invalid', message: '绑定对象不存在。', path: `bindings[${bindingIndex}].objectId` });
 		if (['telemetry', 'attribute', 'connectivity', 'commandFeedback'].includes(binding.source.kind) && !binding.source.deviceId) {
 			diagnostics.push({ severity: 'error', code: 'twin.binding.device.required', message: '设备数据绑定必须选择 Device。', path: `bindings[${bindingIndex}].source.deviceId` });
+		}
+		if (binding.transform.kind === 'routeSlotArray') {
+			if (binding.source.kind !== 'telemetry') diagnostics.push({ severity: 'error', code: 'twin.binding.route-slot.source.invalid', message: '托盘位置数组只能绑定 Telemetry 数据源。', path: `bindings[${bindingIndex}].source.kind` });
+			const routeId = String((binding.transform as Record<string, unknown>).routeId || '').trim() || String(binding.target.property || '').replace(/^routeSlots:/, '');
+			if (!routeId || !manifest.routes.some((item) => item.routeId === routeId)) diagnostics.push({ severity: 'error', code: 'twin.binding.route-slot.route.invalid', message: '托盘位置数组必须引用当前场景中存在的目标路线。', path: `bindings[${bindingIndex}].transform.routeId` });
+		}
+		if (binding.transform.kind === 'routeDistance') {
+			if (binding.source.kind !== 'telemetry') diagnostics.push({ severity: 'error', code: 'twin.binding.route-distance.source.invalid', message: '路线实际位置只能绑定 Telemetry 数据源。', path: `bindings[${bindingIndex}].source.kind` });
+			const routeId = String((binding.transform as Record<string, unknown>).routeId || '').trim();
+			if (!routeId || !manifest.routes.some((item) => item.routeId === routeId)) diagnostics.push({ severity: 'error', code: 'twin.binding.route-distance.route.invalid', message: '路线实际位置必须引用当前场景中存在的目标路线。', path: `bindings[${bindingIndex}].transform.routeId` });
 		}
 	}
 	for (const [routeIndex, route] of manifest.routes.entries()) {

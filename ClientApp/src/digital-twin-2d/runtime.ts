@@ -68,8 +68,8 @@ export const resolveTwin2DRuntimeStates = (
 	return result;
 };
 
-export const interpolateTwin2DRoute = (manifest: TwinSceneManifest, routePoints: Record<string, { x: number; y: number }>, progress: number) => {
-	const route = manifest.routes?.[0];
+export const interpolateTwin2DRoute = (manifest: TwinSceneManifest, routePoints: Record<string, { x: number; y: number }>, progress: number, routeId?: string) => {
+	const route = routeId ? manifest.routes?.find((item) => item.routeId === routeId) : manifest.routes?.[0];
 	if (!route?.edges?.length) return undefined;
 	const segments = route.edges.flatMap((edge) => {
 		const from = routePoints[edge.fromPointId];

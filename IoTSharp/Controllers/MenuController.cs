@@ -100,6 +100,7 @@ namespace IoTSharp.Controllers
                     children = new MenuItem[]
                     {
                         new() { text = "模型生成", i18n = "", vi18n="iot.digitaltwin.modelgenerator", routename="digitaltwinmodelgenerator", link = "/iot/digital-twin/model-generator", vpath = "/iot/digital-twin/model-generator", },
+                        new() { text = "组件设计器", i18n = "", vi18n="iot.digitaltwin.componentstudio", routename="digitaltwincomponentstudio", link = "/iot/digital-twin/component-studio", vpath = "/iot/digital-twin/component-studio", icon = "iconfont icon-bianji", },
                         new() { text = "三维场景", i18n = "", vi18n="iot.digitaltwin.workbench", routename="digitaltwinworkbench", link = "/iot/digital-twin/workbench", vpath = "/iot/digital-twin/workbench", },
                         new() { text = "2D 场景设计器", i18n = "", vi18n="iot.digitaltwin.2dscene", routename="digitaltwin2dscene", link = "/iot/digital-twin/2d-scene", vpath = "/iot/digital-twin/2d-scene", icon = "iconfont icon-bianji", },
                         new() { text = "亚特包装线 2D", i18n = "", vi18n="iot.digitaltwin.ytpack2d", routename="digitaltwinytpack2d", link = "/iot/digital-twin/yt-pack-2d", vpath = "/iot/digital-twin/yt-pack-2d", icon = "iconfont icon-shuju", },
@@ -147,6 +148,28 @@ namespace IoTSharp.Controllers
                         {
                             new() { text = "资产列表", i18n = "", vi18n="iot.assetlist", routename="assetlist", link = "/iot/assets/assetlist" , vpath="/iot/assets/assetlist",},
                         },
+                });
+            }
+            else if (User.IsInRole(nameof(UserRole.CustomerAdmin)) ||
+                     User.IsInRole(nameof(UserRole.TenantAdmin)) ||
+                     User.IsInRole(nameof(UserRole.SystemAdmin)))
+            {
+                _user_menu.Add(new()
+                {
+                    text = "数字孪生",
+                    i18n = "",
+                    vi18n = "iot.digitaltwin",
+                    routename = "digitaltwin",
+                    vpath = "/iot/digital-twin",
+                    icon = "anticon-apartment",
+                    children = new MenuItem[]
+                    {
+                        new() { text = "模型生成", i18n = "", vi18n="iot.digitaltwin.modelgenerator", routename="digitaltwinmodelgenerator", link = "/iot/digital-twin/model-generator", vpath = "/iot/digital-twin/model-generator", },
+                        new() { text = "组件设计器", i18n = "", vi18n="iot.digitaltwin.componentstudio", routename="digitaltwincomponentstudio", link = "/iot/digital-twin/component-studio", vpath = "/iot/digital-twin/component-studio", icon = "iconfont icon-bianji", },
+                        new() { text = "三维场景", i18n = "", vi18n="iot.digitaltwin.workbench", routename="digitaltwinworkbench", link = "/iot/digital-twin/workbench", vpath = "/iot/digital-twin/workbench", },
+                        new() { text = "2D 场景设计器", i18n = "", vi18n="iot.digitaltwin.2dscene", routename="digitaltwin2dscene", link = "/iot/digital-twin/2d-scene", vpath = "/iot/digital-twin/2d-scene", icon = "iconfont icon-bianji", },
+                        new() { text = "亚特包装线 2D", i18n = "", vi18n="iot.digitaltwin.ytpack2d", routename="digitaltwinytpack2d", link = "/iot/digital-twin/yt-pack-2d", vpath = "/iot/digital-twin/yt-pack-2d", icon = "iconfont icon-shuju", },
+                    }
                 });
             }
             _user_menu.Add(new()

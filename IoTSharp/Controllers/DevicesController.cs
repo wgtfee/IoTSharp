@@ -948,7 +948,7 @@ namespace IoTSharp.Controllers
         /// <param name="device"></param>
         /// <returns></returns>
         // PUT: api/Devices/5
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," + nameof(UserRole.SystemAdmin))]
         [HttpPut("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -967,8 +967,8 @@ namespace IoTSharp.Controllers
                 return new ApiResult<bool>(ApiCode.InValidData, "Device's Identity not InValidData", false);
             }
 
-            var cid = User.Claims.First(c => c.Type == IoTSharpClaimTypes.Customer);
-            var tid = User.Claims.First(c => c.Type == IoTSharpClaimTypes.Tenant);
+            var customerClaimValue = User.Claims.FirstOrDefault(c => c.Type == IoTSharpClaimTypes.Customer)?.Value;
+            var tenantClaimValue = User.Claims.FirstOrDefault(c => c.Type == IoTSharpClaimTypes.Tenant)?.Value;
             var dev = _context.Device
                 .Include(d => d.Tenant)
                 .Include(d => d.Customer)
@@ -980,10 +980,12 @@ namespace IoTSharp.Controllers
                 return new ApiResult<bool>(ApiCode.NotFoundDevice, "Device's Identity not found", false);
             }
 
-            var tenid = dev.Tenant?.Id;
-            var cusid = dev.Customer?.Id;
-
-            if (dev.Tenant?.Id.ToString() != tid.Value || dev.Customer?.Id.ToString() != cid.Value)
+            var isSystemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            if (!isSystemAdmin &&
+                (!Guid.TryParse(tenantClaimValue, out var tenantId) ||
+                 !Guid.TryParse(customerClaimValue, out var customerId) ||
+                 dev.Tenant?.Id != tenantId ||
+                 dev.Customer?.Id != customerId))
             {
                 return new ApiResult<bool>(ApiCode.DoNotAllow, "Do not allow access to devices from other customers or tenants", false);
             }

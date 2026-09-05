@@ -2,7 +2,7 @@ import type { TwinSceneManifest, TwinValidationDiagnostic } from '/@/digital-twi
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import { defaultComponentRegistry } from './ComponentRegistry';
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
-import { areComponentPortsCompatible, isComponentSceneObject, resolveComponentPorts, type TwinComponentPortRef } from './ComponentConnectionEngine';
+import { areComponentPortsCompatible, isComponentSceneObject, isTransportUnitSceneObject, resolveComponentPorts, resolveTransportUnitType, type TwinComponentPortRef } from './ComponentConnectionEngine';
 import { validateEngineeringLayout } from './EngineeringLayoutValidator';
 
 const CONNECTION_DISTANCE_TOLERANCE = 0.08;
@@ -16,6 +16,7 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 	const portRefsByObject = new Map<string, Map<string, TwinComponentPortRef>>();
 	const sectionIds = new Set<string>();
 	const bindingsById = new Map(manifest.bindings.map((binding) => [binding.bindingId, binding]));
+	const routesById = new Map((manifest.routes || []).map((route) => [route.routeId, route]));
 
 	objects.forEach((object, index) => {
 		if (object.kind !== 'component') return;
@@ -58,7 +59,28 @@ export const validateV7ComponentManifest = (manifest: TwinSceneManifest): TwinVa
 				else if (bindingsById.get(bindingId)?.transform.kind !== 'routeEvent') diagnostics.push({ severity: 'error', code: 'twin.component.binding.kind.invalid', message: `Binding Slot ${slotId} 必须引用 routeEvent 数据绑定。`, path: `${path}.bindings.${slotId}` });
 			}
 		}
-		if (object.component.sectionId) {
+		const transportUnit = isTransportUnitSceneObject(object);
+		if (transportUnit) {
+			const unitType = resolveTransportUnitType(object);
+			const expectedSize = unitType === 'plastic-pallet' ? 'small' : 'large';
+			if (object.component.routeId || object.component.routeEdgeId) {
+				const attachedRoute = object.component.routeId ? routesById.get(object.component.routeId) : undefined;
+				if (!attachedRoute) diagnostics.push({ severity: 'error', code: 'twin.transport-route.route.missing', message: '运输单元挂接的 Route 已不存在，请重新吸附。', path: `${path}.routeId` });
+				const attachedEdge = attachedRoute?.edges.find((edge) => edge.edgeId === object.component!.routeEdgeId);
+				if (attachedRoute && !attachedEdge) diagnostics.push({ severity: 'error', code: 'twin.transport-route.edge.missing', message: '运输单元挂接的 RouteEdge 已不存在，请重新吸附。', path: `${path}.routeEdgeId` });
+				if (attachedEdge) {
+					const actualSize = attachedEdge.conveyorSizeClass === 'large' ? 'large' : 'small';
+					if (actualSize !== expectedSize) diagnostics.push({ severity: 'error', code: 'twin.transport-route.size.invalid', message: unitType === 'plastic-pallet' ? '小托盘只能挂接小辊道路线。' : '木托盘/纸箱只能挂接大辊道路线。', path: `${path}.routeEdgeId` });
+					if (object.component.sectionId && attachedEdge.sectionId && object.component.sectionId !== attachedEdge.sectionId) diagnostics.push({ severity: 'error', code: 'twin.transport-route.section.mismatch', message: '运输单元 Section 与挂接 RouteEdge 不一致，请重新吸附。', path: `${path}.sectionId` });
+				}
+				const progress = Number(object.component.routeProgress);
+				if (!Number.isFinite(progress) || progress < 0 || progress > 1) diagnostics.push({ severity: 'error', code: 'twin.transport-route.progress.invalid', message: '运输单元 Route Progress 必须在 0～1 之间。', path: `${path}.routeProgress` });
+			} else if (object.component.properties?.autoSnap !== false) {
+				diagnostics.push({ severity: 'warning', code: 'twin.transport-route.unattached', message: unitType === 'plastic-pallet' ? '小托盘尚未吸附到小辊道路线。' : '木托盘/纸箱尚未吸附到大辊道路线。', path });
+			}
+		}
+		// 运输单元共享它所在输送 Section；只有真正拥有 Section 的设备组件要求唯一。
+		if (object.component.sectionId && !transportUnit) {
 			if (sectionIds.has(object.component.sectionId)) diagnostics.push({ severity: 'error', code: 'twin.component.section.duplicate', message: `Section ID ${object.component.sectionId} 不能重复。`, path: `${path}.sectionId` });
 			sectionIds.add(object.component.sectionId);
 		}

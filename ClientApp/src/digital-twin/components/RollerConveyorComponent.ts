@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createComponentResult, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
-import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
+import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export class RollerConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'roller-conveyor' as const;
@@ -49,10 +49,19 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 				localDirection: [1, 0, 0],
 			},
 		];
+		const transportUnitType = props.transportUnitType === 'carton' ? 'carton' : props.transportUnitType === 'wooden-pallet' ? 'wooden-pallet' : 'plastic-pallet';
+		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
+			flowId: 'main', name: '内置直线输送路线', conveyorSizeClass: sizeClass, transportUnitType,
+			points: [
+				{ pointId: 'input', name: '入口', localPosition: [-length / 2, height, 0], kind: 'buffer', portId: 'input' },
+				{ pointId: 'output', name: '出口', localPosition: [length / 2, height, 0], kind: 'buffer', portId: 'output' },
+			],
+			edges: [{ edgeId: 'through', fromPointId: 'input', toPointId: 'output', name: '辊道内部输送', capacity: Number(props.capacity || 4), speedLimit: Number(props.speedLimit || 1.2) }],
+		}];
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
 		root.userData.properties = { ...props, length, width, height, rollerDiameter, rollerPitch };
 		setTransform(root, definition.transform);
-		return createComponentResult(root, ports);
+		return createComponentResult(root, ports, internalFlows);
 	}
 }

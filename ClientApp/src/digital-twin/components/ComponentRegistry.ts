@@ -1,12 +1,21 @@
 import type { TwinComponentBuildContext, TwinComponentBuildResult, TwinComponentDefinition, TwinComponentGenerator, TwinComponentType } from './types';
 import { RollerConveyorComponent } from './RollerConveyorComponent';
+import { DoubleSmallRollerConveyorComponent } from './DoubleSmallRollerConveyorComponent';
 import { TurnConveyor90Component } from './TurnConveyor90Component';
 import { DiverterConveyorComponent } from './DiverterConveyorComponent';
 import { MergerConveyorComponent } from './MergerConveyorComponent';
+import { DoubleToSingleConveyorComponent, SingleToDoubleConveyorComponent } from './SingleDoubleTransitionConveyorComponent';
+import { RightAngleDoubleToSingleConveyorComponent, RightAngleSingleToDoubleConveyorComponent } from './RightAngleSingleDoubleTransitionConveyorComponent';
 import { LiftComponent } from './LiftComponent';
 import { TurntableComponent } from './TurntableComponent';
 import { ExternalInspectionComponent } from './ExternalInspectionComponent';
+import { DualExternalInspectionComponent } from './DualExternalInspectionComponent';
 import { BaggingMachineComponent } from './BaggingMachineComponent';
+import { VacuumFilmTuckComponent } from './VacuumFilmTuckComponent';
+import { IndustrialRobotComponent } from './IndustrialRobotComponent';
+import { PalletComponent, SmallPalletComponent } from './PalletComponent';
+import { CartonComponent } from './CartonComponent';
+import { LabelingMachineComponent, SilkGantryComponent, TopCoverGantryComponent, WrapperMachineComponent } from './PackagingLineComponents';
 
 export class ComponentRegistry {
 	private readonly generators = new Map<string, TwinComponentGenerator>();
@@ -57,13 +66,28 @@ export class ComponentRegistry {
 }
 
 export const createDefaultComponentRegistry = () => new ComponentRegistry()
+	.register(new PalletComponent())
+	.register(new SmallPalletComponent())
+	.register(new CartonComponent())
 	.register(new RollerConveyorComponent())
+	.register(new DoubleSmallRollerConveyorComponent())
 	.register(new TurnConveyor90Component())
 	.register(new DiverterConveyorComponent())
 	.register(new MergerConveyorComponent())
+	.register(new SingleToDoubleConveyorComponent())
+	.register(new DoubleToSingleConveyorComponent())
+	.register(new RightAngleSingleToDoubleConveyorComponent())
+	.register(new RightAngleDoubleToSingleConveyorComponent())
 	.register(new LiftComponent())
 	.register(new TurntableComponent())
 	.register(new ExternalInspectionComponent())
-	.register(new BaggingMachineComponent());
+	.register(new DualExternalInspectionComponent())
+	.register(new BaggingMachineComponent())
+	.register(new VacuumFilmTuckComponent())
+	.register(new IndustrialRobotComponent())
+	.register(new SilkGantryComponent())
+	.register(new TopCoverGantryComponent())
+	.register(new WrapperMachineComponent())
+	.register(new LabelingMachineComponent());
 
 export const defaultComponentRegistry = createDefaultComponentRegistry();

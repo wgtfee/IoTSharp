@@ -78,6 +78,7 @@ export default defineComponent({
 		// 当前项菜单点击
 		const onCurrentContextmenuClick = (contextMenuClickId: number) => {
 			emit('currentContextmenuClick', Object.assign({}, { contextMenuClickId }, state.item));
+			closeContextmenu();
 		};
 		// 打开右键菜单：判断是否固定，固定则不显示关闭按钮
 		const openContextmenu = (item: any) => {
@@ -127,12 +128,44 @@ export default defineComponent({
 	transform-origin: center top;
 	z-index: 2190;
 	position: fixed;
+	width: max-content !important;
+	min-width: 132px !important;
+	max-width: 220px;
+	height: auto !important;
+	min-height: 0 !important;
+	padding: 4px 0 !important;
+	margin: 0 !important;
+	overflow: visible !important;
+	box-sizing: border-box;
+	border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+
+	.el-dropdown-menu {
+		width: auto !important;
+		min-width: 0 !important;
+		height: auto !important;
+		min-height: 0 !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		overflow: visible !important;
+	}
+
 	.el-dropdown-menu__item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		height: 30px;
+		padding: 0 12px !important;
+		line-height: 30px;
 		font-size: 12px !important;
 		white-space: nowrap;
 		i {
 			font-size: 12px !important;
 		}
+	}
+
+	.el-popper__arrow {
+		display: none;
 	}
 }
 </style>

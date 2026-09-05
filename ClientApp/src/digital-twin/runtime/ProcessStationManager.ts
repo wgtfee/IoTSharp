@@ -4,12 +4,23 @@ import { ComponentProcessStateMachine, type TwinComponentProcessSignalContext, t
 export type TwinProcessStationType = 'robot-loading' | 'gantry-stacking' | 'scan' | 'inspection' | 'external-inspection' | 'bagging';
 export type TwinProcessStationState = 'idle' | 'waiting' | 'processing' | 'completed' | 'fault';
 
+export interface TwinProcessStationEntityRuntime {
+	entityId: string;
+	state: TwinProcessStationState;
+	canRelease: boolean;
+	waitingReason?: SilkProcessWaitingReason;
+	result?: unknown;
+}
+
 export interface TwinProcessStationRuntime {
 	stationId: string;
 	sectionId: string;
 	type: TwinProcessStationType;
 	state: TwinProcessStationState;
+	/** 兼容旧单工位控制器：多实体时返回最早进入的实体。 */
 	currentEntityId?: string;
+	entityIds: string[];
+	capacity: number;
 	canRelease: boolean;
 	waitingReason?: SilkProcessWaitingReason;
 	result?: unknown;
@@ -19,139 +30,210 @@ export interface TwinProcessStationDefinition extends Pick<TwinProcessStationRun
 	/** Generated Process Contract；未提供时保持原有控制器手动 begin/complete 行为。 */
 	process?: TwinProcessDefinition;
 	dataMode?: 'simulation' | 'live';
+	capacity?: number;
 }
 
-/** 工位完成条件独立于下游容量；两者都允许时托盘才能越过 Section 边界。 */
+interface TwinProcessStationInternal {
+	runtime: TwinProcessStationRuntime;
+	definition: TwinProcessStationDefinition;
+	entities: Map<string, TwinProcessStationEntityRuntime>;
+	machines: Map<string, ComponentProcessStateMachine>;
+}
+
+/**
+ * 工位完成条件独立于下游容量；两者都允许时物料才能越过 Section 边界。
+ * Generated Process Station 支持 capacity > 1，每个实体拥有独立状态机；
+ * currentEntityId 仅作为旧单工位控制器兼容视图。
+ */
 export class ProcessStationManager {
-	private readonly stations = new Map<string, TwinProcessStationRuntime>();
-	private readonly stateMachines = new Map<string, ComponentProcessStateMachine>();
+	private readonly stations = new Map<string, TwinProcessStationInternal>();
 
 	constructor(definitions: TwinProcessStationDefinition[]) {
-		for (const definition of definitions) {
+		for (const source of definitions) {
+			const definition = structuredClone(source);
+			const capacity = Math.max(1, Math.floor(Number(definition.capacity) || 1));
 			this.stations.set(definition.stationId, {
-				stationId: definition.stationId,
-				sectionId: definition.sectionId,
-				type: definition.type,
-				state: 'idle',
-				canRelease: false,
+				runtime: {
+					stationId: definition.stationId,
+					sectionId: definition.sectionId,
+					type: definition.type,
+					state: 'idle',
+					entityIds: [],
+					capacity,
+					canRelease: false,
+				},
+				definition,
+				entities: new Map(),
+				machines: new Map(),
 			});
-			if (definition.process) this.stateMachines.set(
-				definition.stationId,
-				new ComponentProcessStateMachine(structuredClone(definition.process), definition.dataMode || 'simulation'),
-			);
 		}
 	}
 
 	get(stationId: string) {
 		const station = this.stations.get(stationId);
-		return station ? structuredClone(station) : undefined;
+		return station ? structuredClone(station.runtime) : undefined;
 	}
 
 	getBySection(sectionId: string) {
-		const station = [...this.stations.values()].find((item) => item.sectionId === sectionId);
-		return station ? structuredClone(station) : undefined;
+		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		return station ? structuredClone(station.runtime) : undefined;
 	}
 
 	getByType(type: TwinProcessStationType) {
-		const station = [...this.stations.values()].find((item) => item.type === type);
-		return station ? structuredClone(station) : undefined;
+		const station = [...this.stations.values()].find((item) => item.runtime.type === type);
+		return station ? structuredClone(station.runtime) : undefined;
+	}
+
+	getEntity(stationId: string, entityId: string) {
+		const entity = this.stations.get(stationId)?.entities.get(entityId);
+		return entity ? structuredClone(entity) : undefined;
 	}
 
 	getAll() {
-		return [...this.stations.values()].map((station) => structuredClone(station));
+		return [...this.stations.values()].map((station) => structuredClone(station.runtime));
 	}
 
 	arrive(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.sectionId === sectionId);
+		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
 		if (!station) return undefined;
-		if (station.currentEntityId && station.currentEntityId !== entityId) return structuredClone(station);
-		if (!station.currentEntityId) {
-			station.currentEntityId = entityId;
-			const machine = this.stateMachines.get(station.stationId);
-			if (machine) this.applyProcessSnapshot(station, machine.arrive());
-			else {
-				station.state = 'waiting';
-				station.canRelease = false;
-				station.waitingReason = 'PROCESS_NOT_COMPLETED';
-			}
+		if (station.entities.has(entityId)) return structuredClone(station.runtime);
+		if (station.entities.size >= station.runtime.capacity) {
+			station.runtime.waitingReason = 'PROCESS_NOT_COMPLETED';
+			return structuredClone(station.runtime);
 		}
-		return structuredClone(station);
+
+		const entity: TwinProcessStationEntityRuntime = {
+			entityId,
+			state: 'waiting',
+			canRelease: false,
+			waitingReason: 'PROCESS_NOT_COMPLETED',
+		};
+		station.entities.set(entityId, entity);
+		if (station.definition.process) {
+			const machine = new ComponentProcessStateMachine(
+				structuredClone(station.definition.process),
+				station.definition.dataMode || 'simulation',
+			);
+			station.machines.set(entityId, machine);
+			this.applyEntitySnapshot(entity, machine.arrive());
+		}
+		this.syncStation(station);
+		return structuredClone(station.runtime);
 	}
 
-	/** 驱动 Generated Process Contract。Live 模式下 stale/fault 信号会保持阻塞。 */
+	/** 驱动旧单工位调用；多工位场景请使用 updateEntity。 */
 	update(stationId: string, deltaSeconds: number, context: TwinComponentProcessSignalContext = {}) {
 		const station = this.stations.get(stationId);
-		const machine = this.stateMachines.get(stationId);
-		if (!station || !machine || !station.currentEntityId) return station ? structuredClone(station) : undefined;
-		this.applyProcessSnapshot(station, machine.update(deltaSeconds, context));
-		return structuredClone(station);
+		const entityId = station?.runtime.currentEntityId;
+		if (!station || !entityId) return station ? structuredClone(station.runtime) : undefined;
+		this.updateEntity(stationId, entityId, deltaSeconds, context);
+		return structuredClone(station.runtime);
 	}
 
-	begin(stationId: string) {
+	/** 每个实体独立驱动 Generated Process Contract，双工位可并行更新两个实体。 */
+	updateEntity(stationId: string, entityId: string, deltaSeconds: number, context: TwinComponentProcessSignalContext = {}) {
 		const station = this.stations.get(stationId);
-		if (!station?.currentEntityId || station.state === 'fault') return false;
-		station.state = 'processing';
-		station.canRelease = false;
-		delete station.waitingReason;
+		const entity = station?.entities.get(entityId);
+		const machine = station?.machines.get(entityId);
+		if (!station || !entity || !machine) return entity ? structuredClone(entity) : undefined;
+		this.applyEntitySnapshot(entity, machine.update(deltaSeconds, context));
+		this.syncStation(station);
+		return structuredClone(entity);
+	}
+
+	begin(stationId: string, entityId?: string) {
+		const station = this.stations.get(stationId);
+		const selectedId = entityId || station?.runtime.currentEntityId;
+		const entity = selectedId ? station?.entities.get(selectedId) : undefined;
+		if (!station || !entity || entity.state === 'fault') return false;
+		entity.state = 'processing';
+		entity.canRelease = false;
+		delete entity.waitingReason;
+		this.syncStation(station);
 		return true;
 	}
 
-	wait(stationId: string, reason: SilkProcessWaitingReason) {
+	wait(stationId: string, reason: SilkProcessWaitingReason, entityId?: string) {
 		const station = this.stations.get(stationId);
-		if (!station) return;
-		station.state = reason === 'FAULT' ? 'fault' : 'waiting';
-		station.canRelease = false;
-		station.waitingReason = reason;
+		const selectedId = entityId || station?.runtime.currentEntityId;
+		const entity = selectedId ? station?.entities.get(selectedId) : undefined;
+		if (!station || !entity) return;
+		entity.state = reason === 'FAULT' ? 'fault' : 'waiting';
+		entity.canRelease = false;
+		entity.waitingReason = reason;
+		this.syncStation(station);
 	}
 
-	complete(stationId: string) {
+	complete(stationId: string, entityId?: string) {
 		const station = this.stations.get(stationId);
-		if (!station?.currentEntityId) return false;
-		station.state = 'completed';
-		station.canRelease = true;
-		delete station.waitingReason;
+		const selectedId = entityId || station?.runtime.currentEntityId;
+		const entity = selectedId ? station?.entities.get(selectedId) : undefined;
+		if (!station || !entity) return false;
+		entity.state = 'completed';
+		entity.canRelease = true;
+		delete entity.waitingReason;
+		this.syncStation(station);
 		return true;
+	}
+
+	canAccept(sectionId: string, entityId?: string) {
+		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		if (!station) return true;
+		if (entityId && station.entities.has(entityId)) return true;
+		return station.entities.size < station.runtime.capacity;
 	}
 
 	canRelease(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.sectionId === sectionId);
+		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
 		if (!station) return { canRelease: true as const };
-		if (station.currentEntityId !== entityId || !station.canRelease) {
-			return { canRelease: false as const, reason: station.waitingReason || 'PROCESS_NOT_COMPLETED' as SilkProcessWaitingReason };
+		const entity = station.entities.get(entityId);
+		if (!entity || !entity.canRelease) {
+			return { canRelease: false as const, reason: entity?.waitingReason || station.runtime.waitingReason || 'PROCESS_NOT_COMPLETED' as SilkProcessWaitingReason };
 		}
 		return { canRelease: true as const };
 	}
 
 	release(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.sectionId === sectionId);
-		if (!station || station.currentEntityId !== entityId || !station.canRelease) return false;
-		station.state = 'idle';
-		station.canRelease = false;
-		delete station.currentEntityId;
-		delete station.waitingReason;
-		delete station.result;
-		this.stateMachines.get(station.stationId)?.reset();
+		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		const entity = station?.entities.get(entityId);
+		if (!station || !entity?.canRelease) return false;
+		station.entities.delete(entityId);
+		station.machines.delete(entityId);
+		this.syncStation(station);
 		return true;
 	}
 
 	reset() {
 		for (const station of this.stations.values()) {
-			station.state = 'idle';
-			station.canRelease = false;
-			delete station.currentEntityId;
-			delete station.waitingReason;
-			delete station.result;
+			station.entities.clear();
+			station.machines.clear();
+			this.syncStation(station);
 		}
-		for (const machine of this.stateMachines.values()) machine.reset();
 	}
 
-	private applyProcessSnapshot(station: TwinProcessStationRuntime, snapshot: TwinComponentProcessSnapshot) {
-		station.state = snapshot.state === 'Idle' ? 'idle'
+	private applyEntitySnapshot(entity: TwinProcessStationEntityRuntime, snapshot: TwinComponentProcessSnapshot) {
+		entity.state = snapshot.state === 'Idle' ? 'idle'
 			: snapshot.state === 'Processing' ? 'processing'
 				: snapshot.state === 'Completed' ? 'completed'
 					: snapshot.state === 'Fault' ? 'fault' : 'waiting';
-		station.canRelease = snapshot.canRelease;
-		station.waitingReason = snapshot.waitingReason;
-		station.result = snapshot.result;
+		entity.canRelease = snapshot.canRelease;
+		entity.waitingReason = snapshot.waitingReason as SilkProcessWaitingReason | undefined;
+		entity.result = snapshot.result;
+	}
+
+	private syncStation(station: TwinProcessStationInternal) {
+		const entities = [...station.entities.values()];
+		station.runtime.entityIds = entities.map((entity) => entity.entityId);
+		station.runtime.currentEntityId = entities[0]?.entityId;
+		station.runtime.canRelease = entities.length === 1 ? entities[0].canRelease : entities.length > 0 && entities.every((entity) => entity.canRelease);
+		station.runtime.result = entities.length === 1 ? entities[0].result : entities.length > 0 ? entities.map((entity) => entity.result) : undefined;
+		const firstFault = entities.find((entity) => entity.state === 'fault');
+		const firstWaiting = entities.find((entity) => entity.state === 'waiting');
+		station.runtime.waitingReason = firstFault?.waitingReason || firstWaiting?.waitingReason;
+		station.runtime.state = entities.length === 0 ? 'idle'
+			: firstFault ? 'fault'
+				: entities.some((entity) => entity.state === 'processing') ? 'processing'
+					: entities.some((entity) => entity.state === 'waiting') ? 'waiting'
+						: entities.every((entity) => entity.state === 'completed') ? 'completed' : entities[0].state;
 	}
 }

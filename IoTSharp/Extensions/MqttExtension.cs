@@ -49,7 +49,8 @@ namespace IoTSharp
                 });
                 options.WithDefaultPayloadContentType(JsonContentType);
                 options.WithDefaultPayloadFormatter("json");
-                options.WithCaseSensitiveTopicMatching();
+                // IoTSharp 的标准主题使用全小写操作名，而 [controller] 会保留 CLR 类型名的大小写。
+                // 保持默认的不区分大小写匹配，兼容 devices/{device}/telemetry 等既有协议主题。
             });
             services.AddSingleton<MqttServer>();
             services.AddSingleton<MQTTService>();

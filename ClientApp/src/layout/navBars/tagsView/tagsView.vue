@@ -685,6 +685,11 @@ export default defineComponent({
 			.layout-icon-three {
 				display: none;
 			}
+			&:not(.is-active):hover {
+				.layout-icon-three {
+					display: block;
+				}
+			}
 		}
 		.is-active {
 			color: #3080f6;
@@ -705,10 +710,18 @@ export default defineComponent({
 				display: none;
 			}
 			.layout-icon-three {
-				display: block;
+				display: none;
 			}
 			&:hover {
 				background: none !important;
+				.layout-icon-three {
+					display: block;
+				}
+			}
+			&.is-active {
+				.layout-icon-three {
+					display: block;
+				}
 			}
 		}
 		.is-active {
@@ -735,12 +748,20 @@ export default defineComponent({
 				display: none;
 			}
 			.layout-icon-three {
-				display: block;
+				display: none;
 			}
 			&:hover {
 				@extend .tags-style-five-svg;
 				background: var(--el-color-primary-light-9);
 				color: unset;
+				.layout-icon-three {
+					display: block;
+				}
+			}
+			&.is-active {
+				.layout-icon-three {
+					display: block;
+				}
 			}
 		}
 		.is-active {

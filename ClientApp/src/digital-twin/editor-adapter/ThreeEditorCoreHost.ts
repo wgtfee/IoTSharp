@@ -3,9 +3,10 @@ import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinEquipmentType, 
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
-import { defaultComponentRegistry, isComponentSceneObject, revalidateComponentConnections, snapAndConnectNearestComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
+import { clearTransportRouteAttachment, defaultComponentRegistry, isComponentSceneObject, isTransportUnitSceneObject, revalidateComponentConnections, snapSceneComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
 import { EngineeringOverlayManager, type EngineeringOverlayLayer } from '/@/digital-twin/editor-adapter/EngineeringOverlayManager';
+import { normalizeScreenRect, projectWorldBoundsToScreen, screenRectsIntersect, type TwinScreenRect } from '/@/digital-twin/editor-adapter/MultiSelectionGeometry';
 
 // 上游是固定提交的 Apache-2.0 JavaScript 源码，IoTSharp 通过本适配层隔离其动态 API。
 // @ts-ignore -- vendored JavaScript intentionally has no TypeScript declarations.
@@ -15,6 +16,8 @@ import { restoreHistoryHandler } from '/@/digital-twin/vendor/three-editor-cores
 
 export interface ThreeEditorCoreHostEvents {
 	onSelectionChange?: (selection: TwinSelectionInfo | null) => void;
+	onMultiSelectionChange?: (objectIds: string[]) => void;
+	onMarqueeChange?: (rectangle?: TwinScreenRect) => void;
 	onRouteChange?: (route: TwinRouteDefinition) => void;
 	onChanged?: () => void;
 	onError?: (message: string) => void;
@@ -26,6 +29,16 @@ interface LoadedEditorModel {
 	root: any;
 	dispose?: () => void;
 	kind: 'model' | 'component' | 'procedural' | 'equipment';
+}
+
+interface GroupMoveSnapshot {
+	pivotPosition: THREE.Vector3;
+	worldPositions: Map<string, THREE.Vector3>;
+}
+
+interface GroupMoveHistoryEntry {
+	before: Map<string, THREE.Vector3>;
+	after: Map<string, THREE.Vector3>;
 }
 
 const editorCommit = 'd7e2ddf6cc1fa8c626356a3606167abff68daaed';
@@ -93,8 +106,16 @@ export class ThreeEditorCoreHost {
 	private manifest: TwinSceneManifest;
 	private editor: any;
 	private selectedObjectId?: string;
+	private readonly selectedObjectIds = new Set<string>();
 	private selectedRouteId?: string;
 	private selectedRoutePointId?: string;
+	private selectionMode: 'select' | 'root' | 'multi' = 'root';
+	private readonly multiSelectionPivot = new THREE.Object3D();
+	private groupMoveSnapshot?: GroupMoveSnapshot;
+	private readonly groupMoveHistory: GroupMoveHistoryEntry[] = [];
+	private readonly groupMoveRedoHistory: GroupMoveHistoryEntry[] = [];
+	private marqueeStart?: { x: number; y: number; additive: boolean; baseIds: Set<string> };
+	private suppressNextClick = false;
 	private routeEditMode = false;
 	private routeDrawMode = false;
 	private latestSceneParams: Record<string, unknown> = {};
@@ -132,10 +153,35 @@ export class ThreeEditorCoreHost {
 		this.editor.setSceneControlMode('变换');
 		this.editor.setOperateOption('openKey', false);
 		this.editor.setOperateOption('grid', manifest.runtime.showGrid);
+		this.multiSelectionPivot.name = 'IoTSharp 多选移动中心';
+		this.multiSelectionPivot.userData.iotsharpTwinHelper = true;
+		this.editor.viewer.scene.add(this.multiSelectionPivot);
 		this.routeOverlay = new ThreeEditorRouteOverlay(this.editor.viewer.scene, this.manifest);
 		this.engineeringOverlay = new EngineeringOverlayManager(this.editor.viewer.scene, this.manifest, this.routeOverlay);
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
-			if (dragging) return;
+			if (dragging) {
+				this.suppressNextClick = true;
+				if (this.editor.viewer.transformControls.object === this.multiSelectionPivot && this.selectedObjectIds.size > 1) {
+					this.groupMoveSnapshot = {
+						pivotPosition: this.multiSelectionPivot.position.clone(),
+						worldPositions: this.captureSelectedWorldPositions(),
+					};
+				}
+				return;
+			}
+
+			if (this.groupMoveSnapshot && this.editor.viewer.transformControls.object === this.multiSelectionPivot) {
+				this.applyMultiSelectionTranslation();
+				const before = this.groupMoveSnapshot.worldPositions;
+				const after = this.captureSelectedWorldPositions();
+				if ([...before].some(([objectId, position]) => position.distanceToSquared(after.get(objectId) || position) > 0.0000001)) {
+					this.groupMoveHistory.push({ before, after });
+					this.groupMoveRedoHistory.length = 0;
+				}
+				this.groupMoveSnapshot = undefined;
+				this.commitMovedObjectGroup();
+				return;
+			}
 
 			if (this.selectedRouteId && this.selectedRoutePointId) {
 				const selectedRoute = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId);
@@ -157,7 +203,11 @@ export class ThreeEditorCoreHost {
 			const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === selectedId);
 			if (selectedId && isComponentSceneObject(selected)) {
 				revalidateComponentConnections(this.manifest);
-				const snapped = snapAndConnectNearestComponent(this.manifest, selectedId, { maxDistance: 0.5, maxAngleDegrees: 15, preferFacingPorts: true });
+				const autoSnapEnabled = selected.component.properties?.autoSnap !== false;
+				const transportUnit = isTransportUnitSceneObject(selected);
+				const snapped = autoSnapEnabled ? snapSceneComponent(this.manifest, selectedId) : undefined;
+				// 运输单元被明确拖离兼容辊道时解除 Route/Section 归属；关闭自动吸附时保留人工配置。
+				if (transportUnit && autoSnapEnabled && !snapped) clearTransportRouteAttachment(selected);
 				if (snapped) {
 					const root = this.loadedModels.get(selectedId)?.root;
 					if (root) {
@@ -169,12 +219,17 @@ export class ThreeEditorCoreHost {
 					this.selectObject(selectedId);
 				}
 				upsertGeneratedComponentRoute(this.manifest);
+				this.syncLoadedComponentTransformsFromManifest();
 			}
 			this.routeOverlay.rebuild(this.manifest);
 			this.engineeringOverlay.rebuild(this.manifest);
 			this.events.onChanged?.();
 		};
+		this.editor.viewer.transformControls.addEventListener('change', this.handleTransformControlsChange);
 		this.container.addEventListener('click', this.handleSceneClick);
+		this.container.addEventListener('pointerdown', this.handleMarqueePointerDown, true);
+		window.addEventListener('pointermove', this.handleMarqueePointerMove, true);
+		window.addEventListener('pointerup', this.handleMarqueePointerUp, true);
 		this.resizeObserver = new ResizeObserver(() => this.editor?.viewer?.renderSceneResize?.());
 		this.resizeObserver.observe(container);
 		this.loadManifestComponents();
@@ -248,6 +303,7 @@ export class ThreeEditorCoreHost {
 		if (!isComponentSceneObject(object)) return;
 		this.loadComponent(object);
 		upsertGeneratedComponentRoute(this.manifest);
+		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.selectObject(objectId);
@@ -258,9 +314,33 @@ export class ThreeEditorCoreHost {
 		for (const model of [...this.loadedModels.values()].filter((item) => item.kind === 'component')) this.removeObject(model.objectId, false);
 		this.loadManifestComponents();
 		upsertGeneratedComponentRoute(this.manifest);
+		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.events.onChanged?.();
+	}
+
+	/** 按 Manifest 中的持久化 Transform 立即更新已加载对象，不先从旧 root 反向覆盖。 */
+	applyObjectTransform(objectId: string) {
+		const object = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === objectId);
+		const model = this.loadedModels.get(objectId);
+		if (!object || !model?.root) return false;
+		model.root.position.set(...object.transform.position);
+		model.root.rotation.set(...object.transform.rotation);
+		if (isComponentSceneObject(object)) {
+			model.root.scale.set(1, 1, 1);
+			object.transform.scale = [1, 1, 1];
+			revalidateComponentConnections(this.manifest);
+			upsertGeneratedComponentRoute(this.manifest);
+			this.syncLoadedComponentTransformsFromManifest();
+		} else model.root.scale.set(...object.transform.scale);
+		model.root.updateMatrixWorld?.(true);
+		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
+		this.selectObject(objectId);
+		this.editor.viewer.renderScene?.();
+		this.events.onChanged?.();
+		return true;
 	}
 
 	refreshRouteOverlay() {
@@ -269,7 +349,12 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.renderScene?.();
 	}
 
-	/** 将浏览器客户区坐标投影到专业编辑器的水平工程地面。 */
+	/**
+	 * 将浏览器客户区坐标转换成专业编辑器工程落点。
+	 * 拖模型到辊道时必须优先命中用户实际看到的 V7 输送组件；如果只投影到 Y=0 地面，
+	 * 斜视相机会让鼠标视觉落点与 Route 中心线产生数米偏差，导致“看起来放在辊道上却不吸附”。
+	 * 命中输送组件时只采用命中点的 X/Z，Y 仍保持工程地面高度，避免新增设备根节点悬浮。
+	 */
 	worldPositionFromClientPoint(clientX: number, clientY: number, groundY = 0): TwinVector3 | undefined {
 		if (this.disposed || !Number.isFinite(clientX) || !Number.isFinite(clientY) || !Number.isFinite(groundY)) return undefined;
 		const bounds = this.container.getBoundingClientRect();
@@ -280,6 +365,22 @@ export class ThreeEditorCoreHost {
 		);
 		const raycaster = new THREE.Raycaster();
 		raycaster.setFromCamera(pointer, this.editor.viewer.camera);
+
+		const conveyorRoots: THREE.Object3D[] = [];
+		for (const [objectId, loaded] of this.loadedModels) {
+			if (loaded.kind !== 'component' || !loaded.root?.visible) continue;
+			const object = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === objectId);
+			if (!isComponentSceneObject(object)) continue;
+			const properties = object.component.properties || {};
+			const isConveyor = properties.conveyorSizeClass === 'small' || properties.conveyorSizeClass === 'large'
+				|| ['roller-conveyor', 'turn-conveyor-90', 'diverter-conveyor', 'merger-conveyor'].includes(object.component.componentType);
+			if (isConveyor) conveyorRoots.push(loaded.root);
+		}
+		if (conveyorRoots.length) {
+			const hit = raycaster.intersectObjects(conveyorRoots, true).find((item) => item.object.visible !== false);
+			if (hit) return [hit.point.x, groundY, hit.point.z];
+		}
+
 		const point = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -groundY), new THREE.Vector3());
 		return point ? [point.x, point.y, point.z] : undefined;
 	}
@@ -556,8 +657,21 @@ export class ThreeEditorCoreHost {
 		return target;
 	}
 
-	setSelectionMode(mode: 'select' | 'root' | 'transform') { this.editor.setSceneControlMode(mode === 'select' ? '选择' : mode === 'root' ? '根选择' : '变换'); }
+	setSelectionMode(mode: 'select' | 'root' | 'multi' | 'transform') {
+		this.selectionMode = mode === 'transform' ? 'root' : mode;
+		this.cancelMarqueeSelection();
+		this.editor.setSceneControlMode(mode === 'select' || mode === 'multi' ? '选择' : mode === 'root' ? '根选择' : '变换');
+		if (mode !== 'multi' && this.selectedObjectIds.size > 1) {
+			const primary = this.selectedObjectId && this.selectedObjectIds.has(this.selectedObjectId) ? this.selectedObjectId : [...this.selectedObjectIds][0];
+			this.setSelectedObjectIds(primary ? [primary] : [], primary);
+		}
+	}
 	setTransformMode(mode: 'translate' | 'rotate' | 'scale') {
+		if (this.selectedObjectIds.size > 1 && mode !== 'translate') {
+			this.events.onError?.('多选对象当前只支持整体移动；旋转和缩放请切换为单选。');
+			this.editor.setTransformControlsProperty('mode', 'translate');
+			return;
+		}
 		const selected = (this.manifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === this.selectedObjectId);
 		if (mode === 'scale' && isComponentSceneObject(selected)) {
 			this.events.onError?.('参数化组件禁止 Scale；请在 V7 属性面板修改长度、宽度和高度。');
@@ -570,16 +684,38 @@ export class ThreeEditorCoreHost {
 	setGrid(visible: boolean) { this.editor.setOperateOption('grid', visible); this.manifest.runtime.showGrid = visible; }
 	setAxes(visible: boolean) { this.editor.setOperateOption('axes', visible); }
 	setKeyboard(enabled: boolean) { this.editor.setOperateOption('openKey', enabled); }
-	undo() { restoreHistoryHandler('z'); this.reconcileComponentConnectionsAfterHistory(); }
-	redo() { restoreHistoryHandler('y'); this.reconcileComponentConnectionsAfterHistory(); }
+	undo() {
+		const entry = this.groupMoveHistory.pop();
+		if (entry) {
+			this.applyWorldPositions(entry.before);
+			this.groupMoveRedoHistory.push(entry);
+			this.commitMovedObjectGroup();
+			return;
+		}
+		restoreHistoryHandler('z'); this.reconcileComponentConnectionsAfterHistory();
+	}
+	redo() {
+		const entry = this.groupMoveRedoHistory.pop();
+		if (entry) {
+			this.applyWorldPositions(entry.after);
+			this.groupMoveHistory.push(entry);
+			this.commitMovedObjectGroup();
+			return;
+		}
+		restoreHistoryHandler('y'); this.reconcileComponentConnectionsAfterHistory();
+	}
 
-	selectObject(objectId: string) {
+	selectObject(objectId: string, additive = false) {
 		const root = this.loadedModels.get(objectId)?.root;
 		if (!root) return;
-		this.clearRoutePointSelection(false);
-		this.editor.setOutlinePass([root]);
-		this.editor.viewer.transformControls.attach(root);
-		this.selectRoot(root);
+		if (additive) {
+			const next = new Set(this.selectedObjectIds);
+			if (next.has(objectId)) next.delete(objectId);
+			else next.add(objectId);
+			this.setSelectedObjectIds([...next], next.has(objectId) ? objectId : [...next][0]);
+			return;
+		}
+		this.setSelectedObjectIds([objectId], objectId, root);
 	}
 
 	focusSelected() {
@@ -592,11 +728,15 @@ export class ThreeEditorCoreHost {
 			this.editor.setGsapAnimation(this.editor.viewer.controls.target, target, { duration: 0.45 });
 			return;
 		}
-		const root = this.selectedObjectId ? this.loadedModels.get(this.selectedObjectId)?.root : undefined;
-		if (!root) return;
-		const { position, target } = this.editor.getObjectViews(root);
-		this.editor.setGsapAnimation(this.editor.viewer.camera.position, position, { duration: 0.45 });
-		this.editor.setGsapAnimation(this.editor.viewer.controls.target, target, { duration: 0.45 });
+		const roots = this.getSelectedRoots();
+		if (!roots.length) return;
+		if (roots.length === 1) {
+			const { position, target } = this.editor.getObjectViews(roots[0]);
+			this.editor.setGsapAnimation(this.editor.viewer.camera.position, position, { duration: 0.45 });
+			this.editor.setGsapAnimation(this.editor.viewer.controls.target, target, { duration: 0.45 });
+			return;
+		}
+		this.focusRoots(roots);
 	}
 
 	/** 按当前观察方向拉近或拉远，作为鼠标滚轮之外的稳定缩放入口。 */
@@ -648,7 +788,10 @@ export class ThreeEditorCoreHost {
 		else model.root.disposeRoot?.();
 		this.loadedModels.delete(objectId);
 		this.latestModelParams = this.latestModelParams.filter((item) => item.rootInfo.iotsharpObjectId !== objectId);
-		if (this.selectedObjectId === objectId) { this.selectedObjectId = undefined; this.events.onSelectionChange?.(null); }
+		if (this.selectedObjectIds.delete(objectId)) {
+			const remaining = [...this.selectedObjectIds];
+			this.setSelectedObjectIds(remaining, remaining[0]);
+		}
 		if (notify) {
 			upsertGeneratedComponentRoute(this.manifest);
 			this.routeOverlay.rebuild(this.manifest);
@@ -662,8 +805,215 @@ export class ThreeEditorCoreHost {
 		this.engineeringOverlay.rebuild(this.manifest);
 	}
 
+	getSelectedObjectIds() { return [...this.selectedObjectIds]; }
+
+	clearSelection() {
+		this.cancelMarqueeSelection();
+		this.setSelectedObjectIds([]);
+	}
+
+	private getSelectedRoots() {
+		return [...this.selectedObjectIds]
+			.map((objectId) => this.loadedModels.get(objectId)?.root)
+			.filter(Boolean);
+	}
+
+	private captureSelectedWorldPositions() {
+		const positions = new Map<string, THREE.Vector3>();
+		for (const objectId of this.selectedObjectIds) {
+			const root = this.loadedModels.get(objectId)?.root;
+			if (!root) continue;
+			root.updateMatrixWorld?.(true);
+			positions.set(objectId, root.getWorldPosition(new THREE.Vector3()));
+		}
+		return positions;
+	}
+
+	private setRootWorldPosition(root: THREE.Object3D, worldPosition: THREE.Vector3) {
+		if (root.parent) {
+			root.parent.updateMatrixWorld?.(true);
+			root.position.copy(root.parent.worldToLocal(worldPosition.clone()));
+		} else root.position.copy(worldPosition);
+		root.updateMatrixWorld?.(true);
+	}
+
+	private applyWorldPositions(positions: Map<string, THREE.Vector3>) {
+		for (const [objectId, worldPosition] of positions) {
+			const root = this.loadedModels.get(objectId)?.root;
+			if (root) this.setRootWorldPosition(root, worldPosition);
+		}
+		this.positionMultiSelectionPivot();
+		this.editor.viewer.renderScene?.();
+	}
+
+	private applyMultiSelectionTranslation() {
+		if (!this.groupMoveSnapshot) return;
+		const delta = this.multiSelectionPivot.position.clone().sub(this.groupMoveSnapshot.pivotPosition);
+		for (const [objectId, startWorld] of this.groupMoveSnapshot.worldPositions) {
+			const root = this.loadedModels.get(objectId)?.root;
+			if (root) this.setRootWorldPosition(root, startWorld.clone().add(delta));
+		}
+		this.editor.viewer.renderScene?.();
+	}
+
+	private commitMovedObjectGroup() {
+		this.syncTransformsToManifest();
+		const removedConnectionIds = revalidateComponentConnections(this.manifest);
+		upsertGeneratedComponentRoute(this.manifest);
+		this.syncLoadedComponentTransformsFromManifest();
+		this.routeOverlay.rebuild(this.manifest);
+		this.engineeringOverlay.rebuild(this.manifest);
+		this.positionMultiSelectionPivot();
+		if (removedConnectionIds.length) this.events.onError?.(`整体移动后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
+		this.events.onChanged?.();
+	}
+
+	private positionMultiSelectionPivot() {
+		const roots = this.getSelectedRoots();
+		if (roots.length < 2) return;
+		const center = new THREE.Vector3();
+		for (const root of roots) center.add(root.getWorldPosition(new THREE.Vector3()));
+		center.multiplyScalar(1 / roots.length);
+		this.multiSelectionPivot.position.copy(center);
+		this.multiSelectionPivot.rotation.set(0, 0, 0);
+		this.multiSelectionPivot.scale.set(1, 1, 1);
+		this.multiSelectionPivot.updateMatrixWorld(true);
+	}
+
+	private emitPrimarySelection(objectId?: string) {
+		if (!objectId) { this.events.onSelectionChange?.(null); return; }
+		const root = this.loadedModels.get(objectId)?.root;
+		if (!root) { this.events.onSelectionChange?.(null); return; }
+		this.events.onSelectionChange?.({
+			name: root.name || objectId,
+			uuid: root.uuid,
+			path: `${this.manifest.name}/${root.name || objectId}`,
+			kind: 'scene-object',
+			objectId,
+		});
+	}
+
+	private setSelectedObjectIds(objectIds: string[], primaryObjectId?: string, explicitPrimaryRoot?: any) {
+		const validIds = [...new Set(objectIds)].filter((objectId) => this.loadedModels.has(objectId));
+		this.selectedObjectIds.clear();
+		for (const objectId of validIds) this.selectedObjectIds.add(objectId);
+		this.selectedObjectId = primaryObjectId && this.selectedObjectIds.has(primaryObjectId) ? primaryObjectId : validIds[0];
+		this.clearRoutePointSelection(false);
+		const roots = this.getSelectedRoots();
+		this.editor.viewer.transformControls.detach();
+		this.editor.setOutlinePass(roots);
+		if (roots.length > 1) {
+			this.positionMultiSelectionPivot();
+			this.editor.setTransformControlsProperty('mode', 'translate');
+			this.editor.viewer.transformControls.attach(this.multiSelectionPivot);
+		} else if (roots.length === 1) {
+			this.editor.viewer.transformControls.attach(explicitPrimaryRoot || roots[0]);
+		}
+		this.events.onMultiSelectionChange?.(validIds);
+		this.emitPrimarySelection(this.selectedObjectId);
+		this.editor.viewer.renderScene?.();
+	}
+
+	private topLevelObjectIdForNode(node: THREE.Object3D | null | undefined) {
+		let current: any = node;
+		while (current) {
+			const objectId = current.rootInfo?.iotsharpObjectId || current.userData?.iotsharpObjectId || current.userData?.twinObjectId;
+			if (objectId && this.loadedModels.has(String(objectId))) return String(objectId);
+			current = current.parent;
+		}
+		return undefined;
+	}
+
+	private pickLoadedObjectId(clientX: number, clientY: number) {
+		const rect = this.container.getBoundingClientRect();
+		if (rect.width <= 0 || rect.height <= 0) return undefined;
+		const pointer = new THREE.Vector2(
+			((clientX - rect.left) / rect.width) * 2 - 1,
+			-((clientY - rect.top) / rect.height) * 2 + 1,
+		);
+		const raycaster = new THREE.Raycaster();
+		raycaster.setFromCamera(pointer, this.editor.viewer.camera);
+		const roots = [...this.loadedModels.values()].map((item) => item.root).filter((root) => root?.visible !== false);
+		for (const hit of raycaster.intersectObjects(roots, true)) {
+			const objectId = this.topLevelObjectIdForNode(hit.object);
+			if (objectId) return objectId;
+		}
+		return undefined;
+	}
+
+	private readonly handleTransformControlsChange = () => {
+		if (this.groupMoveSnapshot && this.editor.viewer.transformControls.object === this.multiSelectionPivot) this.applyMultiSelectionTranslation();
+	};
+
+	private readonly handleMarqueePointerDown = (event: PointerEvent) => {
+		// 框选必须显式进入“框选多选”模式后才接管左键。
+		// root/select 模式下完全放行 pointerdown，保留 three-editor 原有左键旋转/视角交互。
+		if (this.disposed || event.button !== 0 || this.routeEditMode || this.selectionMode !== 'multi') return;
+		if (!this.container.contains(event.target as Node)) return;
+		const transform = this.editor.viewer.transformControls;
+		if (transform?.dragging || transform?.axis) return;
+		// Dragging starts only from empty scene space. Clicking a component keeps normal object selection/Gizmo behavior.
+		if (this.pickLoadedObjectId(event.clientX, event.clientY)) return;
+		const rect = this.container.getBoundingClientRect();
+		this.marqueeStart = {
+			x: event.clientX - rect.left,
+			y: event.clientY - rect.top,
+			additive: event.ctrlKey || event.metaKey || event.shiftKey,
+			baseIds: new Set(this.selectedObjectIds),
+		};
+		this.editor.viewer.controls.enabled = false;
+		event.preventDefault();
+		event.stopPropagation();
+	};
+
+	private readonly handleMarqueePointerMove = (event: PointerEvent) => {
+		if (!this.marqueeStart) return;
+		const viewport = this.container.getBoundingClientRect();
+		const currentX = THREE.MathUtils.clamp(event.clientX - viewport.left, 0, viewport.width);
+		const currentY = THREE.MathUtils.clamp(event.clientY - viewport.top, 0, viewport.height);
+		const rectangle = normalizeScreenRect(this.marqueeStart.x, this.marqueeStart.y, currentX, currentY);
+		this.events.onMarqueeChange?.(rectangle);
+		if (rectangle.width < 3 && rectangle.height < 3) return;
+		this.suppressNextClick = true;
+		const hitIds: string[] = [];
+		for (const [objectId, model] of this.loadedModels) {
+			if (!model.root?.visible) continue;
+			model.root.updateMatrixWorld?.(true);
+			const bounds = new THREE.Box3().setFromObject(model.root);
+			const projected = projectWorldBoundsToScreen(bounds, this.editor.viewer.camera, viewport.width, viewport.height);
+			if (projected && screenRectsIntersect(rectangle, projected)) hitIds.push(objectId);
+		}
+		if (this.marqueeStart.additive) {
+			const next = new Set(this.marqueeStart.baseIds);
+			for (const objectId of hitIds) next.has(objectId) ? next.delete(objectId) : next.add(objectId);
+			this.setSelectedObjectIds([...next], hitIds[0] || this.selectedObjectId);
+		} else this.setSelectedObjectIds(hitIds, hitIds[0]);
+		event.preventDefault();
+	};
+
+	private readonly handleMarqueePointerUp = (event: PointerEvent) => {
+		if (!this.marqueeStart) return;
+		const viewport = this.container.getBoundingClientRect();
+		const rectangle = normalizeScreenRect(this.marqueeStart.x, this.marqueeStart.y, event.clientX - viewport.left, event.clientY - viewport.top);
+		if (rectangle.width < 3 && rectangle.height < 3 && !this.marqueeStart.additive) this.setSelectedObjectIds([]);
+		this.marqueeStart = undefined;
+		this.editor.viewer.controls.enabled = true;
+		this.events.onMarqueeChange?.(undefined);
+		if (rectangle.width >= 3 || rectangle.height >= 3) {
+			this.suppressNextClick = true;
+			event.preventDefault();
+		}
+	};
+
+	private cancelMarqueeSelection() {
+		this.marqueeStart = undefined;
+		if (this.editor?.viewer?.controls) this.editor.viewer.controls.enabled = true;
+		this.events.onMarqueeChange?.(undefined);
+	}
+
 	private readonly handleSceneClick = (event: MouseEvent) => {
 		if (this.disposed || event.defaultPrevented) return;
+		if (this.suppressNextClick) { this.suppressNextClick = false; return; }
 		if (this.routeEditMode) {
 			const hit = this.routeOverlay.pickPoint(event, this.editor.viewer.camera, this.container);
 			if (hit?.pointId && hit.routeId) {
@@ -683,7 +1033,7 @@ export class ThreeEditorCoreHost {
 				let root = info?.currentModel;
 				while (root && !root?.rootInfo?.iotsharpObjectId && !root?.userData?.iotsharpObjectId) root = root.parent;
 				root ||= info?.currentRootModel;
-				if (root?.rootInfo?.iotsharpObjectId || root?.userData?.iotsharpObjectId) this.selectRoot(root, info.currentModel);
+				if (root?.rootInfo?.iotsharpObjectId || root?.userData?.iotsharpObjectId) this.selectRoot(root, info.currentModel, event.ctrlKey || event.metaKey || event.shiftKey);
 			});
 		} catch {
 			this.events.onError?.('threejs-editor 未能选中该对象，请切换“根选择”后重试。');
@@ -725,11 +1075,16 @@ export class ThreeEditorCoreHost {
 		if (detach) this.editor.viewer.transformControls.detach();
 	}
 
-	private selectRoot(root: any, node = root) {
+	private selectRoot(root: any, node = root, additive = false) {
 		const objectId = root.rootInfo?.iotsharpObjectId || root.userData?.iotsharpObjectId;
 		if (!objectId) return;
 		this.clearRoutePointSelection(false);
-		this.selectedObjectId = objectId;
+		if (additive) {
+			const next = new Set(this.selectedObjectIds);
+			if (next.has(objectId)) next.delete(objectId); else next.add(objectId);
+			this.setSelectedObjectIds([...next], next.has(objectId) ? objectId : [...next][0]);
+			if (!next.has(objectId)) return;
+		} else this.setSelectedObjectIds([objectId], objectId, root);
 		const segments: string[] = [];
 		let current = node;
 		while (current && current !== root) {
@@ -766,6 +1121,19 @@ export class ThreeEditorCoreHost {
 		return undefined;
 	}
 
+	private syncLoadedComponentTransformsFromManifest() {
+		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) {
+			if (!isComponentSceneObject(object)) continue;
+			const root = this.loadedModels.get(object.objectId)?.root;
+			if (!root) continue;
+			root.position.set(...object.transform.position);
+			root.rotation.set(...object.transform.rotation);
+			root.scale.set(1, 1, 1);
+			root.updateMatrixWorld?.(true);
+		}
+		this.editor.viewer.renderScene?.();
+	}
+
 	private syncTransformsToManifest() {
 		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) {
 			const root = this.loadedModels.get(object.objectId)?.root;
@@ -784,6 +1152,7 @@ export class ThreeEditorCoreHost {
 		this.syncTransformsToManifest();
 		const removedConnectionIds = revalidateComponentConnections(this.manifest);
 		upsertGeneratedComponentRoute(this.manifest);
+		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		if (removedConnectionIds.length > 0) {
@@ -795,10 +1164,16 @@ export class ThreeEditorCoreHost {
 	dispose() {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.cancelMarqueeSelection();
 		this.container.removeEventListener('click', this.handleSceneClick);
+		this.container.removeEventListener('pointerdown', this.handleMarqueePointerDown, true);
+		window.removeEventListener('pointermove', this.handleMarqueePointerMove, true);
+		window.removeEventListener('pointerup', this.handleMarqueePointerUp, true);
+		this.editor?.viewer?.transformControls?.removeEventListener?.('change', this.handleTransformControlsChange);
 		this.resizeObserver.disconnect();
 		this.routeOverlay.dispose();
 		this.engineeringOverlay.dispose();
+		this.multiSelectionPivot.parent?.remove(this.multiSelectionPivot);
 		for (const model of this.loadedModels.values()) model.dispose?.();
 		this.editor?.viewer?.destroySceneRender?.();
 		for (const objectUrl of this.objectUrls) URL.revokeObjectURL(objectUrl);

@@ -86,6 +86,10 @@ export class ThreeJsEditorAdapter {
 		this.runtime.applyDataUpdates(updates);
 	}
 
+	getSelectionScreenAnchor() {
+		return this.runtime.getSelectionScreenAnchor();
+	}
+
 	focusSelected() {
 		this.runtime.focusSelected();
 	}

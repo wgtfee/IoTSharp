@@ -218,7 +218,12 @@ public sealed class TwinComponentResourcesController : ControllerBase
         if (request.GeneratorVersion <= 0) return "generatorVersion 必须大于 0。";
         if (request.DefaultProperties.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "defaultProperties 不能为空。";
         if (request.ComponentSchema.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return "componentSchema 不能为空。";
-        if (request.Ports.ValueKind != JsonValueKind.Array || request.Ports.GetArrayLength() == 0) return "ports 必须是非空数组。";
+        if (request.Ports.ValueKind != JsonValueKind.Array) return "ports 必须是数组。";
+        if (request.Capabilities?.Contains("material-flow", StringComparer.OrdinalIgnoreCase) == true
+            && request.Ports.GetArrayLength() == 0)
+        {
+            return "具有 material-flow 能力的组件必须至少定义一个物料端口。";
+        }
         if (request.BindingSlots.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Array)) return "bindingSlots 必须是数组。";
         return null;
     }

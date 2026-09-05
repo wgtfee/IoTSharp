@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { TwinComponentBuildResult, TwinComponentPortDefinition } from './types';
+import type { TwinComponentBuildResult, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export interface StraightRollerGeometryOptions {
 	length: number;
@@ -57,6 +57,8 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	const width = Math.max(0.5, options.width);
 	const height = Math.max(0.15, options.height);
 	const rollerRadius = Math.max(0.025, options.rollerDiameter / 2);
+	// `height` is the transport contact plane (roller top), not the roller center.
+	const rollerCenterY = height - rollerRadius;
 	const rollerPitch = Math.max(options.rollerDiameter * 1.1, options.rollerPitch);
 	const frameHeight = Math.max(0.08, options.frameHeight);
 	const frameThickness = Math.max(0.05, options.frameThickness);
@@ -64,7 +66,11 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	const rollerMaterial = createMaterial(options.rollerColor ?? 0x94a3b8, { roughness: 0.35, metalness: 0.86 });
 	const supportMaterial = createMaterial(options.supportColor ?? 0x475569, { roughness: 0.65, metalness: 0.62 });
 
-	const railY = height - frameHeight / 2;
+	root.userData.conveyorSurfaceHeight = height;
+	root.userData.rollerCenterY = rollerCenterY;
+	root.userData.rollerRadius = rollerRadius;
+
+	const railY = rollerCenterY - frameHeight / 2;
 	for (const z of [-width / 2, width / 2]) {
 		const rail = new THREE.Mesh(new THREE.BoxGeometry(length, frameHeight, frameThickness), frameMaterial);
 		rail.position.set(0, railY, z);
@@ -76,10 +82,13 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	const rollerGeometry = new THREE.CylinderGeometry(rollerRadius, rollerRadius, Math.max(0.1, width - frameThickness * 2.2), 14);
 	const rollers = new THREE.InstancedMesh(rollerGeometry, rollerMaterial, rollerCount);
 	rollers.name = 'Rollers';
+	rollers.userData.conveyorSurfaceHeight = height;
+	rollers.userData.rollerCenterY = rollerCenterY;
+	rollers.userData.rollerRadius = rollerRadius;
 	const dummy = new THREE.Object3D();
 	for (let index = 0; index < rollerCount; index += 1) {
 		const t = rollerCount <= 1 ? 0 : index / (rollerCount - 1);
-		dummy.position.set(-length / 2 + t * length, height, 0);
+		dummy.position.set(-length / 2 + t * length, rollerCenterY, 0);
 		dummy.rotation.set(Math.PI / 2, 0, 0);
 		dummy.updateMatrix();
 		rollers.setMatrixAt(index, dummy.matrix);
@@ -88,7 +97,8 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	root.add(rollers);
 
 	const supportCount = Math.max(2, Math.ceil(length / Math.max(0.8, options.supportSpacing)) + 1);
-	const legGeometry = new THREE.BoxGeometry(0.12, Math.max(0.1, height - frameHeight), 0.12);
+	const legHeight = Math.max(0.1, rollerCenterY - frameHeight);
+	const legGeometry = new THREE.BoxGeometry(0.12, legHeight, 0.12);
 	const legs = new THREE.InstancedMesh(legGeometry, supportMaterial, supportCount * 2);
 	legs.name = 'Supports';
 	let legIndex = 0;
@@ -96,7 +106,7 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 		const t = supportCount <= 1 ? 0 : index / (supportCount - 1);
 		const x = -length / 2 + t * length;
 		for (const z of [-width / 2 + 0.12, width / 2 - 0.12]) {
-			dummy.position.set(x, (height - frameHeight) / 2, z);
+			dummy.position.set(x, legHeight / 2, z);
 			dummy.rotation.set(0, 0, 0);
 			dummy.updateMatrix();
 			legs.setMatrixAt(legIndex++, dummy.matrix);
@@ -118,7 +128,7 @@ export const createStraightRollerGeometry = (options: StraightRollerGeometryOpti
 	gearbox.name = 'Motor_Gearbox';
 	gearbox.position.z = -Math.max(0.28, rollerRadius * 2.8);
 	motorGroup.add(gearbox);
-	motorGroup.position.set(length / 2 - Math.min(0.45, length * 0.12), height - frameHeight * 0.65, width / 2 + Math.max(0.32, rollerRadius * 2.8));
+	motorGroup.position.set(length / 2 - Math.min(0.45, length * 0.12), rollerCenterY - frameHeight * 0.65, width / 2 + Math.max(0.32, rollerRadius * 2.8));
 	root.add(motorGroup);
 	markShadows(root);
 	return root;
@@ -164,7 +174,11 @@ export const createCanvasLabel = (text: string, options: { width?: number; heigh
 	return sprite;
 };
 
-export const createComponentResult = (root: THREE.Group, ports: TwinComponentPortDefinition[]): TwinComponentBuildResult => {
+export const createComponentResult = (
+	root: THREE.Group,
+	ports: TwinComponentPortDefinition[],
+	internalFlows: TwinComponentInternalFlowDefinition[] = [],
+): TwinComponentBuildResult => {
 	attachPortMarkers(root, ports);
 	markShadows(root);
 	root.updateMatrixWorld(true);
@@ -172,6 +186,7 @@ export const createComponentResult = (root: THREE.Group, ports: TwinComponentPor
 	return {
 		root,
 		ports,
+		internalFlows,
 		bounds,
 		dispose: () => {
 			root.traverse((child: any) => {

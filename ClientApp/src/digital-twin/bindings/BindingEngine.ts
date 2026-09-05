@@ -23,7 +23,9 @@ export class BindingEngine {
 		private readonly resolveObject: (objectId: string) => any,
 		private readonly correctRouteProgress: (progress: number) => void,
 		private readonly reportError?: (message: string) => void,
-		private readonly applyRouteSignal?: (bindingId: string, value: unknown, stale: boolean) => void
+		private readonly applyRouteSignal?: (bindingId: string, value: unknown, stale: boolean) => void,
+		private readonly applyRouteSlotArray?: (binding: TwinObjectBindingDefinition, value: unknown, stale: boolean) => void,
+		private readonly applyRouteDistance?: (binding: TwinObjectBindingDefinition, object: any, distanceMeters: number) => void,
 	) {
 		this.setManifest(manifest);
 	}
@@ -60,12 +62,25 @@ export class BindingEngine {
 	}
 
 	private applyBinding(binding: TwinObjectBindingDefinition, update: TwinDataUpdate) {
+		if (binding.transform.kind === 'routeSlotArray') {
+			this.applyRouteSlotArray?.(binding, update.value, update.stale || update.quality === 'bad' || update.quality === 'missing');
+			return;
+		}
 		if (binding.transform.kind === 'routeEvent') {
 			this.applyRouteSignal?.(binding.bindingId, update.value, update.stale || update.quality === 'bad' || update.quality === 'missing');
 			return;
 		}
 		const root = this.resolveObject(binding.objectId);
 		if (!root) return;
+		if (binding.transform.kind === 'routeDistance' || binding.target.kind === 'routeDistance') {
+			if (update.stale || update.quality === 'bad' || update.quality === 'missing') {
+				this.applyStaleStyle(root);
+				return;
+			}
+			this.restoreMaterialStyle(root);
+			this.applyRouteDistance?.(binding, root, Number(this.transform(binding, update.value)));
+			return;
+		}
 		const target = this.resolveNode(root, binding.nodePath) ?? root;
 		if (update.stale || update.quality === 'bad' || update.quality === 'missing') {
 			this.applyStaleStyle(target);
@@ -136,6 +151,7 @@ export class BindingEngine {
 			case 'booleanAnimation':
 				return Boolean(value) ? Number(config.trueValue?.speed ?? 1) : Number(config.falseValue?.speed ?? 0);
 			case 'routeProgress':
+			case 'routeDistance':
 				return Number(value) * Number(config.factor ?? 1) + Number(config.offset ?? 0);
 			default:
 				return value;

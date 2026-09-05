@@ -55,6 +55,42 @@ public sealed class DigitalTwinSceneService
     }
 
     /// <summary>
+    /// 返回根 Asset 所在租户/客户范围内可用于场景数据绑定的设备。
+    /// AssetRelation 只用于排序提示，不作为设备能否绑定的前置条件。
+    /// </summary>
+    public async Task<List<TwinBindingDeviceOptionDto>> ListBindingDevicesAsync(
+        Guid rootAssetId,
+        UserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        var assetExists = await _context.Assets.AsNoTracking().AnyAsync(item =>
+            item.Id == rootAssetId && !item.Deleted && item.Tenant.Id == profile.Tenant && item.Customer.Id == profile.Customer,
+            cancellationToken);
+        if (!assetExists)
+        {
+            throw new TwinOperationException(ApiCode.CantFindObject, "Root Asset 不存在或不在当前租户范围内。");
+        }
+
+        var relatedDeviceIds = await _context.Assets.AsNoTracking()
+            .Where(item => item.Id == rootAssetId && !item.Deleted && item.Tenant.Id == profile.Tenant && item.Customer.Id == profile.Customer)
+            .SelectMany(item => item.OwnedAssets.Select(relation => relation.DeviceId))
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return await _context.Device.AsNoTracking()
+            .Where(item => !item.Deleted && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer)
+            .OrderByDescending(item => relatedDeviceIds.Contains(item.Id))
+            .ThenBy(item => item.Name)
+            .Select(item => new TwinBindingDeviceOptionDto
+            {
+                Id = item.Id,
+                Name = item.Name,
+                AssetRelated = relatedDeviceIds.Contains(item.Id)
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// 获取场景草稿、草稿绑定和路线。
     /// </summary>
     public async Task<DigitalTwinSceneDetailDto?> GetAsync(Guid id, UserProfile profile, CancellationToken cancellationToken)
@@ -172,18 +208,22 @@ public sealed class DigitalTwinSceneService
         UserProfile profile,
         CancellationToken cancellationToken)
     {
-        var scene = await FindSceneAsync(id, profile, true, cancellationToken)
-            ?? throw new TwinOperationException(ApiCode.CantFindObject, "场景不存在。");
+        // Binding/Route are derived from DraftPayload. Keep them out of the tracked graph while
+        // updating the aggregate so a removed model cannot leave a stale child entity behind.
+        var scene = await FindSceneAsync(id, profile, false, cancellationToken)
+            ?? throw new TwinOperationException(ApiCode.CantFindObject, "\u573a\u666f\u4e0d\u5b58\u5728\u3002");
         var name = request.Name?.Trim() ?? scene.Name;
-        if (string.IsNullOrWhiteSpace(name)) throw new TwinOperationException(ApiCode.InValidData, "场景名称不能为空。");
+        if (string.IsNullOrWhiteSpace(name))
+            throw new TwinOperationException(ApiCode.InValidData, "\u573a\u666f\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a\u3002");
         var rootAssetId = request.RootAssetId ?? scene.RootAssetId;
         var asset = await FindAssetAsync(rootAssetId, profile, cancellationToken)
-            ?? throw new TwinOperationException(ApiCode.CantFindObject, "Root Asset 不存在或不在当前租户范围内。");
+            ?? throw new TwinOperationException(ApiCode.CantFindObject, "Root Asset \u4e0d\u5b58\u5728\u6216\u4e0d\u5728\u5f53\u524d\u79df\u6237\u8303\u56f4\u5185\u3002");
         var payload = JsonNode.Parse(request.Payload.GetRawText())?.AsObject()
-            ?? throw new TwinOperationException(ApiCode.InValidData, "场景草稿不是有效的 JSON 对象。");
+            ?? throw new TwinOperationException(ApiCode.InValidData, "\u573a\u666f\u8349\u7a3f\u4e0d\u662f\u6709\u6548\u7684 JSON \u5bf9\u8c61\u3002");
         payload["name"] = name;
         payload["description"] = request.Description?.Trim() ?? scene.Description ?? string.Empty;
         payload["rootAssetId"] = rootAssetId.ToString("D");
+        await ResolveComponentResourceIdsAsync(payload, profile, cancellationToken);
         using var document = JsonDocument.Parse(payload.ToJsonString(WebJsonOptions));
         var inspection = TwinManifestInspector.Inspect(document.RootElement, scene.Id, rootAssetId);
         await AppendReferenceDiagnosticsAsync(inspection, profile, false, cancellationToken);
@@ -191,18 +231,22 @@ public sealed class DigitalTwinSceneService
 
         if (scene.Revision != request.Revision)
         {
-            // HTTP 响应中断时，数据库可能已经完整提交，而浏览器仍持有旧 revision。
-            // 相同 Manifest 的重试属于幂等提交，直接返回服务器当前草稿，避免页面
-            // 永久陷入“实际已保存、随后每次都版本冲突”的状态。
             var sameCommittedDraft = string.Equals(scene.Name, name, StringComparison.Ordinal)
                 && string.Equals(scene.Description ?? string.Empty, request.Description?.Trim() ?? scene.Description ?? string.Empty, StringComparison.Ordinal)
                 && scene.RootAssetId == rootAssetId
                 && string.Equals(ComputeSha256(scene.DraftPayload), ComputeSha256(inspection.NormalizedPayload), StringComparison.Ordinal);
-            if (sameCommittedDraft) return ToSceneDetailDto(scene);
+            if (sameCommittedDraft)
+            {
+                await _context.Entry(scene).Collection(item => item.Bindings).LoadAsync(cancellationToken);
+                await _context.Entry(scene).Collection(item => item.Routes).LoadAsync(cancellationToken);
+                return ToSceneDetailDto(scene);
+            }
 
-            throw new TwinOperationException(ApiCode.InValidData, $"草稿版本冲突，服务器 revision={scene.Revision}，请重新加载后再保存。");
+            throw new TwinOperationException(ApiCode.InValidData,
+                $"\u8349\u7a3f\u7248\u672c\u51b2\u7a81\uff0c\u670d\u52a1\u5668 revision={scene.Revision}\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u540e\u518d\u4fdd\u5b58\u3002");
         }
 
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var actor = ResolveActor(profile);
         scene.Name = name;
@@ -213,8 +257,19 @@ public sealed class DigitalTwinSceneService
         scene.Revision += 1;
         scene.UpdatedAt = now;
         scene.UpdatedBy = actor;
-        ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
-        ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
+
+        // Draft relations are projections of the manifest. Replace them in the same transaction
+        // as the scene revision update. Published snapshots always have SceneVersionId != null
+        // and are therefore never touched here.
+        DetachTrackedDraftRelations(scene.Id);
+        await _context.TwinObjectBindings
+            .Where(item => item.SceneId == scene.Id && item.SceneVersionId == null)
+            .ExecuteDeleteAsync(cancellationToken);
+        await _context.TwinRoutes
+            .Where(item => item.SceneId == scene.Id && item.SceneVersionId == null)
+            .ExecuteDeleteAsync(cancellationToken);
+        AddDraftBindings(scene.Id, inspection.Bindings, profile, actor, now);
+        AddDraftRoutes(scene.Id, inspection.Routes, profile, actor, now);
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneDraftCommit", new
         {
             scene.Revision,
@@ -223,29 +278,37 @@ public sealed class DigitalTwinSceneService
             routeCount = inspection.Routes.Count,
             manifestHash = ComputeSha256(inspection.NormalizedPayload)
         }, "Saved", now);
+
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException exception)
         {
-            var conflicts = string.Join(", ", exception.Entries.Select(entry =>
-            {
-                var key = string.Join("/", entry.Properties
-                    .Where(property => property.Metadata.IsPrimaryKey())
-                    .Select(property => property.CurrentValue?.ToString() ?? "null"));
-                var tokens = string.Join("/", entry.Properties
-                    .Where(property => property.Metadata.IsConcurrencyToken)
-                    .Select(property => $"{property.Metadata.Name}:{property.OriginalValue}->{property.CurrentValue}"));
-                return $"{entry.Metadata.ClrType.Name}[{key}]({tokens})";
-            }));
-            throw new TwinOperationException(ApiCode.InValidData, $"草稿关联数据发生并发冲突：{conflicts}。请重新加载场景后重试。", exception);
+            await transaction.RollbackAsync(cancellationToken);
+            _context.ChangeTracker.Clear();
+            var serverRevision = await _context.DigitalTwinScenes.AsNoTracking()
+                .Where(item => item.Id == id && !item.Deleted && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer)
+                .Select(item => (long?)item.Revision)
+                .FirstOrDefaultAsync(cancellationToken);
+            throw new TwinOperationException(ApiCode.InValidData,
+                serverRevision.HasValue
+                    ? $"\u8349\u7a3f\u7248\u672c\u51b2\u7a81\uff0c\u670d\u52a1\u5668 revision={serverRevision.Value}\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u540e\u518d\u4fdd\u5b58\u3002"
+                    : "\u8349\u7a3f\u4fdd\u5b58\u65f6\u573a\u666f\u5df2\u4e0d\u5b58\u5728\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u573a\u666f\u3002",
+                exception);
         }
-        return ToSceneDetailDto(scene);
+
+        // ExecuteDelete bypasses the change tracker by design. Reload the aggregate after commit so
+        // the response contains only the rows that were just rebuilt from the persisted manifest.
+        _context.ChangeTracker.Clear();
+        var savedScene = await FindSceneAsync(id, profile, true, cancellationToken)
+            ?? throw new TwinOperationException(ApiCode.CantFindObject, "\u573a\u666f\u4e0d\u5b58\u5728\u3002");
+        return ToSceneDetailDto(savedScene);
     }
 
     /// <summary>
-    /// 校验草稿结构、模型授权和所有 Asset/Device 数据库引用。
+    /// Validates the draft manifest and referenced resources.
     /// </summary>
     public async Task<TwinValidationResultDto> ValidateAsync(Guid id, UserProfile profile, bool forPublish, CancellationToken cancellationToken)
     {
@@ -489,6 +552,65 @@ public sealed class DigitalTwinSceneService
         }
     }
 
+    private async Task ResolveComponentResourceIdsAsync(
+        JsonObject payload,
+        UserProfile profile,
+        CancellationToken cancellationToken)
+    {
+        if (payload["objects"] is not JsonArray objects || objects.Count == 0) return;
+
+        var resourceKeys = objects
+            .OfType<JsonObject>()
+            .Where(item => string.Equals(item["kind"]?.GetValue<string>(), "component", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item["component"]?["resourceKey"]?.GetValue<string>())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (resourceKeys.Count == 0) return;
+
+        var resources = await _context.TwinModelResources.AsNoTracking()
+            .Where(item => resourceKeys.Contains(item.ResourceKey)
+                && !item.Deleted
+                && item.TenantId == profile.Tenant
+                && item.CustomerId == profile.Customer
+                && item.RuntimeFormat == ComponentRuntimeFormat
+                && item.ProcessingStatus == TwinModelProcessingStatus.Ready)
+            .ToListAsync(cancellationToken);
+        if (resources.Count == 0) return;
+
+        var resourcesByKey = resources
+            .GroupBy(item => item.ResourceKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var resourceList = payload["resources"] as JsonArray ?? new JsonArray();
+        if (payload["resources"] is not JsonArray) payload["resources"] = resourceList;
+
+        var listedResourceIds = resourceList
+            .OfType<JsonObject>()
+            .Select(item => item["resourceId"]?.GetValue<string>())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sceneObject in objects.OfType<JsonObject>())
+        {
+            if (!string.Equals(sceneObject["kind"]?.GetValue<string>(), "component", StringComparison.OrdinalIgnoreCase)) continue;
+            var resourceKey = sceneObject["component"]?["resourceKey"]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(resourceKey) || !resourcesByKey.TryGetValue(resourceKey, out var resource)) continue;
+
+            var resourceId = resource.Id.ToString("D");
+            sceneObject["resourceId"] = resourceId;
+            if (listedResourceIds.Add(resourceId))
+            {
+                resourceList.Add(new JsonObject
+                {
+                    ["resourceId"] = resourceId,
+                    ["name"] = resource.Name,
+                    ["status"] = "ready"
+                });
+            }
+        }
+    }
+
     /// <summary>
     /// 确认 Manifest 中的组件版本快照与数据库资源元数据完全一致，避免客户端伪造生成器或引用普通 GLB。
     /// </summary>
@@ -535,8 +657,12 @@ public sealed class DigitalTwinSceneService
                 var generator = ReadString(metadata, "generator");
                 var generatorVersion = metadata.TryGetProperty("generatorVersion", out var versionValue) && versionValue.TryGetInt32(out var parsedVersion) ? parsedVersion : 0;
                 var registeredPorts = new Dictionary<string, string>(StringComparer.Ordinal);
-                var hasPorts = metadata.TryGetProperty("ports", out var ports) && ports.ValueKind == JsonValueKind.Array && ports.GetArrayLength() > 0;
-                if (hasPorts)
+                var hasValidPorts = metadata.TryGetProperty("ports", out var ports) && ports.ValueKind == JsonValueKind.Array;
+                var requiresMaterialPorts = metadata.TryGetProperty("capabilities", out var capabilities)
+                    && capabilities.ValueKind == JsonValueKind.Array
+                    && capabilities.EnumerateArray().Any(item => item.ValueKind == JsonValueKind.String
+                        && string.Equals(item.GetString(), "material-flow", StringComparison.OrdinalIgnoreCase));
+                if (hasValidPorts)
                 {
                     foreach (var port in ports.EnumerateArray())
                     {
@@ -544,11 +670,12 @@ public sealed class DigitalTwinSceneService
                         var portType = ReadString(port, "type");
                         if (string.IsNullOrWhiteSpace(portId) || string.IsNullOrWhiteSpace(portType) || !registeredPorts.TryAdd(portId, portType))
                         {
-                            hasPorts = false;
+                            hasValidPorts = false;
                             break;
                         }
                     }
                 }
+                if (requiresMaterialPorts && registeredPorts.Count == 0) hasValidPorts = false;
 
                 var registeredBindingSlots = new HashSet<string>(StringComparer.Ordinal);
                 if (metadata.TryGetProperty("bindingSlots", out var bindingSlots) && bindingSlots.ValueKind == JsonValueKind.Array)
@@ -564,7 +691,7 @@ public sealed class DigitalTwinSceneService
                     !string.Equals(metadataResourceKey, component.ResourceKey, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(componentType, component.ComponentType, StringComparison.Ordinal) ||
                     !string.Equals(generator, component.Generator, StringComparison.Ordinal) ||
-                    generatorVersion != component.GeneratorVersion || !hasPorts)
+                    generatorVersion != component.GeneratorVersion || !hasValidPorts)
                 {
                     inspection.Diagnostics.Add(Error("twin.component.metadata.mismatch", $"组件 {component.ObjectId} 的类型、生成器、版本或端口与数据库资源元数据不一致，请重新执行组件入库。", path));
                 }
@@ -640,6 +767,70 @@ public sealed class DigitalTwinSceneService
             removed.Deleted = true;
             removed.UpdatedAt = now;
             removed.UpdatedBy = actor;
+        }
+    }
+
+    private void DetachTrackedDraftRelations(Guid sceneId)
+    {
+        foreach (var entry in _context.ChangeTracker.Entries<TwinObjectBinding>()
+                     .Where(entry => entry.Entity.SceneId == sceneId && entry.Entity.SceneVersionId == null)
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        foreach (var entry in _context.ChangeTracker.Entries<TwinRoute>()
+                     .Where(entry => entry.Entity.SceneId == sceneId && entry.Entity.SceneVersionId == null)
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+    }
+
+    private void AddDraftBindings(Guid sceneId, List<TwinBindingDraft> drafts, UserProfile profile, string actor, DateTime now)
+    {
+        foreach (var draft in drafts)
+        {
+            var entity = new TwinObjectBinding
+            {
+                Id = Guid.NewGuid(),
+                SceneId = sceneId,
+                SceneVersionId = null,
+                BindingKey = draft.BindingKey,
+                CreatedAt = now,
+                CreatedBy = actor,
+                TenantId = profile.Tenant,
+                CustomerId = profile.Customer
+            };
+            ApplyBinding(entity, draft, actor, now);
+            _context.TwinObjectBindings.Add(entity);
+        }
+    }
+
+    private void AddDraftRoutes(Guid sceneId, List<TwinRouteDraft> drafts, UserProfile profile, string actor, DateTime now)
+    {
+        foreach (var draft in drafts)
+        {
+            var entity = new TwinRoute
+            {
+                Id = Guid.NewGuid(),
+                SceneId = sceneId,
+                SceneVersionId = null,
+                RouteKey = draft.RouteKey,
+                Revision = 1,
+                Name = draft.Name,
+                RouteType = draft.RouteType,
+                GraphPayload = draft.GraphPayload,
+                Enabled = draft.Enabled,
+                Deleted = false,
+                CreatedAt = now,
+                CreatedBy = actor,
+                UpdatedAt = now,
+                UpdatedBy = actor,
+                TenantId = profile.Tenant,
+                CustomerId = profile.Customer
+            };
+            _context.TwinRoutes.Add(entity);
         }
     }
 

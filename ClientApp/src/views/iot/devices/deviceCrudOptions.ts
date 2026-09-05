@@ -21,6 +21,14 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 	const onSelectionChange = (changed) => {
 		selectedItems.value = changed.map((item) => item);
 	};
+	const updateCurrentPageOverview = () => {
+		if (!overviewState) return;
+		const onlineCount = records.filter((item: TableDataRow) => item.connected === true).length;
+		overviewState.pageCount = records.length;
+		overviewState.onlineCount = onlineCount;
+		overviewState.offlineCount = records.length - onlineCount;
+		overviewState.lastRefresh = dayjs().format('HH:mm:ss');
+	};
 	const pageRequest = async (query) => {
 		const params = reactive({
 			offset: query.page.currentPage - 1,
@@ -33,12 +41,8 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 		const res = await deviceApi().devcieList(params);
 		records = res.data.rows;
 		if (overviewState) {
-			const onlineCount = records.filter((item: TableDataRow) => item.connected).length;
 			overviewState.total = res.data.total ?? 0;
-			overviewState.pageCount = records.length;
-			overviewState.onlineCount = onlineCount;
-			overviewState.offlineCount = records.length - onlineCount;
-			overviewState.lastRefresh = dayjs().format('HH:mm:ss');
+			updateCurrentPageOverview();
 		}
 		return {
 			records,
@@ -55,7 +59,9 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 		});
 		try {
 			await deviceApi().putdevcie(newItem);
-			_.merge(target, form);
+			const refreshed = await deviceApi().getdevcie(row.id);
+			Object.assign(target, refreshed.data);
+			updateCurrentPageOverview();
 			return target;
 		} catch (e) {
 			ElMessage.error(e.response.msg);
@@ -200,30 +206,6 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 						component: customSwitchComponent,
 					},
 				},
-				active: {
-					title: '在线状态',
-					type: 'dict-switch',
-					search: { show: false },
-					dict: dict({
-						data: [
-							{ value: true, label: '在线' },
-							{ value: false, label: '离线', color: 'danger' },
-						],
-					}),
-					column: { width: '80px', show: false },
-					viewForm: {
-						show: false,
-						component: customSwitchComponent,
-					},
-					addForm: {
-						show: false,
-						component: customSwitchComponent,
-					},
-					editForm: {
-						show: false,
-						component: customSwitchComponent,
-					},
-				},
 				lastConnectDateTime: {
 					title: '最后上线时间',
 					type: 'datetime',
@@ -265,7 +247,7 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 						show: false,
 					},
 					viewForm: {
-						show: false,
+						show: true,
 					},
 					addForm: {
 						show: false,

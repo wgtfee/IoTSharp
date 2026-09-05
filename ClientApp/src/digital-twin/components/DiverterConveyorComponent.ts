@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createComponentResult, createMaterial, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
-import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
+import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export class DiverterConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'diverter-conveyor' as const;
@@ -54,11 +54,25 @@ export class DiverterConveyorComponent implements TwinComponentGenerator {
 			{ portId: 'output-a', name: '直行出口', type: 'material-output', localPosition: [outputLength, height, 0], localDirection: [1, 0, 0] },
 			{ portId: 'output-b', name: '分流出口', type: 'material-output', localPosition: [branchEnd.x, height, branchEnd.z], localDirection: [Math.cos(branchAngle), 0, Math.sin(branchAngle)] },
 		];
+		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
+			flowId: 'diverter', name: '一分二内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
+			points: [
+				{ pointId: 'input', name: '入口', localPosition: [-inputLength, height, 0], portId: 'input' },
+				{ pointId: 'junction', name: '分流中心', localPosition: [0, height, 0], kind: 'diverter' },
+				{ pointId: 'output-a', name: '直行出口', localPosition: [outputLength, height, 0], portId: 'output-a' },
+				{ pointId: 'output-b', name: '分流出口', localPosition: [branchEnd.x, height, branchEnd.z], portId: 'output-b' },
+			],
+			edges: [
+				{ edgeId: 'input-to-junction', fromPointId: 'input', toPointId: 'junction', capacity: Number(props.capacity || 2) },
+				{ edgeId: 'junction-to-a', fromPointId: 'junction', toPointId: 'output-a', capacity: Number(props.capacity || 2) },
+				{ edgeId: 'junction-to-b', fromPointId: 'junction', toPointId: 'output-b', capacity: Number(props.capacity || 2) },
+			],
+		}];
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
 		root.userData.junction = true;
 		root.userData.properties = { ...props, width, height, inputLength, outputLength, branchAngle: branchAngleDeg };
 		setTransform(root, definition.transform);
-		return createComponentResult(root, ports);
+		return createComponentResult(root, ports, internalFlows);
 	}
 }

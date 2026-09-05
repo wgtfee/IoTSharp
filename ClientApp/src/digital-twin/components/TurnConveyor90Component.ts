@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createComponentResult, createMaterial, resolveNumber, setTransform } from './geometry';
-import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
+import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export class TurnConveyor90Component implements TwinComponentGenerator {
 	readonly componentType = 'turn-conveyor-90' as const;
@@ -14,6 +14,8 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		const width = resolveNumber(props, 'width', 1.6, 0.5, 6);
 		const height = resolveNumber(props, 'height', 0.9, 0.2, 3);
 		const rollerDiameter = resolveNumber(props, 'rollerDiameter', 0.14, 0.05, 0.6);
+		const rollerRadius = rollerDiameter / 2;
+		const rollerCenterY = height - rollerRadius;
 		const rollerPitch = resolveNumber(props, 'rollerPitch', 0.45, rollerDiameter * 1.1, 2);
 		const direction = props.turnDirection === 'right' ? -1 : 1;
 		const root = new THREE.Group();
@@ -28,7 +30,7 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 			Array.from({ length: 24 }, (_, index) => {
 				const t = index / 23;
 				const angle = start + (end - start) * t;
-				return new THREE.Vector3(Math.cos(angle) * r, height - 0.08, Math.sin(angle) * r);
+				return new THREE.Vector3(Math.cos(angle) * r, rollerCenterY - 0.08, Math.sin(angle) * r);
 			}),
 		);
 		for (const r of [railRadiusInner, railRadiusOuter]) {
@@ -41,13 +43,16 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		const rollerGeometry = new THREE.CylinderGeometry(rollerDiameter / 2, rollerDiameter / 2, Math.max(0.2, width - 0.14), 14);
 		const rollers = new THREE.InstancedMesh(rollerGeometry, rollerMaterial, rollerCount);
 		rollers.name = 'Rollers';
+		rollers.userData.conveyorSurfaceHeight = height;
+		rollers.userData.rollerCenterY = rollerCenterY;
+		rollers.userData.rollerRadius = rollerRadius;
 		const dummy = new THREE.Object3D();
 		const yAxis = new THREE.Vector3(0, 1, 0);
 		for (let index = 0; index < rollerCount; index += 1) {
 			const t = rollerCount <= 1 ? 0 : index / (rollerCount - 1);
 			const angle = start + (end - start) * t;
 			const radial = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize();
-			dummy.position.set(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
+			dummy.position.set(Math.cos(angle) * radius, rollerCenterY, Math.sin(angle) * radius);
 			dummy.quaternion.setFromUnitVectors(yAxis, radial);
 			dummy.updateMatrix();
 			rollers.setMatrixAt(index, dummy.matrix);
@@ -70,10 +75,29 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 				localDirection: outputDirection,
 			},
 		];
+		const flowPointCount = 7;
+		const flowPoints = Array.from({ length: flowPointCount }, (_, index) => {
+			const t = index / (flowPointCount - 1);
+			const angle = start + (end - start) * t;
+			return {
+				pointId: index === 0 ? 'input' : index === flowPointCount - 1 ? 'output' : `arc-${index}`,
+				name: index === 0 ? '入口' : index === flowPointCount - 1 ? '出口' : `转弯路径${index}`,
+				localPosition: [Math.cos(angle) * radius, height, Math.sin(angle) * radius] as [number, number, number],
+				portId: index === 0 ? 'input' : index === flowPointCount - 1 ? 'output' : undefined,
+			};
+		});
+		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
+			flowId: 'turn', name: '90°转弯内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
+			points: flowPoints,
+			edges: flowPoints.slice(0, -1).map((item, index) => ({ edgeId: `arc-${index + 1}`, fromPointId: item.pointId, toPointId: flowPoints[index + 1].pointId, capacity: Number(props.capacity || 2), speedLimit: Number(props.speedLimit || 1) })),
+		}];
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
+		root.userData.conveyorSurfaceHeight = height;
+		root.userData.rollerCenterY = rollerCenterY;
+		root.userData.rollerRadius = rollerRadius;
 		root.userData.properties = { ...props, radius, width, height, rollerDiameter, rollerPitch, turnDirection: direction > 0 ? 'left' : 'right' };
 		setTransform(root, definition.transform);
-		return createComponentResult(root, ports);
+		return createComponentResult(root, ports, internalFlows);
 	}
 }

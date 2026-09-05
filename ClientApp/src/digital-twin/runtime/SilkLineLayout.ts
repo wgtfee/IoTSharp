@@ -20,11 +20,13 @@ export const silkLineLayout = {
 	gantryLaneEndX: 29.4,
 	gantryExitX: 31.2,
 	woodPalletX: 26,
-	coverX: 33,
-	labelX: 37.5,
-	wrappingX: 42,
-	inboundX: 48,
-	storedX: 52,
+	// 木托盘后包装线按“码垛 -> 天盖 -> 缠膜 -> 贴标 -> 入库”展开，
+	// 各工位之间保留独立的大辊道缓冲段，避免设备机架互相重叠。
+	coverX: 40,
+	wrappingX: 50,
+	labelX: 60,
+	inboundX: 70,
+	storedX: 76,
 	returnEastX: 58,
 	returnNorthZ: 34,
 	returnWestX: -42,

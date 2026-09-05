@@ -24,6 +24,12 @@ export interface DigitalTwinSceneDetail extends DigitalTwinSceneSummary {
 	routes: Array<{ id: string; routeKey: string; revision: number }>;
 }
 
+export interface TwinBindingDeviceOption {
+	id: string;
+	name: string;
+	assetRelated: boolean;
+}
+
 export interface TwinPersistedBinding {
 	id: string;
 	sceneId: string;
@@ -161,6 +167,8 @@ export interface TwinRuntimeSnapshot {
 export const digitalTwinApi = {
 	listScenes: (params: { rootAssetId?: string; name?: string; status?: string } = {}) =>
 		request({ url: '/api/digital-twin/scenes', method: 'get', params }),
+	listBindingDevices: (rootAssetId: string) =>
+		request({ url: '/api/digital-twin/scenes/binding-devices', method: 'get', params: { rootAssetId } }),
 	getScene: (id: string) => request({ url: `/api/digital-twin/scenes/${id}`, method: 'get' }),
 	createScene: (data: { sceneKey?: string; name: string; description?: string; rootAssetId: string; draftPayload?: TwinSceneManifest }) =>
 		request({ url: '/api/digital-twin/scenes', method: 'post', data }),

@@ -8,7 +8,7 @@
 *.user
 *.userosscache
 *.sln.docstates
-
+.codex-runtime
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 .dotnet-cli/

@@ -39,6 +39,23 @@ public sealed class DigitalTwinScenesController : ControllerBase
         return new ApiResult<List<DigitalTwinSceneDto>>(ApiCode.Success, "OK", data);
     }
 
+    [HttpGet("binding-devices")]
+    [Authorize(Roles = AllUserRoles)]
+    public async Task<ApiResult<List<TwinBindingDeviceOptionDto>>> BindingDevices(
+        [FromQuery] Guid rootAssetId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var data = await _service.ListBindingDevicesAsync(rootAssetId, this.GetUserProfile(), cancellationToken);
+            return new ApiResult<List<TwinBindingDeviceOptionDto>>(ApiCode.Success, "OK", data);
+        }
+        catch (TwinOperationException exception)
+        {
+            return Failed<List<TwinBindingDeviceOptionDto>>(exception);
+        }
+    }
+
     [HttpGet("{id:guid}")]
     [Authorize(Roles = AllUserRoles)]
     public async Task<ApiResult<DigitalTwinSceneDetailDto>> Get(Guid id, CancellationToken cancellationToken)

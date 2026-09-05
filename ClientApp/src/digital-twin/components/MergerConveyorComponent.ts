@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createComponentResult, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
-import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
+import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 export class MergerConveyorComponent implements TwinComponentGenerator {
 	readonly componentType = 'merger-conveyor' as const;
@@ -49,11 +49,25 @@ export class MergerConveyorComponent implements TwinComponentGenerator {
 			{ portId: 'input-b', name: '汇流入口', type: 'material-input', localPosition: [inputBStart.x, height, inputBStart.z], localDirection: [-Math.cos(branchAngle), 0, Math.sin(branchAngle)] },
 			{ portId: 'output', name: '出口', type: 'material-output', localPosition: [outputLength, height, 0], localDirection: [1, 0, 0] },
 		];
+		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
+			flowId: 'merger', name: '二合一内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
+			points: [
+				{ pointId: 'input-a', name: '直行入口', localPosition: [-inputLength, height, 0], portId: 'input-a' },
+				{ pointId: 'input-b', name: '汇流入口', localPosition: [inputBStart.x, height, inputBStart.z], portId: 'input-b' },
+				{ pointId: 'merge', name: '汇流中心', localPosition: [0, height, 0], kind: 'merger' },
+				{ pointId: 'output', name: '出口', localPosition: [outputLength, height, 0], portId: 'output' },
+			],
+			edges: [
+				{ edgeId: 'a-to-merge', fromPointId: 'input-a', toPointId: 'merge', capacity: Number(props.capacity || 2) },
+				{ edgeId: 'b-to-merge', fromPointId: 'input-b', toPointId: 'merge', capacity: Number(props.capacity || 2) },
+				{ edgeId: 'merge-to-output', fromPointId: 'merge', toPointId: 'output', capacity: Number(props.capacity || 2) },
+			],
+		}];
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
 		root.userData.merger = true;
 		root.userData.properties = { ...props, width, height, inputLength, outputLength, branchAngle: branchAngleDeg };
 		setTransform(root, definition.transform);
-		return createComponentResult(root, ports);
+		return createComponentResult(root, ports, internalFlows);
 	}
 }

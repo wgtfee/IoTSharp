@@ -16,7 +16,13 @@ export interface TwinSceneComponentDefinition {
 	/** Smart Model 标准 Slot 到 Manifest BindingId 的实例级映射。 */
 	bindings?: Record<string, string>;
 	sectionId?: string;
+	/** 运输单元在 3D 场景设计器中吸附到的运行路线。 */
+	routeId?: string;
 	routeEdgeId?: string;
+	/** 运输单元在所属 RouteEdge 上的归一化位置（0..1）。 */
+	routeProgress?: number;
+	/** 从路线起点累计到当前吸附点的设计距离；分支路线仅用于编辑器定位/诊断。 */
+	routeDistanceMeters?: number;
 }
 
 export interface TwinComponentConnectionEndpoint {

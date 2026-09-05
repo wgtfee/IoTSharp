@@ -70,6 +70,46 @@ const createEdgeComponent = (route: TwinRouteDefinition, edge: TwinRouteDefiniti
 	);
 };
 
+const syncExistingRouteManagedEdgeComponents = (objects: TwinV7SceneObjectDefinition[], routes: TwinRouteDefinition[]) => {
+	const desired = new Map<string, TwinV7SceneObjectDefinition>();
+	const activeRouteEdgeIds = new Set<string>();
+	for (const route of routes) {
+		for (const edge of route.edges) {
+			activeRouteEdgeIds.add(edge.edgeId);
+			const component = createEdgeComponent(route, edge);
+			if (component) desired.set(component.objectId, component);
+		}
+	}
+	let changed = false;
+	for (let index = objects.length - 1; index >= 0; index -= 1) {
+		const object = objects[index];
+		if (object.kind !== 'component' || object.component?.properties?.[MIGRATION_FLAG] !== true || object.component.properties.routeManagedExternally !== true) continue;
+		const routeEdgeId = object.component.routeEdgeId;
+		if (!routeEdgeId) continue;
+		const next = desired.get(object.objectId);
+		if (!next) {
+			if (!activeRouteEdgeIds.has(routeEdgeId)) {
+				objects.splice(index, 1);
+				changed = true;
+			}
+			continue;
+		}
+		const before = JSON.stringify({ name: object.name, transform: object.transform, properties: object.component.properties, sectionId: object.component.sectionId, routeEdgeId: object.component.routeEdgeId });
+		object.name = next.name;
+		object.transform = structuredClone(next.transform);
+		object.component.resourceKey = next.component!.resourceKey;
+		object.component.componentType = next.component!.componentType;
+		object.component.generator = next.component!.generator;
+		object.component.generatorVersion = next.component!.generatorVersion;
+		object.component.sectionId = next.component!.sectionId;
+		object.component.routeEdgeId = next.component!.routeEdgeId;
+		object.component.properties = { ...object.component.properties, ...structuredClone(next.component!.properties) };
+		const after = JSON.stringify({ name: object.name, transform: object.transform, properties: object.component.properties, sectionId: object.component.sectionId, routeEdgeId: object.component.routeEdgeId });
+		if (before !== after) changed = true;
+	}
+	return changed;
+};
+
 const addSmartStation = (objects: TwinV7SceneObjectDefinition[], route: TwinRouteDefinition, pointId: string, resourceKey: string, name: string) => {
 	const point = routePoint(route, pointId);
 	if (!point) return;
@@ -91,6 +131,12 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	if (!route || !hasSilkRuntime) return { migrated: false, componentCount: 0 };
 
 	const objects = manifest.objects as TwinV7SceneObjectDefinition[];
+	const completedMigrationVersion = Number(manifest.runtime.silkV7InfrastructureMigrationVersion ?? 0);
+	if (completedMigrationVersion >= SILK_V7_MIGRATION_VERSION) {
+		const synchronized = syncExistingRouteManagedEdgeComponents(objects, [route, woodRoute].filter((item): item is TwinRouteDefinition => Boolean(item)));
+		const existingCount = objects.filter((candidate) => candidate.kind === 'component' && candidate.component?.properties?.[MIGRATION_FLAG] === true).length;
+		return { migrated: synchronized, componentCount: existingCount, migrationVersion: completedMigrationVersion };
+	}
 	const proceduralRoot = manifest.objects.find((item) => item.kind === 'procedural'
 		&& ['silk-cake-line', 'silk-cake-packaging-line', 'packaging-line'].includes(item.procedural?.preset || ''));
 	const existingIds = new Set(objects.map((item) => item.objectId));
@@ -124,8 +170,12 @@ export const migrateSilkLineInfrastructureToV7 = (manifest: TwinSceneManifest) =
 	const allExistingIds = new Set(objects.map((item) => item.objectId));
 	const additions = migrated.filter((item) => !allExistingIds.has(item.objectId));
 	objects.push(...additions);
+	const synchronized = syncExistingRouteManagedEdgeComponents(objects, [route, woodRoute].filter((item): item is TwinRouteDefinition => Boolean(item)));
 	manifest.connections ||= [];
-	return { migrated: additions.length > 0 || equipmentAdditions.length > 0 || upgraded, componentCount: existing.length + additions.length, migrationVersion: SILK_V7_MIGRATION_VERSION };
+	// 这是一次性、版本化迁移标记。后续 normalize/load/save 不得把用户主动删除的
+	// V7 组件误判为“旧场景缺失”并重新补回；只有未来迁移版本提升时才允许再次迁移。
+	manifest.runtime.silkV7InfrastructureMigrationVersion = SILK_V7_MIGRATION_VERSION;
+	return { migrated: additions.length > 0 || equipmentAdditions.length > 0 || upgraded || synchronized, componentCount: existing.length + additions.length, migrationVersion: SILK_V7_MIGRATION_VERSION };
 };
 
 export const hasSilkV7Infrastructure = (manifest: TwinSceneManifest) =>

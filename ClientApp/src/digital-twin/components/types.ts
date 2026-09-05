@@ -1,17 +1,26 @@
 import * as THREE from 'three';
 
 export type TwinComponentType =
+	| 'pallet'
+	| 'carton'
 	| 'roller-conveyor'
+	| 'double-small-roller-conveyor'
 	| 'turn-conveyor-90'
 	| 'diverter-conveyor'
 	| 'merger-conveyor'
 	| 'lift'
 	| 'turntable'
 	| 'external-inspection'
-	| 'bagging-machine';
+	| 'bagging-machine'
+	| 'industrial-robot'
+	| 'silk-gantry'
+	| 'top-cover-gantry'
+	| 'wrapper-machine'
+	| 'labeling-machine';
 
 export type TwinComponentResourceType = 'procedural-component' | 'smart-model';
 export type TwinComponentCapability =
+	| 'transport-unit'
 	| 'material-flow'
 	| 'capacity'
 	| 'junction'
@@ -22,6 +31,7 @@ export type TwinComponentCapability =
 	| 'plc-binding';
 
 export type TwinComponentPortType = 'material-input' | 'material-output' | 'material-bidirectional';
+export type TwinComponentInternalFlowPointKind = 'buffer' | 'station' | 'junction' | 'diverter' | 'merger' | 'processStation';
 export type TwinComponentPropertyEditor = 'number' | 'select' | 'boolean' | 'string';
 export type TwinComponentPropertyCategory = 'geometry' | 'runtime' | 'connection' | 'process';
 export type TwinBindingSlotDataType = 'bool' | 'int' | 'float' | 'string';
@@ -50,7 +60,10 @@ export interface TwinComponentDefinition {
 	properties: Record<string, unknown>;
 	transform?: TwinComponentTransform;
 	sectionId?: string;
+	routeId?: string;
 	routeEdgeId?: string;
+	routeProgress?: number;
+	routeDistanceMeters?: number;
 }
 
 export interface TwinComponentPortDefinition {
@@ -65,6 +78,39 @@ export interface TwinComponentPortDefinition {
 export interface TwinResolvedComponentPort extends TwinComponentPortDefinition {
 	worldPosition: THREE.Vector3;
 	worldDirection: THREE.Vector3;
+}
+
+/** Component-owned material-flow graph in LOCAL component coordinates. */
+export interface TwinComponentInternalFlowPointDefinition {
+	pointId: string;
+	name: string;
+	localPosition: [number, number, number];
+	kind?: TwinComponentInternalFlowPointKind;
+	/** Internal graph endpoint represented by this component Port. */
+	portId?: string;
+	/** String by design: keeps component generators independent from scene-contract process unions. */
+	processType?: string;
+}
+
+export interface TwinComponentInternalFlowEdgeDefinition {
+	edgeId: string;
+	fromPointId: string;
+	toPointId: string;
+	name?: string;
+	bidirectional?: boolean;
+	capacity?: number;
+	speedLimit?: number;
+}
+
+export interface TwinComponentInternalFlowDefinition {
+	flowId: string;
+	name: string;
+	points: TwinComponentInternalFlowPointDefinition[];
+	edges: TwinComponentInternalFlowEdgeDefinition[];
+	conveyorSizeClass?: 'small' | 'large';
+	transportUnitType?: 'plastic-pallet' | 'wooden-pallet' | 'carton';
+	/** Dynamic flow may be gated further by runtime equipment state, e.g. a turntable. */
+	dynamic?: boolean;
 }
 
 export interface TwinComponentPropertySchema {
@@ -98,7 +144,7 @@ export interface TwinComponentTemplate {
 	componentType: TwinComponentType;
 	generator: string;
 	generatorVersion: number;
-	category: 'conveyor' | 'transfer' | 'process';
+	category: 'transport-unit' | 'conveyor' | 'transfer' | 'process';
 	tags: string[];
 	capabilities: TwinComponentCapability[];
 	defaultProperties: Record<string, unknown>;
@@ -113,6 +159,7 @@ export interface TwinComponentBuildContext {
 export interface TwinComponentBuildResult {
 	root: THREE.Group;
 	ports: TwinComponentPortDefinition[];
+	internalFlows: TwinComponentInternalFlowDefinition[];
 	bounds: THREE.Box3;
 	dispose: () => void;
 }

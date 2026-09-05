@@ -30,11 +30,11 @@ const segment = (progress: number, from: number, to: number) => smooth((progress
 export const resolveGantryPose = (progress: number, targetLayer: number): GantryResolvedPose => {
 	const p = clamp01(progress);
 	const layer = Math.max(0, Math.min(7, Math.floor(targetLayer)));
-	const pick = new THREE.Vector3(silkLineLayout.gantryStartX + 1.8, 4.34, -5.9);
+	const pick = new THREE.Vector3(silkLineLayout.woodPalletX, 4.34, -5.9);
 	const place = new THREE.Vector3(silkLineLayout.woodPalletX, 3.82 + layer * 0.46, -11);
 	// 第 8 层放置前，已有码垛最高点约 4.29m；安全平面下的丝饼底部约 4.69m，净空 0.40m。
 	const safeY = Math.max(7.45, place.y + 0.65);
-	const home = new THREE.Vector3(silkLineLayout.gantryStartX + 1.8, safeY, -5.9);
+	const home = new THREE.Vector3(silkLineLayout.woodPalletX, safeY, -5.9);
 	const carriage = home.clone();
 	let phase: GantryMotionPhase = 'approach-pick';
 

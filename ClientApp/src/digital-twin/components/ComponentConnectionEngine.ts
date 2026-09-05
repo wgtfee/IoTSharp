@@ -15,11 +15,21 @@ import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 import { applyComponentRoutePointBindings, buildComponentProcessDefinition } from './ComponentBindingResolver';
 import type {
 	TwinComponentDefinition,
+	TwinComponentInternalFlowDefinition,
+	TwinComponentInternalFlowPointDefinition,
 	TwinComponentPortDefinition,
 	TwinComponentPortType,
 	TwinComponentType,
 	TwinResolvedComponentPort,
 } from './types';
+
+export interface TwinResolvedComponentInternalFlowPoint extends TwinComponentInternalFlowPointDefinition {
+	worldPosition: THREE.Vector3;
+}
+
+export interface TwinResolvedComponentInternalFlow extends Omit<TwinComponentInternalFlowDefinition, 'points'> {
+	points: TwinResolvedComponentInternalFlowPoint[];
+}
 
 export interface TwinComponentPortRef extends TwinResolvedComponentPort {
 	objectId: string;
@@ -41,6 +51,27 @@ export interface TwinComponentSnapOptions {
 	maxAngleDegrees?: number;
 	preferFacingPorts?: boolean;
 }
+
+export type TwinSceneTransportUnitType = 'plastic-pallet' | 'wooden-pallet' | 'carton';
+
+export interface TwinTransportRouteSnapCandidate {
+	routeId: string;
+	routeName: string;
+	edgeId: string;
+	sectionId: string;
+	conveyorObjectId?: string;
+	conveyorSizeClass: 'small' | 'large';
+	transportUnitType: TwinSceneTransportUnitType;
+	distance: number;
+	edgeProgress: number;
+	routeDistanceMeters: number;
+	position: TwinVector3;
+	tangent: TwinVector3;
+}
+
+export type TwinSceneComponentSnapResult =
+	| { kind: 'component-port'; candidate: TwinComponentSnapCandidate; connection: TwinComponentConnectionDefinition; graph?: TwinComponentGraphBuildResult }
+	| { kind: 'transport-route'; candidate: TwinTransportRouteSnapCandidate };
 
 export interface TwinComponentGraphBuildResult {
 	networkId: string;
@@ -118,6 +149,25 @@ export const resolveComponentPorts = (object: TwinV7SceneObjectDefinition): Twin
 	}
 };
 
+/** Resolve the component-owned local material-flow graph into world coordinates. */
+export const resolveComponentInternalFlows = (object: TwinV7SceneObjectDefinition): TwinResolvedComponentInternalFlow[] => {
+	if (!isComponentSceneObject(object)) return [];
+	const definition = toComponentDefinition(object);
+	const built = defaultComponentRegistry.create(definition);
+	try {
+		built.root.updateMatrixWorld(true);
+		return (built.internalFlows || []).map((flow) => ({
+			...flow,
+			points: flow.points.map((point) => ({
+				...point,
+				worldPosition: new THREE.Vector3(...point.localPosition).applyMatrix4(built.root.matrixWorld),
+			})),
+		}));
+	} finally {
+		built.dispose();
+	}
+};
+
 export const canConnectPortTypes = (left: TwinComponentPortType, right: TwinComponentPortType) => {
 	if (left === 'material-bidirectional' || right === 'material-bidirectional') return true;
 	return (left === 'material-output' && right === 'material-input') || (left === 'material-input' && right === 'material-output');
@@ -159,9 +209,11 @@ export const findBestComponentSnap = (
 			if (connections.some((connection) => connectionUsesEndpoint(connection, target.objectId, target.portId))) continue;
 			for (const moving of movingPorts) {
 				if (!areComponentPortsCompatible(moving, target)) continue;
+				// 3D 场景设计器只允许“已经平行/共线且端口相向”的设备吸附。
+				// 90° 垂直、同向或超过实例 snapAngleDegrees 的端口都不能先成为候选再被强行旋转。
+				if (!portsFaceEachOther(moving, target, maxAngleDegrees)) continue;
 				const distance = moving.worldPosition.distanceTo(target.worldPosition);
 				if (distance > maxDistance) continue;
-				if (options.preferFacingPorts !== false && !portsFaceEachOther(moving, target, maxAngleDegrees)) continue;
 				candidates.push({ moving, target, distance, directionDot: moving.worldDirection.dot(target.worldDirection) });
 			}
 		}
@@ -204,14 +256,17 @@ export const applyComponentSnap = (
 		desiredDirection.normalize(); currentDirection.normalize();
 		const currentAngle = Math.atan2(currentDirection.z, currentDirection.x);
 		const desiredAngle = Math.atan2(desiredDirection.z, desiredDirection.x);
-		movingObject.transform.rotation[1] = normalizeYaw(movingObject.transform.rotation[1] + normalizeYaw(desiredAngle - currentAngle));
+		// Three.js 绕 Y 正向旋转时，本地 +X 的 atan2(z,x) 世界方向角反向变化，因此必须减去方向角差。
+		movingObject.transform.rotation[1] = normalizeYaw(movingObject.transform.rotation[1] - normalizeYaw(desiredAngle - currentAngle));
 	}
 	const refreshedPort = resolveComponentPorts(movingObject).find((port) => port.portId === candidate.moving.portId);
 	if (!refreshedPort) return undefined;
 	const delta = candidate.target.worldPosition.clone().sub(refreshedPort.worldPosition);
+	const placementPlaneY = movingObject.transform.position[1];
 	movingObject.transform.position = [
 		movingObject.transform.position[0] + delta.x,
-		movingObject.transform.position[1] + delta.y,
+		// Port 吸附只对齐水平 X/Z。顶层设备根节点保持原工程水平面，不允许自动上下抬升。
+		placementPlaneY,
 		movingObject.transform.position[2] + delta.z,
 	];
 	const connection = orientConnection(candidate);
@@ -229,6 +284,208 @@ export const snapAndConnectNearestComponent = (manifest: TwinSceneManifest, movi
 	const connection = applyComponentSnap(manifest, movingObjectId, candidate);
 	if (!connection) return undefined;
 	return { candidate, connection, graph: upsertGeneratedComponentRoute(manifest) };
+};
+
+/** 读取 3D 场景设计器实例级吸附参数；这些参数不属于模型几何，因此不放进 Component Studio。 */
+export const resolveSceneComponentSnapOptions = (object: TwinV7SceneObjectDefinition): Required<TwinComponentSnapOptions> => {
+	const properties = isComponentSceneObject(object) ? object.component.properties || {} : {};
+	return {
+		maxDistance: THREE.MathUtils.clamp(safeNumber(properties.snapDistance, DEFAULT_SNAP_DISTANCE), 0.05, 20),
+		maxAngleDegrees: THREE.MathUtils.clamp(safeNumber(properties.snapAngleDegrees, DEFAULT_SNAP_ANGLE_DEGREES), 0, 90),
+		preferFacingPorts: properties.preferFacingPorts !== false,
+	};
+};
+
+export const isTransportUnitSceneObject = (object: TwinV7SceneObjectDefinition | undefined | null) => {
+	if (!isComponentSceneObject(object)) return false;
+	const template = getBuiltInComponentTemplate(object.component.resourceKey);
+	return template?.category === 'transport-unit' || template?.capabilities.includes('transport-unit') === true
+		|| object.component.componentType === 'pallet' || object.component.componentType === 'carton';
+};
+
+export const resolveTransportUnitType = (object: TwinV7SceneObjectDefinition | undefined | null): TwinSceneTransportUnitType | undefined => {
+	if (!isTransportUnitSceneObject(object) || !isComponentSceneObject(object)) return undefined;
+	if (object.component.componentType === 'carton') return 'carton';
+	return object.component.properties?.palletType === 'wooden-pallet' ? 'wooden-pallet' : 'plastic-pallet';
+};
+
+const routeSnapSizeClass = (type: TwinSceneTransportUnitType): 'small' | 'large' => type === 'plastic-pallet' ? 'small' : 'large';
+
+const routeEdgeGeometry = (route: TwinRouteDefinition, edge: TwinRouteEdgeDefinition) => {
+	const from = route.points.find((point) => point.pointId === edge.fromPointId);
+	const to = route.points.find((point) => point.pointId === edge.toPointId);
+	if (!from || !to) return undefined;
+	const a = new THREE.Vector3(...from.position);
+	const b = new THREE.Vector3(...to.position);
+	const tangent = b.clone().sub(a);
+	if (tangent.lengthSq() < 0.000001) return undefined;
+	return { a, b, tangent };
+};
+
+const routeDistanceBeforeEdge = (route: TwinRouteDefinition, targetEdgeId: string) => {
+	let distance = 0;
+	for (const edge of route.edges || []) {
+		if (edge.edgeId === targetEdgeId) break;
+		const geometry = routeEdgeGeometry(route, edge);
+		if (geometry) distance += geometry.a.distanceTo(geometry.b);
+	}
+	return distance;
+};
+
+/**
+ * 运输单元不参与 Component Port 网络，而是吸附到已生成/手工输送 Route 的 Section 中心线。
+ * 业务约束：小托盘只自动进入 small；木托盘与纸箱只自动进入 large。
+ */
+export const findBestTransportRouteSnap = (
+	manifest: TwinSceneManifest,
+	objectId: string,
+	options: { maxDistance?: number } = {},
+): TwinTransportRouteSnapCandidate | undefined => {
+	const object = asV7Objects(manifest).find((item) => item.objectId === objectId);
+	const transportUnitType = resolveTransportUnitType(object);
+	if (!object || !transportUnitType) return undefined;
+	const expectedSizeClass = routeSnapSizeClass(transportUnitType);
+	const properties = isComponentSceneObject(object) ? object.component.properties || {} : {};
+	const maxDistance = THREE.MathUtils.clamp(safeNumber(options.maxDistance ?? properties.routeSnapDistance, 1.6), 0.05, 20);
+	const source = new THREE.Vector3(...object.transform.position);
+	const candidates: TwinTransportRouteSnapCandidate[] = [];
+
+	for (const route of manifest.routes || []) {
+		for (const edge of route.edges || []) {
+			const conveyorSizeClass = edge.conveyorSizeClass === 'large' ? 'large' : 'small';
+			if (conveyorSizeClass !== expectedSizeClass) continue;
+			const geometry = routeEdgeGeometry(route, edge);
+			if (!geometry) continue;
+			const planarA = geometry.a.clone().setY(0);
+			const planarB = geometry.b.clone().setY(0);
+			const planarSource = source.clone().setY(0);
+			const segment = planarB.clone().sub(planarA);
+			const segmentLengthSq = segment.lengthSq();
+			if (segmentLengthSq < 0.000001) continue;
+			const edgeProgress = THREE.MathUtils.clamp(planarSource.clone().sub(planarA).dot(segment) / segmentLengthSq, 0, 1);
+			const planarClosest = planarA.clone().add(segment.multiplyScalar(edgeProgress));
+			const distance = planarClosest.distanceTo(planarSource);
+			if (distance > maxDistance) continue;
+			const closest = geometry.a.clone().lerp(geometry.b, edgeProgress);
+			const tangent = geometry.tangent.normalize();
+			candidates.push({
+				routeId: route.routeId,
+				routeName: route.name,
+				edgeId: edge.edgeId,
+				sectionId: edge.sectionId || edge.edgeId,
+				conveyorObjectId: edge.conveyorObjectId || edge.componentObjectId,
+				conveyorSizeClass,
+				transportUnitType,
+				distance,
+				edgeProgress,
+				routeDistanceMeters: routeDistanceBeforeEdge(route, edge.edgeId) + geometry.a.distanceTo(geometry.b) * edgeProgress,
+				position: [closest.x, closest.y, closest.z],
+				tangent: [tangent.x, tangent.y, tangent.z],
+			});
+		}
+	}
+	candidates.sort((left, right) => left.distance - right.distance || left.routeId.localeCompare(right.routeId) || left.edgeId.localeCompare(right.edgeId));
+	return candidates[0];
+};
+
+export const clearTransportRouteAttachment = (object: TwinV7SceneObjectDefinition | undefined | null) => {
+	if (!isTransportUnitSceneObject(object) || !isComponentSceneObject(object)) return false;
+	const hadAttachment = Boolean(object.component.routeId || object.component.routeEdgeId || object.component.sectionId);
+	delete object.component.routeId;
+	delete object.component.routeEdgeId;
+	delete object.component.routeProgress;
+	delete object.component.routeDistanceMeters;
+	delete object.component.sectionId;
+	return hadAttachment;
+};
+
+export const applyTransportRouteSnap = (
+	manifest: TwinSceneManifest,
+	objectId: string,
+	candidate: TwinTransportRouteSnapCandidate,
+) => {
+	const object = asV7Objects(manifest).find((item) => item.objectId === objectId);
+	if (!isTransportUnitSceneObject(object) || !isComponentSceneObject(object)) return false;
+	object.transform.position = [...candidate.position];
+	const tangent = new THREE.Vector3(...candidate.tangent).setY(0);
+	if (tangent.lengthSq() > 0.000001) object.transform.rotation[1] = -Math.atan2(tangent.z, tangent.x);
+	object.component.routeId = candidate.routeId;
+	object.component.routeEdgeId = candidate.edgeId;
+	object.component.sectionId = candidate.sectionId;
+	object.component.routeProgress = candidate.edgeProgress;
+	object.component.routeDistanceMeters = candidate.routeDistanceMeters;
+	object.component.properties ||= {};
+	object.component.properties.routeManagedExternally = true;
+	return true;
+};
+
+export const snapTransportUnitToRoute = (
+	manifest: TwinSceneManifest,
+	objectId: string,
+	options: { maxDistance?: number } = {},
+) => {
+	const candidate = findBestTransportRouteSnap(manifest, objectId, options);
+	if (!candidate || !applyTransportRouteSnap(manifest, objectId, candidate)) return undefined;
+	return { candidate };
+};
+
+const transportCandidateFromAttachment = (manifest: TwinSceneManifest, object: TwinV7SceneObjectDefinition): TwinTransportRouteSnapCandidate | undefined => {
+	if (!isComponentSceneObject(object) || !isTransportUnitSceneObject(object) || !object.component.routeEdgeId) return undefined;
+	const transportUnitType = resolveTransportUnitType(object);
+	if (!transportUnitType) return undefined;
+	const expectedSizeClass = routeSnapSizeClass(transportUnitType);
+	const route = (object.component.routeId ? manifest.routes.find((item) => item.routeId === object.component!.routeId && item.edges.some((edge) => edge.edgeId === object.component!.routeEdgeId)) : undefined)
+		|| manifest.routes.find((item) => item.edges.some((edge) => edge.edgeId === object.component!.routeEdgeId));
+	const edge = route?.edges.find((item) => item.edgeId === object.component!.routeEdgeId);
+	if (!route || !edge || (edge.conveyorSizeClass === 'large' ? 'large' : 'small') !== expectedSizeClass) return undefined;
+	const geometry = routeEdgeGeometry(route, edge);
+	if (!geometry) return undefined;
+	const edgeProgress = THREE.MathUtils.clamp(safeNumber(object.component.routeProgress, 0), 0, 1);
+	const closest = geometry.a.clone().lerp(geometry.b, edgeProgress);
+	const tangent = geometry.tangent.normalize();
+	return {
+		routeId: route.routeId, routeName: route.name, edgeId: edge.edgeId, sectionId: edge.sectionId || edge.edgeId,
+		conveyorObjectId: edge.conveyorObjectId || edge.componentObjectId, conveyorSizeClass: expectedSizeClass, transportUnitType, distance: 0, edgeProgress,
+		routeDistanceMeters: routeDistanceBeforeEdge(route, edge.edgeId) + geometry.a.distanceTo(geometry.b) * edgeProgress,
+		position: [closest.x, closest.y, closest.z], tangent: [tangent.x, tangent.y, tangent.z],
+	};
+};
+
+/** Route/Connection 重建后，让已挂接运输单元继续跟随原 RouteEdge，而不是留在旧世界坐标。 */
+export const refreshAttachedTransportUnits = (manifest: TwinSceneManifest) => {
+	let refreshed = 0;
+	for (const object of asV7Objects(manifest)) {
+		if (!isTransportUnitSceneObject(object) || !isComponentSceneObject(object) || !object.component.routeEdgeId) continue;
+		const candidate = transportCandidateFromAttachment(manifest, object);
+		if (candidate && applyTransportRouteSnap(manifest, object.objectId, candidate)) { refreshed += 1; continue; }
+		if (object.component.properties?.autoSnap === false) continue;
+		const rebound = snapTransportUnitToRoute(manifest, object.objectId);
+		if (rebound) refreshed += 1;
+		else clearTransportRouteAttachment(object);
+	}
+	return refreshed;
+};
+
+/** 3D 场景设计器统一吸附入口：设备走 Port Connection，运输单元走 Route/Section。 */
+export const snapSceneComponent = (
+	manifest: TwinSceneManifest,
+	objectId: string,
+	options: { force?: boolean; maxDistance?: number; maxAngleDegrees?: number; preferFacingPorts?: boolean } = {},
+): TwinSceneComponentSnapResult | undefined => {
+	const object = asV7Objects(manifest).find((item) => item.objectId === objectId);
+	if (!isComponentSceneObject(object)) return undefined;
+	if (!options.force && object.component.properties?.autoSnap === false) return undefined;
+	if (isTransportUnitSceneObject(object)) {
+		const routeResult = snapTransportUnitToRoute(manifest, objectId, { maxDistance: options.maxDistance });
+		return routeResult ? { kind: 'transport-route', candidate: routeResult.candidate } : undefined;
+	}
+	const configured = resolveSceneComponentSnapOptions(object);
+	const portResult = snapAndConnectNearestComponent(manifest, objectId, {
+		maxDistance: options.maxDistance ?? configured.maxDistance,
+		maxAngleDegrees: options.maxAngleDegrees ?? configured.maxAngleDegrees,
+		preferFacingPorts: options.preferFacingPorts ?? configured.preferFacingPorts,
+	});
+	return portResult ? { kind: 'component-port', ...portResult } : undefined;
 };
 
 export const removeComponentConnection = (manifest: TwinSceneManifest, connectionId: string) => {
@@ -310,21 +567,16 @@ const flowPairsFor = (componentType: TwinComponentType, ports: TwinComponentPort
 	return bidirectional.slice(1).map((port) => ({ fromPortId: bidirectional[0].portId, toPortId: port.portId, bidirectional: true }));
 };
 
-const pointKindForMembers = (members: TwinComponentPortRef[]): Pick<TwinRoutePointDefinition, 'kind' | 'process'> => {
-	for (const member of members) {
-		if (member.componentType === 'diverter-conveyor' && member.portId === 'input') return { kind: 'diverter' };
-		if (member.componentType === 'merger-conveyor' && member.portId === 'output') return { kind: 'merger' };
-		if (member.componentType === 'turntable') return { kind: 'junction' };
-		if (member.componentType === 'external-inspection' && member.portId === 'input') return { kind: 'processStation', process: { type: 'external-inspection' } };
-		if (member.componentType === 'bagging-machine' && member.portId === 'input') return { kind: 'processStation', process: { type: 'bagging' } };
-		if (member.componentType === 'lift') return { kind: 'station' };
-	}
-	return { kind: 'buffer' };
-};
+const pointKindForMembers = (members: TwinComponentPortRef[]): Pick<TwinRoutePointDefinition, 'kind' | 'process'> =>
+	members.some((member) => member.componentType === 'lift') ? { kind: 'station' } : { kind: 'buffer' };
 const resolveObjectProperties = (object: TwinV7SceneObjectDefinition) => isComponentSceneObject(object) ? object.component.properties || {} : {};
 
 const getComponentNetworks = (manifest: TwinSceneManifest) => {
-	const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
+	const components = asV7Objects(manifest).filter((item) => {
+		if (!isComponentSceneObject(item) || item.component.properties?.routeManagedExternally === true) return false;
+		const template = getBuiltInComponentTemplate(item.component.resourceKey);
+		return template?.capabilities.includes('material-flow') === true;
+	});
 	const byId = new Map(components.map((item) => [item.objectId, item]));
 	const union = new UnionFind();
 	for (const component of components) union.add(component.objectId);
@@ -370,12 +622,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 		for (const member of members) pointIdByPort.set(portKey(member.objectId, member.portId), pointId);
 		const position = members.reduce((sum, member) => sum.add(member.worldPosition), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, members.length));
 		const kind = pointKindForMembers(members);
-		const processMember = members.find((member) =>
-			(member.componentType === 'external-inspection' || member.componentType === 'bagging-machine') && member.portId === 'input');
-		const semanticMember = members.find((member) =>
-			(member.componentType === 'diverter-conveyor' && member.portId === 'input')
-			|| (member.componentType === 'merger-conveyor' && member.portId === 'output'));
-		const sourceMember = processMember || semanticMember || members[0];
+		const sourceMember = members[0];
 		const point: TwinRoutePointDefinition = {
 			pointId,
 			name: members.length > 1 ? members.map((member) => `${member.objectName}.${member.name}`).join(' ↔ ') : `${members[0].objectName}.${members[0].name}`,
@@ -396,6 +643,63 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 	for (const object of objects) {
 		const ports = portsByObject.get(object.objectId) || [];
 		const properties = resolveObjectProperties(object);
+		const internalFlows = resolveComponentInternalFlows(object);
+		if (internalFlows.length) {
+			for (const flow of internalFlows) {
+				const routePointIds = new Map<string, string>();
+				for (const internalPoint of flow.points) {
+					let routePointId = internalPoint.portId
+						? pointIdByPort.get(portKey(object.objectId, internalPoint.portId))
+						: undefined;
+					if (!routePointId) {
+						routePointId = `component-point-${safeIdPart(object.objectId)}-${safeIdPart(flow.flowId)}-${safeIdPart(internalPoint.pointId)}`;
+						const routePoint: TwinRoutePointDefinition = {
+							pointId: routePointId,
+							name: `${object.name} · ${internalPoint.name}`,
+							position: [internalPoint.worldPosition.x, internalPoint.worldPosition.y, internalPoint.worldPosition.z],
+							kind: internalPoint.kind || 'buffer',
+							componentObjectId: object.objectId,
+							componentPortId: internalPoint.portId,
+						};
+						if (internalPoint.processType) {
+							routePoint.kind = 'processStation';
+							routePoint.process = buildComponentProcessDefinition(manifest, object, internalPoint.processType as any);
+						}
+						applyComponentRoutePointBindings(manifest, object, routePoint);
+						points.push(routePoint);
+					}
+					routePointIds.set(internalPoint.pointId, routePointId);
+				}
+				for (const internalEdge of flow.edges) {
+					const fromPointId = routePointIds.get(internalEdge.fromPointId);
+					const toPointId = routePointIds.get(internalEdge.toPointId);
+					if (!fromPointId || !toPointId || fromPointId === toPointId) continue;
+					const conveyorSizeClass = flow.conveyorSizeClass || (properties.conveyorSizeClass === 'large' ? 'large' : 'small');
+					const transportUnitType = flow.transportUnitType || (properties.transportUnitType === 'wooden-pallet' ? 'wooden-pallet' : properties.transportUnitType === 'carton' ? 'carton' : 'plastic-pallet');
+					edges.push({
+						edgeId: `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(flow.flowId)}-${safeIdPart(internalEdge.edgeId)}`,
+						fromPointId,
+						toPointId,
+						name: internalEdge.name || `${object.name} · ${flow.name}`,
+						bidirectional: internalEdge.bidirectional === true,
+						enabled: true,
+						priority: 0,
+						capacity: clampCapacity(internalEdge.capacity ?? properties.capacity),
+						occupancyMode: properties.occupancyMode === 'live' ? 'live' : properties.occupancyMode === 'calculated' ? 'calculated' : 'simulation',
+						reservationTimeoutSeconds: Math.max(1, safeNumber(properties.reservationTimeoutSeconds, 30)),
+						speedLimit: Math.max(0.01, safeNumber(internalEdge.speedLimit ?? properties.speedLimit, 1.2)),
+						conveyorSizeClass,
+						transportUnitType,
+						transportUnitResourceKey: transportUnitType === 'plastic-pallet' && conveyorSizeClass === 'small' ? 'builtin-small-pallet' : undefined,
+						conveyorObjectId: object.objectId,
+						componentObjectId: object.objectId,
+						sectionId: object.component.sectionId || `section-${object.objectId}`,
+					});
+				}
+			}
+			continue;
+		}
+		// Compatibility fallback for old component generators that do not yet expose internalFlows.
 		for (const pair of flowPairsFor(object.component.componentType as TwinComponentType, ports)) {
 			const fromPointId = pointIdByPort.get(portKey(object.objectId, pair.fromPortId));
 			const toPointId = pointIdByPort.get(portKey(object.objectId, pair.toPortId));
@@ -441,7 +745,10 @@ export const buildComponentGraphRoute = (manifest: TwinSceneManifest): TwinCompo
 };
 
 export const upsertGeneratedComponentRoutes = (manifest: TwinSceneManifest): TwinComponentNetworkBuildResult[] => {
-	const components = asV7Objects(manifest).filter((item) => isComponentSceneObject(item) && item.component.properties?.routeManagedExternally !== true);
+	const components = asV7Objects(manifest).filter((item) => {
+		if (!isComponentSceneObject(item) || item.component.properties?.routeManagedExternally === true) return false;
+		return getBuiltInComponentTemplate(item.component.resourceKey)?.capabilities.includes('material-flow') === true;
+	});
 	const retainedRoutes = manifest.routes.filter((item) => item.generatedBy !== 'component-connections' && item.routeId !== LEGACY_GENERATED_ROUTE_ID);
 	if (!components.length) { manifest.routes = retainedRoutes; return []; }
 	const results = buildComponentGraphRoutes(manifest);
@@ -454,6 +761,7 @@ export const upsertGeneratedComponentRoutes = (manifest: TwinSceneManifest): Twi
 		object.component.sectionId ||= `section-${object.objectId}`;
 		object.component.routeEdgeId = firstEdge?.edgeId;
 	}
+	refreshAttachedTransportUnits(manifest);
 	return results;
 };
 

@@ -84,6 +84,7 @@ public enum TwinBindingTargetKind
     Scale,
     Animation,
     RouteProgress,
+    RouteDistance,
     CustomProperty
 }
 
@@ -105,6 +106,16 @@ public sealed class TwinValidationResultDto
 {
     public bool Valid => Diagnostics.All(item => !string.Equals(item.Severity, "error", StringComparison.OrdinalIgnoreCase));
     public List<TwinValidationDiagnosticDto> Diagnostics { get; set; } = [];
+}
+
+/// <summary>
+/// 数字孪生编辑器数据绑定可选择的设备。
+/// </summary>
+public sealed class TwinBindingDeviceOptionDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public bool AssetRelated { get; set; }
 }
 
 /// <summary>

@@ -9,6 +9,8 @@
 		"build": "vite build",
 		"verify:2d-designer": "node scripts/run-2d-designer-smoke.mjs",
 		"verify:v7-components": "node scripts/run-v7-components-smoke.mjs",
+		"verify:packaging-line": "node scripts/run-packaging-line-smoke.mjs",
+		"export:reference-packaging-line": "node scripts/run-export-reference-packaging-line.mjs",
 		"lint-fix": "eslint --fix --ext .js --ext .jsx --ext .vue src/"
 	},
 	"dependencies": {
