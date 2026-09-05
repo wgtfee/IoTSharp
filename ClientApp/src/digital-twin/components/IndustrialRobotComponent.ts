@@ -25,6 +25,10 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		const axis3HomePitch = resolveNumber(props, 'axis3HomePitch', 1.20, -Math.PI, Math.PI);
 		const root = new THREE.Group();
 		root.name = definition.name;
+		const tagActuator = (node: THREE.Object3D, actuator: Record<string, unknown>) => {
+			node.userData.actuator = actuator;
+			node.userData.actuatorId = actuator.actuatorId;
+		};
 
 		const bodyMaterial = createMaterial(0xf97316, { roughness: 0.42, metalness: 0.58 });
 		const jointMaterial = createMaterial(0x1e293b, { roughness: 0.48, metalness: 0.72 });
@@ -41,6 +45,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis1.position.y = 0.58;
 		axis1.rotation.y = axis1HomeYaw;
 		axis1.userData.axis = 'y';
+		tagActuator(axis1, { actuatorId: 'robot-j1', name: 'J1 底座回转', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI, maxValue: Math.PI, homeValue: axis1HomeYaw, speed: 1.8 });
 		const waist = new THREE.Mesh(new THREE.CylinderGeometry(pedestalRadius * 0.72, pedestalRadius * 0.82, 0.58, 24), bodyMaterial);
 		waist.position.y = 0.29;
 		axis1.add(waist);
@@ -51,6 +56,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis2.position.y = 0.56;
 		axis2.rotation.z = axis2HomePitch;
 		axis2.userData.axis = 'z';
+		tagActuator(axis2, { actuatorId: 'robot-j2', name: 'J2 肩轴', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.6, maxValue: 1.4, homeValue: axis2HomePitch, speed: 1.6 });
 		axis2.add(new THREE.Mesh(new THREE.SphereGeometry(0.36, 20, 16), jointMaterial));
 		const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.48, upperArmLength, 0.48), bodyMaterial);
 		upperArm.name = 'Robot-Upper-Arm';
@@ -63,6 +69,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis3.position.y = upperArmLength;
 		axis3.rotation.z = axis3HomePitch;
 		axis3.userData.axis = 'z';
+		tagActuator(axis3, { actuatorId: 'robot-j3', name: 'J3 肘轴', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.8, maxValue: 2.8, homeValue: axis3HomePitch, speed: 1.8 });
 		axis3.add(new THREE.Mesh(new THREE.SphereGeometry(0.31, 20, 16), jointMaterial));
 		const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.40, forearmLength, 0.40), bodyMaterial);
 		forearm.name = 'Robot-Forearm';
@@ -74,6 +81,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis4.name = 'Robot-Axis-4';
 		axis4.position.y = forearmLength;
 		axis4.userData.axis = 'y';
+		tagActuator(axis4, { actuatorId: 'robot-j4', name: 'J4 腕部回转', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI, maxValue: Math.PI, homeValue: 0, speed: 2.2 });
 		const wrist4 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.25, 0.45, 18), jointMaterial);
 		wrist4.name = 'Robot-Wrist-4';
 		axis4.add(wrist4);
@@ -83,6 +91,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis5.name = 'Robot-Axis-5';
 		axis5.position.y = 0.24;
 		axis5.userData.axis = 'z';
+		tagActuator(axis5, { actuatorId: 'robot-j5', name: 'J5 腕部摆动', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.2, maxValue: 2.2, homeValue: 0, speed: 2.2 });
 		const wrist5 = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.21, 0.30, 18), bodyMaterial);
 		wrist5.rotation.x = Math.PI / 2;
 		wrist5.name = 'Robot-Wrist-5';
@@ -93,6 +102,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		axis6.name = 'Robot-Axis-6';
 		axis6.position.y = 0.18;
 		axis6.userData.axis = 'y';
+		tagActuator(axis6, { actuatorId: 'robot-j6', name: 'J6 法兰回转', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI * 2, maxValue: Math.PI * 2, homeValue: 0, speed: 2.6 });
 		const wrist6 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.24, 18), jointMaterial);
 		wrist6.name = 'Robot-Wrist-6';
 		axis6.add(wrist6);
@@ -113,6 +123,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 			const gripper = new THREE.Group();
 			gripper.name = rowCount === 2 ? 'RobotGridGripper-2x6' : 'RobotRowGripper-1x6';
 			gripper.userData.toolType = toolType;
+			tagActuator(gripper, { actuatorId: 'robot-gripper', name: '机器人末端夹具', kind: 'gripper', unit: 'boolean', homeValue: 0, speed: 1 });
 			if (rowCount === 2) {
 				// 正确吸附关系：夹具板面垂直 J6；吸盘轴与 J6 平行。
 				// 六轴姿态只负责让 J6 正对丝车，12 个吸盘接触面即可与丝锭端面保持平行。
@@ -180,6 +191,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 			const gripper = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.16, 0.34), toolMaterial);
 			gripper.name = 'Robot-Pallet-Gripper';
 			gripper.position.y = 0.18;
+			tagActuator(gripper, { actuatorId: 'robot-gripper', name: '机器人末端夹具', kind: 'gripper', unit: 'boolean', homeValue: 0, speed: 1 });
 			tool.add(gripper);
 		}
 
@@ -194,6 +206,10 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		root.userData.robotAxisCount = 6;
 		root.userData.toolType = toolType;
 		root.userData.gripperHeadCount = toolType === 'silk-grid-2x6' ? 12 : toolType === 'silk-row-1x6' ? 6 : 1;
+		root.userData.actuatorDefinitions = [];
+		root.traverse((node) => {
+			if (node.userData?.actuator) root.userData.actuatorDefinitions.push({ ...node.userData.actuator, nodePath: node.name });
+		});
 		root.userData.properties = { ...props, pedestalRadius, upperArmLength, forearmLength, toolType, gripperSpan, gripperRowSpacing, axis1HomeYaw, axis2HomePitch, axis3HomePitch };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, []);

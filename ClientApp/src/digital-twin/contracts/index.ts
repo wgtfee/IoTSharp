@@ -198,12 +198,74 @@ export interface TwinWorkPointDefinition {
 	localRotation?: TwinVector3;
 }
 
-export type TwinBehaviorActionKind = 'moveTo' | 'pick' | 'place' | 'wait' | 'home' | 'axisMove' | 'attach' | 'detach';
+export type TwinActuatorKind = 'rotary-joint' | 'linear-axis' | 'gripper';
+export type TwinActuatorAxis = 'x' | 'y' | 'z';
+export type TwinActuatorUnit = 'rad' | 'degree' | 'meter' | 'boolean';
+
+export interface TwinActuatorBindingDefinition {
+	positionBindingId?: string;
+	openBindingId?: string;
+	closeBindingId?: string;
+	readyBindingId?: string;
+	faultBindingId?: string;
+}
+
+/**
+ * 工业执行机构定义。nodePath 指向组件内部稳定节点，PLC/Telemetry 仍通过标准 Binding 引用，
+ * 不允许在动作定义中嵌入脚本或任意表达式。
+ */
+export interface TwinActuatorDefinition {
+	actuatorId: string;
+	name: string;
+	objectId: string;
+	nodePath: string;
+	kind: TwinActuatorKind;
+	motionAxis?: TwinActuatorAxis;
+	unit: TwinActuatorUnit;
+	minValue?: number;
+	maxValue?: number;
+	homeValue?: number;
+	speed?: number;
+	bindings?: TwinActuatorBindingDefinition;
+}
+
+export interface TwinPoseTargetDefinition {
+	actuatorId: string;
+	value: number | boolean;
+}
+
+export interface TwinPoseDefinition {
+	poseId: string;
+	name: string;
+	objectId: string;
+	description?: string;
+	targets: TwinPoseTargetDefinition[];
+}
+
+export type TwinSignalOperator = 'equals' | 'notEquals' | 'truthy' | 'falsy';
+
+export type TwinBehaviorActionKind =
+	| 'moveTo'
+	| 'movePose'
+	| 'jointMove'
+	| 'axisMove'
+	| 'pick'
+	| 'place'
+	| 'gripOpen'
+	| 'gripClose'
+	| 'waitSignal'
+	| 'wait'
+	| 'home'
+	| 'attach'
+	| 'detach';
 
 export interface TwinBehaviorActionDefinition {
 	actionId: string;
 	kind: TwinBehaviorActionKind;
 	workPointId?: string;
+	poseId?: string;
+	actuatorId?: string;
+	targetValue?: number;
 	actorNodePath?: string;
 	payloadType?: string;
 	approachOffset?: TwinVector3;
@@ -212,6 +274,10 @@ export interface TwinBehaviorActionDefinition {
 	axisValue?: number;
 	speedRatio?: number;
 	waitForInterlockId?: string;
+	signalBindingId?: string;
+	signalOperator?: TwinSignalOperator;
+	signalValue?: string | number | boolean | null;
+	timeoutSeconds?: number;
 	/** 纯结构化等待/动作时间，不允许脚本表达式。 */
 	waitSeconds?: number;
 	durationSeconds?: number;
@@ -387,6 +453,8 @@ export interface TwinSceneManifest {
 	routes: TwinRouteDefinition[];
 	/** 设备语义工作点、动作编排和联锁均为声明式配置；运行时不得执行任意脚本。 */
 	workPoints?: TwinWorkPointDefinition[];
+	actuators?: TwinActuatorDefinition[];
+	poses?: TwinPoseDefinition[];
 	behaviors?: TwinBehaviorDefinition[];
 	interlocks?: TwinInterlockDefinition[];
 	runtime: TwinRuntimeDefinition;
@@ -778,6 +846,46 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (!isFiniteVector(workPoint.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.position.invalid', message: '工作点局部坐标必须是三个有限数值。', path: `workPoints[${index}].localPosition` });
 		if (workPoint.localRotation && !isFiniteVector(workPoint.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.rotation.invalid', message: '工作点局部旋转必须是三个有限数值。', path: `workPoints[${index}].localRotation` });
 	}
+	const actuatorIds = new Set<string>();
+	const actuatorObjectIds = new Map<string, string>();
+	const actuatorKinds = new Map<string, TwinActuatorKind>();
+	for (const [index, actuator] of (manifest.actuators || []).entries()) {
+		if (!actuator.actuatorId?.trim() || actuatorIds.has(actuator.actuatorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.id.invalid', message: '执行机构 ID 为空或重复。', path: `actuators[${index}].actuatorId` });
+		actuatorIds.add(actuator.actuatorId);
+		actuatorObjectIds.set(actuator.actuatorId, actuator.objectId);
+		actuatorKinds.set(actuator.actuatorId, actuator.kind);
+		if (!objectIds.has(actuator.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.object.invalid', message: '执行机构引用的场景对象不存在。', path: `actuators[${index}].objectId` });
+		if (!actuator.nodePath?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.node.required', message: '执行机构必须配置稳定的 Three.js 节点路径。', path: `actuators[${index}].nodePath` });
+		if (!['rotary-joint', 'linear-axis', 'gripper'].includes(actuator.kind)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.kind.invalid', message: '执行机构类型不受支持。', path: `actuators[${index}].kind` });
+		if (!['rad', 'degree', 'meter', 'boolean'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.unit.invalid', message: '执行机构单位不受支持。', path: `actuators[${index}].unit` });
+		if (actuator.kind !== 'gripper' && !['x', 'y', 'z'].includes(actuator.motionAxis || '')) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.axis.invalid', message: '旋转关节和直线轴必须配置 X/Y/Z 运动轴。', path: `actuators[${index}].motionAxis` });
+		if (actuator.kind === 'gripper' && actuator.unit !== 'boolean') diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.gripper-unit.invalid', message: '夹具执行机构必须使用 boolean 单位。', path: `actuators[${index}].unit` });
+		if (actuator.kind === 'rotary-joint' && !['rad', 'degree'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.rotary-unit.invalid', message: '旋转关节单位必须是 rad 或 degree。', path: `actuators[${index}].unit` });
+		if (actuator.kind === 'linear-axis' && actuator.unit !== 'meter') diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.linear-unit.invalid', message: '直线轴单位必须是 meter。', path: `actuators[${index}].unit` });
+		if (actuator.minValue !== undefined && !Number.isFinite(actuator.minValue)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.min.invalid', message: '执行机构最小值必须是有限数值。', path: `actuators[${index}].minValue` });
+		if (actuator.maxValue !== undefined && !Number.isFinite(actuator.maxValue)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.max.invalid', message: '执行机构最大值必须是有限数值。', path: `actuators[${index}].maxValue` });
+		if (actuator.minValue !== undefined && actuator.maxValue !== undefined && actuator.minValue > actuator.maxValue) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.range.invalid', message: '执行机构最小值不能大于最大值。', path: `actuators[${index}]` });
+		if (actuator.speed !== undefined && (!Number.isFinite(actuator.speed) || actuator.speed <= 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.speed.invalid', message: '执行机构速度必须大于 0。', path: `actuators[${index}].speed` });
+	}
+	const poseIds = new Set<string>();
+	const poseObjectIds = new Map<string, string>();
+	for (const [index, pose] of (manifest.poses || []).entries()) {
+		if (!pose.poseId?.trim() || poseIds.has(pose.poseId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.id.invalid', message: 'Pose ID 为空或重复。', path: `poses[${index}].poseId` });
+		poseIds.add(pose.poseId);
+		poseObjectIds.set(pose.poseId, pose.objectId);
+		if (!objectIds.has(pose.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.object.invalid', message: 'Pose 引用的场景对象不存在。', path: `poses[${index}].objectId` });
+		if (!pose.targets?.length) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.targets.empty', message: 'Pose 至少需要一个执行机构目标值。', path: `poses[${index}].targets` });
+		const targetActuatorIds = new Set<string>();
+		for (const [targetIndex, target] of (pose.targets || []).entries()) {
+			if (!actuatorIds.has(target.actuatorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.actuator.invalid', message: 'Pose 引用了不存在的执行机构。', path: `poses[${index}].targets[${targetIndex}].actuatorId` });
+			if (targetActuatorIds.has(target.actuatorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.actuator.duplicate', message: '同一个 Pose 不能重复配置同一执行机构。', path: `poses[${index}].targets[${targetIndex}].actuatorId` });
+			targetActuatorIds.add(target.actuatorId);
+			if (actuatorObjectIds.get(target.actuatorId) && actuatorObjectIds.get(target.actuatorId) !== pose.objectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.actuator-object.mismatch', message: 'Pose 只能引用所属对象自己的执行机构。', path: `poses[${index}].targets[${targetIndex}].actuatorId` });
+			const kind = actuatorKinds.get(target.actuatorId);
+			if (kind === 'gripper' && typeof target.value !== 'boolean') diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.gripper-value.invalid', message: 'Pose 中夹具目标值必须是 true/false。', path: `poses[${index}].targets[${targetIndex}].value` });
+			if (kind && kind !== 'gripper' && (typeof target.value !== 'number' || !Number.isFinite(target.value))) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.axis-value.invalid', message: 'Pose 中运动轴目标值必须是有限数值。', path: `poses[${index}].targets[${targetIndex}].value` });
+		}
+	}
 	const interlockIds = new Set<string>();
 	for (const [index, interlock] of (manifest.interlocks || []).entries()) {
 		if (!interlock.interlockId?.trim() || interlockIds.has(interlock.interlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.interlock.id.invalid', message: '联锁 ID 为空或重复。', path: `interlocks[${index}].interlockId` });
@@ -792,6 +900,17 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		for (const [actionIndex, action] of (behavior.actions || []).entries()) {
 			if (!action.actionId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.required', message: '动作步骤必须有 actionId。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
 			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
+			if (action.workPointId && !workPointIds.has(action.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint-reference.invalid', message: '动作引用的工作点不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
+			if (action.kind === 'movePose' && (!action.poseId || !poseIds.has(action.poseId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose.invalid', message: 'movePose 必须引用有效 Pose。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });
+			if (action.poseId && !poseIds.has(action.poseId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose-reference.invalid', message: '动作引用的 Pose 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });
+			if (action.poseId && poseObjectIds.get(action.poseId) && poseObjectIds.get(action.poseId) !== behavior.actorObjectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose-actor.mismatch', message: '动作只能引用当前执行对象所属的 Pose。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });
+			if (['jointMove', 'axisMove', 'gripOpen', 'gripClose'].includes(action.kind) && action.actuatorId && !actuatorIds.has(action.actuatorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.actuator.invalid', message: '动作引用的执行机构不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actuatorId` });
+			if (action.actuatorId && actuatorObjectIds.get(action.actuatorId) && actuatorObjectIds.get(action.actuatorId) !== behavior.actorObjectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.actuator-actor.mismatch', message: '动作只能引用当前执行对象所属的执行机构。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actuatorId` });
+			if (['jointMove', 'axisMove'].includes(action.kind) && action.actuatorId && !Number.isFinite(action.targetValue)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.target-value.invalid', message: '轴运动动作必须配置有限目标值。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].targetValue` });
+			if (['gripOpen', 'gripClose'].includes(action.kind) && action.actuatorId && actuatorKinds.get(action.actuatorId) !== 'gripper') diagnostics.push({ severity: 'error', code: 'twin.behavior.action.gripper.invalid', message: '夹具开合动作必须引用 gripper 执行机构。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actuatorId` });
+			if (action.kind === 'waitSignal' && !action.signalBindingId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.signal.required', message: 'waitSignal 必须引用 PLC/Telemetry Binding。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].signalBindingId` });
+			if (action.kind === 'waitSignal' && action.signalBindingId && !manifest.bindings.some((binding) => binding.bindingId === action.signalBindingId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.signal.invalid', message: 'waitSignal 引用的 PLC/Telemetry Binding 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].signalBindingId` });
+			if (action.timeoutSeconds !== undefined && (!Number.isFinite(action.timeoutSeconds) || action.timeoutSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.timeout.invalid', message: '动作超时秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].timeoutSeconds` });
 			if (action.waitForInterlockId && !interlockIds.has(action.waitForInterlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.interlock.invalid', message: '等待动作引用的联锁不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitForInterlockId` });
 			if (action.waitSeconds !== undefined && (!Number.isFinite(action.waitSeconds) || action.waitSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.wait.invalid', message: '等待秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitSeconds` });
 		}

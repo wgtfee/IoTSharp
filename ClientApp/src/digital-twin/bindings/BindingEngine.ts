@@ -15,6 +15,8 @@ interface MaterialSnapshot {
 export class BindingEngine {
 	private bindings = new Map<string, TwinObjectBindingDefinition>();
 	private readonly lastTimestamps = new Map<string, number>();
+	private readonly bindingValues = new Map<string, unknown>();
+	private readonly staleBindingIds = new Set<string>();
 	private readonly materialSnapshots = new WeakMap<object, MaterialSnapshot>();
 	private readonly animatedObjects = new Map<any, { axis: 'x' | 'y' | 'z'; speed: number }>();
 
@@ -33,6 +35,8 @@ export class BindingEngine {
 	setManifest(manifest: TwinSceneManifest) {
 		this.bindings = new Map((manifest.bindings ?? []).filter((binding) => binding.enabled !== false).map((binding) => [binding.bindingId, binding]));
 		this.lastTimestamps.clear();
+		this.bindingValues.clear();
+		this.staleBindingIds.clear();
 		this.animatedObjects.clear();
 	}
 
@@ -43,6 +47,10 @@ export class BindingEngine {
 			const timestamp = Date.parse(update.sourceTimestamp || '') || 0;
 			if (timestamp < (this.lastTimestamps.get(binding.bindingId) ?? 0)) continue;
 			this.lastTimestamps.set(binding.bindingId, timestamp);
+			const stale = Boolean(update.stale || update.quality === 'bad' || update.quality === 'missing');
+			this.bindingValues.set(binding.bindingId, update.value);
+			if (stale) this.staleBindingIds.add(binding.bindingId);
+			else this.staleBindingIds.delete(binding.bindingId);
 			try {
 				this.applyBinding(binding, update);
 			} catch (error) {
@@ -55,9 +63,18 @@ export class BindingEngine {
 		for (const [object, animation] of this.animatedObjects) object.rotation[animation.axis] += animation.speed * deltaSeconds;
 	}
 
+	getSignalSnapshot() {
+		return {
+			bindingValues: Object.fromEntries(this.bindingValues),
+			staleBindingIds: [...this.staleBindingIds],
+		};
+	}
+
 	dispose() {
 		this.bindings.clear();
 		this.lastTimestamps.clear();
+		this.bindingValues.clear();
+		this.staleBindingIds.clear();
 		this.animatedObjects.clear();
 	}
 

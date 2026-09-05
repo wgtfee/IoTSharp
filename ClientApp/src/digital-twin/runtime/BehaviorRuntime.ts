@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import type {
+	TwinActuatorDefinition,
 	TwinBehaviorActionDefinition,
 	TwinBehaviorDefinition,
 	TwinInterlockDefinition,
+	TwinPoseDefinition,
 	TwinSceneManifest,
 	TwinVector3,
 	TwinWorkPointDefinition,
 } from '/@/digital-twin/contracts';
 
-type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-interlock' | 'completed' | 'error';
+type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
 
 interface ChannelState {
 	channelKey: string;
@@ -69,10 +71,14 @@ const normalizedAngleDelta = (from: number, to: number) => Math.atan2(Math.sin(t
 export class BehaviorRuntime {
 	private manifest: TwinSceneManifest;
 	private readonly workPoints = new Map<string, TwinWorkPointDefinition>();
+	private readonly actuators = new Map<string, TwinActuatorDefinition>();
+	private readonly poses = new Map<string, TwinPoseDefinition>();
 	private readonly interlocks = new Map<string, TwinInterlockDefinition>();
 	private readonly channels = new Map<string, ChannelState>();
 	private readonly semanticState = new Map<string, unknown>();
 	private readonly basePoses = new Map<string, BasePose[]>();
+	private readonly bindingValues = new Map<string, unknown>();
+	private readonly staleBindingIds = new Set<string>();
 	private running = false;
 	private disposed = false;
 
@@ -91,11 +97,15 @@ export class BehaviorRuntime {
 		this.clearPayloads();
 		this.manifest = structuredClone(manifest);
 		this.workPoints.clear();
+		this.actuators.clear();
+		this.poses.clear();
 		this.interlocks.clear();
 		this.channels.clear();
 		this.semanticState.clear();
 		this.basePoses.clear();
 		for (const item of this.manifest.workPoints || []) this.workPoints.set(item.workPointId, item);
+		for (const item of this.manifest.actuators || []) this.actuators.set(item.actuatorId, item);
+		for (const item of this.manifest.poses || []) this.poses.set(item.poseId, item);
 		for (const item of this.manifest.interlocks || []) this.interlocks.set(item.interlockId, item);
 		for (const behavior of this.manifest.behaviors || []) {
 			if (behavior.enabled === false || !behavior.actions?.length) continue;
@@ -167,6 +177,13 @@ export class BehaviorRuntime {
 		if (source?.trim()) this.semanticState.set(source.trim(), value);
 	}
 
+	setBindingContext(context: { bindingValues?: Record<string, unknown>; staleBindingIds?: string[] }) {
+		this.bindingValues.clear();
+		this.staleBindingIds.clear();
+		for (const [bindingId, value] of Object.entries(context.bindingValues || {})) this.bindingValues.set(bindingId, value);
+		for (const bindingId of context.staleBindingIds || []) this.staleBindingIds.add(bindingId);
+	}
+
 	getSnapshot(): BehaviorRuntimeSnapshot {
 		return {
 			active: this.running && this.manifest.runtime.dataMode === 'simulation',
@@ -219,9 +236,13 @@ export class BehaviorRuntime {
 		this.clearPayloads();
 		this.channels.clear();
 		this.workPoints.clear();
+		this.actuators.clear();
+		this.poses.clear();
 		this.interlocks.clear();
 		this.semanticState.clear();
 		this.basePoses.clear();
+		this.bindingValues.clear();
+		this.staleBindingIds.clear();
 	}
 
 	private updateChannel(channel: ChannelState, deltaSeconds: number) {
@@ -262,6 +283,17 @@ export class BehaviorRuntime {
 	private executeAction(channel: ChannelState, behavior: TwinBehaviorDefinition, action: TwinBehaviorActionDefinition, actorRoot: THREE.Object3D, deltaSeconds: number) {
 		const speedRatio = Math.max(0.1, Number(action.speedRatio || 1));
 		switch (action.kind) {
+			case 'movePose': {
+				channel.status = 'moving';
+				const pose = this.requirePose(action);
+				const done = this.movePose(actorRoot, pose, deltaSeconds, speedRatio);
+				if (done) this.markZoneExitIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, pose.poseId);
+				return done;
+			}
+			case 'jointMove': {
+				channel.status = 'moving';
+				return this.moveConfiguredActuator(actorRoot, action, deltaSeconds, speedRatio);
+			}
 			case 'moveTo': {
 				const workPoint = this.requireWorkPoint(action);
 				channel.status = 'moving';
@@ -271,11 +303,36 @@ export class BehaviorRuntime {
 			}
 			case 'home': {
 				channel.status = 'moving';
+				if (action.poseId) return this.movePose(actorRoot, this.requirePose(action), deltaSeconds, speedRatio);
 				return this.moveActorHome(behavior.actorObjectId, actorRoot, deltaSeconds, speedRatio);
 			}
 			case 'axisMove': {
 				channel.status = 'moving';
+				if (action.actuatorId) return this.moveConfiguredActuator(actorRoot, action, deltaSeconds, speedRatio);
 				return this.moveAxis(actorRoot, action, deltaSeconds, speedRatio);
+			}
+			case 'gripOpen':
+				channel.status = 'acting';
+				return this.setConfiguredGripper(actorRoot, action, false);
+			case 'gripClose':
+				channel.status = 'acting';
+				return this.setConfiguredGripper(actorRoot, action, true);
+			case 'waitSignal': {
+				const bindingId = action.signalBindingId?.trim();
+				if (!bindingId) throw new Error(`动作 ${action.actionId} 未配置 signalBindingId`);
+				channel.waitElapsed += deltaSeconds;
+				if (this.staleBindingIds.has(bindingId)) {
+					channel.status = 'waiting-signal-stale';
+					this.throwIfSignalTimedOut(channel, action, bindingId);
+					return false;
+				}
+				if (!this.isSignalSatisfied(action, this.bindingValues.get(bindingId))) {
+					channel.status = 'waiting-signal';
+					this.throwIfSignalTimedOut(channel, action, bindingId);
+					return false;
+				}
+				channel.status = 'acting';
+				return true;
 			}
 			case 'pick': {
 				const workPoint = this.requireWorkPoint(action);
@@ -337,6 +394,7 @@ export class BehaviorRuntime {
 				return true;
 			case 'detach':
 				channel.status = 'acting';
+				if (action.workPointId) this.markZoneEntryIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, action.workPointId);
 				this.detachPayload(channel, action.workPointId ? this.workPoints.get(action.workPointId) : undefined, action);
 				return true;
 			default:
@@ -357,6 +415,80 @@ export class BehaviorRuntime {
 		const workPoint = action.workPointId ? this.workPoints.get(action.workPointId) : undefined;
 		if (!workPoint) throw new Error(`动作 ${action.actionId} 未引用有效工作点`);
 		return workPoint;
+	}
+
+	private requirePose(action: TwinBehaviorActionDefinition) {
+		const pose = action.poseId ? this.poses.get(action.poseId) : undefined;
+		if (!pose) throw new Error(`动作 ${action.actionId} 未引用有效 Pose`);
+		return pose;
+	}
+
+	private requireActuator(actuatorId: string) {
+		const actuator = this.actuators.get(actuatorId);
+		if (!actuator) throw new Error(`执行机构 ${actuatorId} 不存在`);
+		return actuator;
+	}
+
+	private movePose(actorRoot: THREE.Object3D, pose: TwinPoseDefinition, deltaSeconds: number, speedRatio: number) {
+		let done = true;
+		for (const target of pose.targets || []) {
+			if (!this.setActuatorValue(actorRoot, this.requireActuator(target.actuatorId), target.value, deltaSeconds, speedRatio)) done = false;
+		}
+		return done;
+	}
+
+	private moveConfiguredActuator(actorRoot: THREE.Object3D, action: TwinBehaviorActionDefinition, deltaSeconds: number, speedRatio: number) {
+		if (!action.actuatorId || !Number.isFinite(action.targetValue)) return true;
+		return this.setActuatorValue(actorRoot, this.requireActuator(action.actuatorId), Number(action.targetValue), deltaSeconds, speedRatio);
+	}
+
+	private setConfiguredGripper(actorRoot: THREE.Object3D, action: TwinBehaviorActionDefinition, closed: boolean) {
+		if (action.actuatorId) return this.setActuatorValue(actorRoot, this.requireActuator(action.actuatorId), closed, 0, 1);
+		const fallback = action.actorNodePath ? this.findNode(actorRoot, action.actorNodePath) : this.resolveAttachNode(actorRoot, action.actorNodePath);
+		if (fallback) {
+			fallback.userData.gripClosed = closed;
+			fallback.userData.gripValue = closed ? 1 : 0;
+		}
+		return true;
+	}
+
+	private setActuatorValue(actorRoot: THREE.Object3D, actuator: TwinActuatorDefinition, value: number | boolean, deltaSeconds: number, speedRatio: number) {
+		const node = this.findNode(actorRoot, actuator.nodePath);
+		if (!node) throw new Error(`执行机构 ${actuator.actuatorId} 找不到节点 ${actuator.nodePath}`);
+		if (actuator.kind === 'gripper') {
+			const closed = Boolean(value);
+			node.userData.gripClosed = closed;
+			node.userData.gripValue = closed ? 1 : 0;
+			return true;
+		}
+		const axis = actuator.motionAxis || 'y';
+		let numeric = Number(value);
+		if (!Number.isFinite(numeric)) return true;
+		if (Number.isFinite(actuator.minValue)) numeric = Math.max(Number(actuator.minValue), numeric);
+		if (Number.isFinite(actuator.maxValue)) numeric = Math.min(Number(actuator.maxValue), numeric);
+		const speed = Math.max(0.001, Number(actuator.speed || (actuator.kind === 'rotary-joint' ? 1.8 : 3))) * Math.max(0.1, speedRatio);
+		const maxStep = Math.max(0.001, deltaSeconds * speed);
+		if (actuator.kind === 'rotary-joint') {
+			const targetRadians = actuator.unit === 'degree' ? THREE.MathUtils.degToRad(numeric) : numeric;
+			return this.moveAngle(node.rotation, axis, targetRadians, maxStep);
+		}
+		return this.moveScalar(node.position, axis, numeric, maxStep);
+	}
+
+	private isSignalSatisfied(action: TwinBehaviorActionDefinition, value: unknown) {
+		const isTrue = value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+		switch (action.signalOperator || 'truthy') {
+			case 'truthy': return isTrue;
+			case 'falsy': return !isTrue;
+			case 'equals': return value === action.signalValue || String(value) === String(action.signalValue);
+			case 'notEquals': return !(value === action.signalValue || String(value) === String(action.signalValue));
+			default: return false;
+		}
+	}
+
+	private throwIfSignalTimedOut(channel: ChannelState, action: TwinBehaviorActionDefinition, bindingId: string) {
+		const timeout = Number(action.timeoutSeconds || 0);
+		if (timeout > 0 && channel.waitElapsed >= timeout) throw new Error(`等待信号 ${bindingId} 超时`);
 	}
 
 	private resolveWorkPointWorld(workPoint: TwinWorkPointDefinition, offset?: TwinVector3) {
@@ -608,7 +740,7 @@ export class BehaviorRuntime {
 		if (!root) return;
 		const poses: BasePose[] = [];
 		root.traverse((object) => {
-			if (!object.name.startsWith('Robot-Axis-') && !object.name.startsWith('Gantry-Silk-Rail-Carriage') && !object.name.startsWith('Gantry-Separator-Rail-Carriage') && object.name !== 'Gantry-Z-Slide' && object.name !== 'Gantry-Separator-Z-Slide') return;
+			if (!object.userData?.actuator && !object.userData?.actuatorId && !object.name.startsWith('Robot-Axis-') && !object.name.startsWith('Gantry-Silk-Rail-Carriage') && !object.name.startsWith('Gantry-Separator-Rail-Carriage') && object.name !== 'Gantry-Z-Slide' && object.name !== 'Gantry-Separator-Z-Slide') return;
 			poses.push({ object, position: object.position.clone(), rotation: object.rotation.clone() });
 		});
 		this.basePoses.set(actorObjectId, poses);

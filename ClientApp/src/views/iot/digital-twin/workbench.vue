@@ -302,6 +302,18 @@
 						<div class="twin-behavior-grid"><el-select v-model="point.role" size="small" @change="syncBehaviorManifest"><el-option v-for="option in workPointRoleOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input v-model="point.nodePath" clearable size="small" placeholder="锚定子节点（可选）" @change="syncBehaviorManifest" /></div>
 						<div class="twin-coordinate-grid"><el-input-number v-model="point.localPosition[0]" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /><el-input-number v-model="point.localPosition[1]" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /><el-input-number v-model="point.localPosition[2]" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
 					</div>
+					<div class="twin-inline-control"><strong>执行机构</strong><el-tag size="small">{{ selectedActuators.length }} Axis/Tool</el-tag><el-button text type="primary" size="small" @click="addActuator">新增</el-button></div>
+					<div v-for="actuator in selectedActuators" :key="actuator.actuatorId" class="twin-behavior-item">
+						<div class="twin-behavior-item__head"><el-input v-model="actuator.name" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeActuator(actuator.actuatorId)">×</el-button></div>
+						<div class="twin-behavior-grid"><el-select v-model="actuator.kind" size="small" @change="syncBehaviorManifest"><el-option label="旋转关节" value="rotary-joint" /><el-option label="直线轴" value="linear-axis" /><el-option label="夹具" value="gripper" /></el-select><el-input v-model="actuator.nodePath" size="small" placeholder="Three.js 节点路径" @change="syncBehaviorManifest" /></div>
+						<div v-if="actuator.kind !== 'gripper'" class="twin-behavior-grid"><el-select v-model="actuator.motionAxis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="actuator.homeValue" :step="0.1" size="small" controls-position="right" placeholder="Home" @change="syncBehaviorManifest" /></div>
+					</div>
+					<div class="twin-inline-control"><strong>Pose 姿态</strong><el-tag size="small" type="info">{{ selectedPoses.length }}</el-tag><el-button text type="primary" size="small" @click="addPose">新增</el-button></div>
+					<div v-for="pose in selectedPoses" :key="pose.poseId" class="twin-behavior-item">
+						<div class="twin-behavior-item__head"><el-input v-model="pose.name" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removePose(pose.poseId)">×</el-button></div>
+						<div v-for="(target, targetIndex) in pose.targets" :key="`${pose.poseId}:${targetIndex}`" class="twin-behavior-grid"><el-select v-model="target.actuatorId" filterable size="small" @change="syncBehaviorManifest"><el-option v-for="option in actuatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><div class="twin-inline-control"><el-input :model-value="String(target.value)" size="small" placeholder="轴值 / true / false" @change="setPoseTargetValue(pose, targetIndex, $event)" /><el-button circle text type="danger" size="small" @click="removePoseTarget(pose, targetIndex)">×</el-button></div></div>
+						<el-button text type="primary" size="small" :disabled="selectedActuators.length === 0" @click="addPoseTarget(pose)">增加轴目标</el-button>
+					</div>
 					<div class="twin-inline-control"><strong>动作编排</strong><el-button text type="primary" size="small" @click="addBehavior">新增</el-button></div>
 					<div v-for="behavior in selectedBehaviors" :key="behavior.behaviorId" class="twin-behavior-item">
 						<div class="twin-behavior-item__head"><el-input v-model="behavior.name" size="small" @change="syncBehaviorManifest" /><el-switch v-model="behavior.enabled" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeBehavior(behavior.behaviorId)">×</el-button></div>
@@ -309,10 +321,13 @@
 						<div v-for="(action, actionIndex) in behavior.actions" :key="action.actionId" class="twin-action-row">
 							<div class="twin-action-row__head"><span>{{ actionIndex + 1 }}</span><el-select v-model="action.kind" size="small" @change="syncBehaviorManifest"><el-option v-for="option in behaviorActionKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-button circle text type="danger" size="small" @click="removeBehaviorAction(behavior, action.actionId)">×</el-button></div>
 							<el-select v-if="['moveTo','pick','place','home'].includes(action.kind)" v-model="action.workPointId" size="small" clearable filterable placeholder="语义工作点" @change="syncBehaviorManifest"><el-option v-for="option in workPointOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-if="['movePose','home'].includes(action.kind)" v-model="action.poseId" size="small" clearable filterable placeholder="Pose 姿态" @change="syncBehaviorManifest"><el-option v-for="option in poseOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<div v-if="['jointMove','axisMove','gripOpen','gripClose'].includes(action.kind)" class="twin-behavior-grid"><el-select v-model="action.actuatorId" size="small" clearable filterable placeholder="执行机构" @change="syncBehaviorManifest"><el-option v-for="option in actuatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input-number v-if="['jointMove','axisMove'].includes(action.kind)" v-model="action.targetValue" :step="0.1" size="small" controls-position="right" placeholder="目标值" @change="syncBehaviorManifest" /></div>
 							<el-input v-model="action.actorNodePath" size="small" clearable placeholder="执行机构：YarnFixture / SeparatorFixture / 节点名" @change="syncBehaviorManifest" />
 							<div v-if="['pick','place','attach','detach'].includes(action.kind)" class="twin-behavior-grid"><el-input v-model="action.payloadType" size="small" placeholder="物料类型，如 silk-cake" @change="syncBehaviorManifest" /><el-input-number v-model="action.speedRatio" :min="0.1" :max="3" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
 							<div v-if="action.kind === 'wait'" class="twin-behavior-grid"><el-select v-model="action.waitForInterlockId" size="small" clearable placeholder="等待联锁" @change="syncBehaviorManifest"><el-option v-for="option in interlockOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input-number v-model="action.waitSeconds" :min="0" :max="300" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
-							<div v-if="action.kind === 'axisMove'" class="twin-behavior-grid"><el-select v-model="action.axis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="action.axisValue" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
+							<div v-if="action.kind === 'waitSignal'" class="twin-behavior-item"><el-select v-model="action.signalBindingId" size="small" clearable filterable placeholder="PLC / Telemetry Binding" @change="syncBehaviorManifest"><el-option v-for="option in signalBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><div class="twin-behavior-grid"><el-select v-model="action.signalOperator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-input v-model="action.signalValue" size="small" placeholder="比较值（truthy/falsy 可空）" @change="syncBehaviorManifest" /></div><el-input-number v-model="action.timeoutSeconds" :min="0" :max="3600" :step="0.5" size="small" controls-position="right" placeholder="超时秒数" @change="syncBehaviorManifest" /></div>
+							<div v-if="action.kind === 'axisMove' && !action.actuatorId" class="twin-behavior-grid"><el-select v-model="action.axis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="action.axisValue" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
 						</div>
 					</div>
 					<div class="twin-inline-control"><strong>联锁</strong><el-button text type="primary" size="small" @click="addInterlock">新增</el-button></div>
@@ -396,9 +411,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { assetApi } from '/@/api/asset';
 import { deviceApi } from '/@/api/devices';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinBindingDeviceOption, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
-import { cloneTwinManifest, createBlankTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeEquipmentObjectDefinitions, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinBehaviorDefinition, type TwinBindingTargetKind, type TwinEquipmentType, type TwinInterlockDefinition, type TwinObjectBindingDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
+import { cloneTwinManifest, createBlankTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeEquipmentObjectDefinitions, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinActuatorDefinition, type TwinBehaviorDefinition, type TwinBindingTargetKind, type TwinEquipmentType, type TwinInterlockDefinition, type TwinObjectBindingDefinition, type TwinPoseDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
-import { builtInComponentResourceRegistrations, builtInComponentTemplates, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, snapSceneComponent, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
+import { builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, snapSceneComponent, upsertGeneratedComponentRoute, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { createReferencePackagingLineTwinSceneManifest, upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { resolveTwinDiagnosticObjectId } from '/@/digital-twin/diagnostics/diagnosticLocator';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
@@ -522,6 +537,8 @@ const filteredGlbModels = computed(() => {
 const selectedBindings = computed(() => manifest.value.bindings.filter((item) => item.objectId === selected.value?.objectId));
 const routeSlotBindings = computed(() => manifest.value.bindings.filter((item) => item.transform.kind === 'routeSlotArray'));
 const selectedWorkPoints = computed(() => (manifest.value.workPoints || []).filter((item) => item.objectId === selected.value?.objectId));
+const selectedActuators = computed(() => (manifest.value.actuators || []).filter((item) => item.objectId === selected.value?.objectId));
+const selectedPoses = computed(() => (manifest.value.poses || []).filter((item) => item.objectId === selected.value?.objectId));
 const selectedBehaviors = computed(() => (manifest.value.behaviors || []).filter((item) => item.actorObjectId === selected.value?.objectId));
 const selectedBehaviorInterlocks = computed(() => {
 	const ids = new Set<string>();
@@ -532,9 +549,12 @@ const selectedBehaviorInterlocks = computed(() => {
 	return (manifest.value.interlocks || []).filter((item) => ids.has(item.interlockId));
 });
 const workPointOptions = computed(() => (manifest.value.workPoints || []).map((item) => ({ value: item.workPointId, label: `${item.name} · ${item.role}` })));
+const actuatorOptions = computed(() => selectedActuators.value.map((item) => ({ value: item.actuatorId, label: `${item.name} · ${item.kind}` })));
+const poseOptions = computed(() => selectedPoses.value.map((item) => ({ value: item.poseId, label: item.name })));
+const signalBindingOptions = computed(() => (manifest.value.bindings || []).map((item) => ({ value: item.bindingId, label: `${item.source.key} · ${item.bindingId}` })));
 const interlockOptions = computed(() => (manifest.value.interlocks || []).map((item) => ({ value: item.interlockId, label: item.name })));
 const workPointRoleOptions = ['pick', 'place', 'safe', 'home', 'buffer', 'tcp', 'stack'].map((value) => ({ label: value, value }));
-const behaviorActionKindOptions = ['moveTo', 'pick', 'place', 'wait', 'home', 'axisMove', 'attach', 'detach'].map((value) => ({ label: value, value }));
+const behaviorActionKindOptions = ['moveTo', 'movePose', 'jointMove', 'axisMove', 'pick', 'place', 'gripOpen', 'gripClose', 'waitSignal', 'wait', 'home', 'attach', 'detach'].map((value) => ({ label: value, value }));
 const selectedEquipmentBindings = computed(() => {
 	const nodePath = selected.value?.nodePath || '';
 	return selectedBindings.value.filter((binding) => !binding.nodePath || !nodePath || binding.nodePath === nodePath || binding.nodePath.startsWith(`${nodePath}/`) || nodePath.startsWith(`${binding.nodePath}/`));
@@ -864,6 +884,7 @@ const normalizeManifest = (value: TwinSceneManifest): TwinSceneManifest => {
 	upgradeLegacySilkRouteLayout(normalized);
 	upgradeSilkPackagingLayout(normalized);
 	migrateSilkLineInfrastructureToV7(normalized);
+	ensureComponentActuators(normalized);
 	return normalized;
 };
 const workbenchHistorySnapshot = () => normalizeManifest(manifest.value);
@@ -1010,6 +1031,46 @@ const addWorkPoint = () => {
 const removeWorkPoint = (workPointId: string) => {
 	manifest.value.workPoints = (manifest.value.workPoints || []).filter((item) => item.workPointId !== workPointId);
 	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.workPointId === workPointId) delete action.workPointId;
+	syncBehaviorManifest();
+};
+const addActuator = () => {
+	const objectId = selected.value?.objectId;
+	if (!objectId) return;
+	const actuator: TwinActuatorDefinition = {
+		actuatorId: createId('actuator'), name: '新执行机构', objectId,
+		nodePath: selected.value?.nodePath || '', kind: 'linear-axis', motionAxis: 'y', unit: 'meter', homeValue: 0, speed: 1,
+	};
+	(manifest.value.actuators ||= []).push(actuator);
+	syncBehaviorManifest();
+};
+const removeActuator = (actuatorId: string) => {
+	manifest.value.actuators = (manifest.value.actuators || []).filter((item) => item.actuatorId !== actuatorId);
+	for (const pose of manifest.value.poses || []) pose.targets = pose.targets.filter((item) => item.actuatorId !== actuatorId);
+	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.actuatorId === actuatorId) delete action.actuatorId;
+	syncBehaviorManifest();
+};
+const addPose = () => {
+	const objectId = selected.value?.objectId;
+	if (!objectId) return;
+	const pose: TwinPoseDefinition = { poseId: createId('pose'), name: '新 Pose', objectId, targets: [] };
+	(manifest.value.poses ||= []).push(pose);
+	syncBehaviorManifest();
+};
+const removePose = (poseId: string) => {
+	manifest.value.poses = (manifest.value.poses || []).filter((item) => item.poseId !== poseId);
+	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.poseId === poseId) delete action.poseId;
+	syncBehaviorManifest();
+};
+const addPoseTarget = (pose: TwinPoseDefinition) => {
+	const actuatorId = selectedActuators.value.find((item) => !pose.targets.some((target) => target.actuatorId === item.actuatorId))?.actuatorId || selectedActuators.value[0]?.actuatorId;
+	if (!actuatorId) return;
+	pose.targets.push({ actuatorId, value: 0 });
+	syncBehaviorManifest();
+};
+const removePoseTarget = (pose: TwinPoseDefinition, index: number) => { pose.targets.splice(index, 1); syncBehaviorManifest(); };
+const setPoseTargetValue = (pose: TwinPoseDefinition, index: number, raw: unknown) => {
+	const text = String(raw ?? '').trim().toLowerCase();
+	pose.targets[index].value = text === 'true' ? true : text === 'false' ? false : Number.isFinite(Number(raw)) ? Number(raw) : 0;
 	syncBehaviorManifest();
 };
 const addBehavior = () => {
@@ -1463,7 +1524,9 @@ const placeComponentTemplate = async (resourceKey: string, options: TwinPlacemen
 	if (registered && !manifest.value.resources.some((item) => item.resourceId === registered.id)) manifest.value.resources.push({ resourceId: registered.id, name: registered.name, status: 'ready' });
 	// 新拖入的顶层组件统一落在工程基准面 Y=0；运输单元若命中 Route，再由运输吸附计算运行高度。
 	const position: TwinVector3 = options.position ? [options.position[0], 0, options.position[2]] : [0, 0, 0];
-	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: structuredClone(template.defaultProperties), sectionId }, transform: { position, rotation: [0,0,0], scale: [1,1,1] } });
+	const componentProperties = structuredClone(template.defaultProperties);
+	(manifest.value.objects as any[]).push({ objectId, name: template.name, kind: 'component', resourceId: registered?.id, assetId: manifest.value.rootAssetId || undefined, component: { resourceKey: template.resourceKey, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion, properties: componentProperties, sectionId }, transform: { position, rotation: [0,0,0], scale: [1,1,1] } });
+	ensureComponentActuators(manifest.value, [objectId]);
 	manifest.value.connections ||= [];
 	// 先生成已有 Component Network，再执行场景级吸附；运输单元由 Route/Section 吸附，设备由 Port Connection 吸附。
 	upsertGeneratedComponentRoute(manifest.value);
@@ -1599,10 +1662,21 @@ const handleViewportDrop = async (event: DragEvent) => {
 	await placeLibraryResource(payload, position);
 };
 const removeModelObject = (objectId: string) => {
+	const removedWorkPointIds = new Set((manifest.value.workPoints || []).filter((item) => item.objectId === objectId).map((item) => item.workPointId));
+	const removedActuatorIds = new Set((manifest.value.actuators || []).filter((item) => item.objectId === objectId).map((item) => item.actuatorId));
+	const removedPoseIds = new Set((manifest.value.poses || []).filter((item) => item.objectId === objectId).map((item) => item.poseId));
 	removeConnectionsForObject(manifest.value, objectId);
 	if (viewportMode.value === 'editor') professionalEditor.value?.removeObject(objectId);
 	const index = manifest.value.objects.findIndex((item) => item.objectId === objectId); if (index >= 0) manifest.value.objects.splice(index, 1);
 	manifest.value.bindings = manifest.value.bindings.filter((item) => item.objectId !== objectId);
+	manifest.value.workPoints = (manifest.value.workPoints || []).filter((item) => item.objectId !== objectId);
+	manifest.value.actuators = (manifest.value.actuators || []).filter((item) => item.objectId !== objectId);
+	manifest.value.poses = (manifest.value.poses || []).filter((item) => item.objectId !== objectId);
+	manifest.value.behaviors = (manifest.value.behaviors || [])
+		.filter((item) => item.actorObjectId !== objectId)
+		.map((behavior) => ({ ...behavior, actions: behavior.actions.filter((action) => !action.workPointId || !removedWorkPointIds.has(action.workPointId))
+			.filter((action) => !action.actuatorId || !removedActuatorIds.has(action.actuatorId))
+			.filter((action) => !action.poseId || !removedPoseIds.has(action.poseId)) }));
 	const used = new Set(manifest.value.objects.map((item) => item.resourceId).filter(Boolean)); manifest.value.resources = manifest.value.resources.filter((item) => used.has(item.resourceId));
 	if (selected.value?.objectId === objectId) selected.value = null;
 	if (viewportMode.value === 'runtime') { initializeRuntime(); loadReferencedModels(); }

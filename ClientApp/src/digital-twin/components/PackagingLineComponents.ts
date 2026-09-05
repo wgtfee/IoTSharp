@@ -45,6 +45,10 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 		root.userData.sharedRailPairId = 'SilkGantry-Shared-Rail-Pair';
 		root.userData.doubleRail = true;
 		root.userData.doubleGripper = true;
+		const tagActuator = (node: THREE.Object3D, actuator: Record<string, unknown>) => {
+			node.userData.actuator = actuator;
+			node.userData.actuatorId = actuator.actuatorId;
+		};
 
 		const frame = createMaterial(0x475569, { roughness: 0.58, metalness: 0.72 });
 		const railMaterial = createMaterial(0xf97316, { emissive: 0x4a1f05, emissiveIntensity: 0.14, roughness: 0.38, metalness: 0.72 });
@@ -93,6 +97,12 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 			group.userData.servoAxisId = role === 'silk' ? 'Gantry-Silk-Z-Travel' : 'Gantry-Separator-Z-Travel';
 			group.userData.travelAxis = 'z';
 			group.userData.railMounted = true;
+			tagActuator(group, {
+				actuatorId: role === 'silk' ? 'gantry-yarn-z' : 'gantry-separator-z',
+				name: role === 'silk' ? '丝锭夹具水平轴' : '隔板夹具水平轴',
+				kind: 'linear-axis', motionAxis: 'z', unit: 'meter',
+				minValue: -(width / 2 - 0.8), maxValue: width / 2 - 0.8, homeValue: z, speed: 3,
+			});
 
 			// 桥式小车沿 X 跨越两根 Z 向橙色轨道。
 			const bridgeName = role === 'silk' ? 'Gantry-Silk-Bridge' : 'Gantry-Separator-Bridge';
@@ -122,6 +132,11 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 			guide.userData.lowerEndY = guideBottomY;
 			const lift = new THREE.Group();
 			lift.name = role === 'silk' ? 'Gantry-Z-Slide' : 'Gantry-Separator-Z-Slide';
+			tagActuator(lift, {
+				actuatorId: role === 'silk' ? 'gantry-yarn-y' : 'gantry-separator-y',
+				name: role === 'silk' ? '丝锭夹具升降轴' : '隔板夹具升降轴',
+				kind: 'linear-axis', motionAxis: 'y', unit: 'meter', minValue: -8, maxValue: 3, homeValue: 0, speed: 2.2,
+			});
 			const slideBottomY = gripperY + 0.10;
 			const slideLength = Math.max(0.45, Math.abs(slideBottomY));
 			const slideBar = addBox(lift, `${lift.name}-Bar`, [0.26, slideLength, 0.26], [0, slideBottomY / 2, 0], tool);
@@ -132,6 +147,10 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 			gripper.position.y = gripperY;
 			gripper.userData.heightOffset = gripperLevelOffset;
 			gripper.userData.installPlaneY = gripperY;
+			tagActuator(gripper, {
+				actuatorId: role === 'silk' ? 'gantry-yarn-gripper' : 'gantry-separator-gripper',
+				name: role === 'silk' ? '丝锭夹具' : '隔板真空夹具', kind: 'gripper', unit: 'boolean', homeValue: 0, speed: 1,
+			});
 			if (role === 'silk') {
 				addBox(gripper, 'Gantry-Silk-Gripper-2x3', [stackFootprintX, 0.18, stackFootprintZ], [0, 0, 0], tool);
 				for (let row = 0; row < 2; row += 1) for (let column = 0; column < 3; column += 1) {
@@ -216,6 +235,10 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 
 		buildSeparatorStockPlatform('Gantry-Separator-Stock-Platform', firstStockZ, 1, 'A');
 		buildSeparatorStockPlatform('Gantry-Separator-Stock-Platform-02', firstStockZ - stockSpacingZ, 2, 'B');
+		root.userData.actuatorDefinitions = [];
+		root.traverse((node) => {
+			if (node.userData?.actuator) root.userData.actuatorDefinitions.push({ ...node.userData.actuator, nodePath: node.name });
+		});
 		return finish(root, context, this.generator, this.componentType, { ...props, length, width, height });
 	}
 }

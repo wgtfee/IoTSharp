@@ -12,6 +12,7 @@ import {
 	ComponentMigrationRegistry,
 	createComponentDefinitionFromTemplate,
 	defaultComponentRegistry,
+	ensureComponentActuators,
 	findBestComponentSnap,
 	findBestTransportRouteSnap,
 	hasCompleteSilkV7Infrastructure,
@@ -82,6 +83,64 @@ for (const template of builtInComponentTemplates) {
 	if (template.capabilities.includes('material-flow')) assert(Boolean(registration?.ports.length), `${template.name} 的数据库注册元数据缺少物料 ports`);
 	assert(Array.isArray(registration?.bindingSlots), `${template.name} 的数据库注册元数据缺少 bindingSlots 数组`);
 }
+
+const createActuatorSyncComponent = (resourceKey: string, objectId: string): TwinV7SceneObjectDefinition => {
+	const template = builtInComponentTemplates.find((item) => item.resourceKey === resourceKey)!;
+	return {
+		objectId,
+		name: template.name,
+		kind: 'component',
+		resourceId,
+		transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+		component: {
+			resourceKey: template.resourceKey,
+			componentType: template.componentType,
+			generator: template.generator,
+			generatorVersion: template.generatorVersion,
+			properties: { ...template.defaultProperties },
+			sectionId: `section-${objectId}`,
+		},
+	};
+};
+
+const actuatorSyncManifest = createDefaultTwinSceneManifest();
+actuatorSyncManifest.objects = [
+	createActuatorSyncComponent('builtin-industrial-robot', 'auto-robot'),
+	createActuatorSyncComponent('builtin-silk-gantry', 'auto-gantry'),
+	createActuatorSyncComponent('builtin-small-roller-conveyor', 'auto-conveyor'),
+] as any;
+actuatorSyncManifest.actuators = [];
+actuatorSyncManifest.poses = [];
+const actuatorSyncFirst = ensureComponentActuators(actuatorSyncManifest);
+const autoRobotActuators = (actuatorSyncManifest.actuators || []).filter((item) => item.objectId === 'auto-robot');
+const autoGantryActuators = (actuatorSyncManifest.actuators || []).filter((item) => item.objectId === 'auto-gantry');
+assert(autoRobotActuators.length >= 7, '新拖入工业机器人没有自动生成 J1~J6 + gripper 执行机构');
+assert(autoRobotActuators.every((item) => item.actuatorId.startsWith('auto-robot:')), '机器人自动执行机构 ID 没有按场景 objectId 稳定命名');
+assert(autoRobotActuators.some((item) => item.nodePath === 'Robot-Axis-1') && autoRobotActuators.some((item) => item.kind === 'gripper'), '机器人自动执行机构缺少 J1 或夹具');
+assert(autoGantryActuators.length >= 6, '新拖入丝锭桁架没有自动生成两套横移/升降/夹具执行机构');
+assert(autoGantryActuators.some((item) => item.nodePath === 'Gantry-Silk-Rail-Carriage')
+	&& autoGantryActuators.some((item) => item.nodePath === 'Gantry-Z-Slide')
+	&& autoGantryActuators.some((item) => item.nodePath === 'GantryGripper-2x3')
+	&& autoGantryActuators.some((item) => item.nodePath === 'Gantry-Separator-Rail-Carriage')
+	&& autoGantryActuators.some((item) => item.nodePath === 'Gantry-Separator-Z-Slide')
+	&& autoGantryActuators.some((item) => item.nodePath === 'Gantry-Separator-Gripper'), '丝锭桁架自动执行机构节点不完整');
+assert(!(actuatorSyncManifest.actuators || []).some((item) => item.objectId === 'auto-conveyor'), '无动作小辊道错误生成了执行机构');
+assert(actuatorSyncFirst.addedPoseIds.includes('auto-robot:home') && actuatorSyncFirst.addedPoseIds.includes('auto-gantry:home'), '新工业组件没有自动生成 Home Pose');
+const actuatorCountAfterFirstSync = actuatorSyncManifest.actuators.length;
+const poseCountAfterFirstSync = actuatorSyncManifest.poses.length;
+const actuatorSyncSecond = ensureComponentActuators(actuatorSyncManifest);
+assert(actuatorSyncSecond.addedActuatorIds.length === 0 && actuatorSyncSecond.addedPoseIds.length === 0, '执行机构自动同步不是幂等的');
+assert(actuatorSyncManifest.actuators.length === actuatorCountAfterFirstSync && actuatorSyncManifest.poses.length === poseCountAfterFirstSync, '二次执行机构同步产生了重复项');
+const customizedActuator = actuatorSyncManifest.actuators.find((item) => item.objectId === 'auto-robot' && item.nodePath === 'Robot-Axis-1')!;
+customizedActuator.name = '用户自定义 J1';
+customizedActuator.minValue = -9;
+customizedActuator.maxValue = 9;
+const removedActuator = actuatorSyncManifest.actuators.find((item) => item.objectId === 'auto-robot' && item.actuatorId !== customizedActuator.actuatorId)!;
+actuatorSyncManifest.actuators = actuatorSyncManifest.actuators.filter((item) => item.actuatorId !== removedActuator.actuatorId);
+const actuatorRepair = ensureComponentActuators(actuatorSyncManifest, ['auto-robot']);
+const customizedAfterRepair = actuatorSyncManifest.actuators.find((item) => item.actuatorId === customizedActuator.actuatorId)!;
+assert(customizedAfterRepair.name === '用户自定义 J1' && customizedAfterRepair.minValue === -9 && customizedAfterRepair.maxValue === 9, '自动同步覆盖了用户已修改的执行机构配置');
+assert(actuatorSyncManifest.actuators.some((item) => item.actuatorId === removedActuator.actuatorId) && actuatorRepair.addedActuatorIds.includes(removedActuator.actuatorId), '自动同步没有只补回缺失执行机构');
 
 const smallPalletTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-small-pallet');
 assert(smallPalletTemplate?.name === '小托盘', '组件库缺少独立绿色小托盘资源');
@@ -269,6 +328,23 @@ assert(realWoodPallet.component?.routeId === 'silk-wood-packaging-route' && real
 
 if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const referenceLineV11 = createReferencePackagingLineTwinSceneManifest();
+	const referenceActuatorIdsBeforeSync = (referenceLineV11.actuators || []).map((item) => item.actuatorId).sort();
+	const referencePoseIdsBeforeSync = (referenceLineV11.poses || []).map((item) => item.poseId).sort();
+	const referenceActuatorSync = ensureComponentActuators(referenceLineV11);
+	const referenceActuatorIdsAfterSync = new Set((referenceLineV11.actuators || []).map((item) => item.actuatorId));
+	const referencePoseIdsAfterSync = new Set((referenceLineV11.poses || []).map((item) => item.poseId));
+	assert(referenceActuatorIdsBeforeSync.every((id) => referenceActuatorIdsAfterSync.has(id)), 'V12 自动同步破坏了已有显式执行机构 ID');
+	assert(referencePoseIdsBeforeSync.every((id) => referencePoseIdsAfterSync.has(id)), 'V12 自动同步破坏了已有显式 Pose ID');
+	const explicitIndustrialObjectIds = new Set(['reference-loading-robot', 'reference-stacking-gantry']);
+	const duplicateExplicitActuators = referenceActuatorSync.addedActuatorIds
+		.map((id) => (referenceLineV11.actuators || []).find((item) => item.actuatorId === id))
+		.filter((item) => item && explicitIndustrialObjectIds.has(item.objectId));
+	const duplicateExplicitPoses = referenceActuatorSync.addedPoseIds
+		.map((id) => (referenceLineV11.poses || []).find((item) => item.poseId === id))
+		.filter((item) => item && explicitIndustrialObjectIds.has(item.objectId));
+	assert(duplicateExplicitActuators.length === 0, `V12 自动同步重复生成了已有工业对象执行机构：${duplicateExplicitActuators.map((item) => item!.actuatorId).join(',')}`);
+	assert(duplicateExplicitPoses.length === 0, `V12 自动同步重复生成了已有工业对象 Pose：${duplicateExplicitPoses.map((item) => item!.poseId).join(',')}`);
+	assert(referenceActuatorSync.addedActuatorIds.some((id) => id.startsWith('reference-center-robot:')), 'V12 未配置动作的中心机器人没有被自动补齐执行机构');
 	assert(referenceLineV11.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, '参考图当前 Manifest 名称没有同步布局版本');
 	const referenceObjectsV11 = referenceLineV11.objects as TwinV7SceneObjectDefinition[];
 	const referenceComponentsV11 = referenceObjectsV11.filter((item) => item.kind === 'component');
@@ -293,6 +369,21 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(referenceObjectsV11.some((item) => item.objectId === workPoint.objectId), `参考图 V12 工作点 ${workPoint.workPointId} 引用了不存在的组件 ${workPoint.objectId}`);
 		assert(workPoint.localPosition.every(Number.isFinite), `参考图 V12 工作点 ${workPoint.workPointId} 不是合法局部坐标`);
 	}
+	const referenceV12ActuatorIds = new Set((referenceLineV11.actuators || []).map((item) => item.actuatorId));
+	for (const actuatorId of ['reference-robot-j1', 'reference-robot-j6', 'reference-robot-gripper', 'reference-gantry-yarn-z', 'reference-gantry-yarn-y', 'reference-gantry-yarn-gripper', 'reference-gantry-separator-z', 'reference-gantry-separator-y', 'reference-gantry-separator-gripper']) {
+		assert(referenceV12ActuatorIds.has(actuatorId), `参考图 V12 缺少执行机构 ${actuatorId}`);
+	}
+	for (const actuator of referenceLineV11.actuators || []) {
+		assert(referenceObjectsV11.some((item) => item.objectId === actuator.objectId), `执行机构 ${actuator.actuatorId} 引用了不存在对象 ${actuator.objectId}`);
+		assert(Boolean(actuator.nodePath) && Boolean(actuator.kind) && Boolean(actuator.unit), `执行机构 ${actuator.actuatorId} 定义不完整`);
+	}
+	const referenceV12PoseIds = new Set((referenceLineV11.poses || []).map((item) => item.poseId));
+	for (const poseId of ['reference-robot-home', 'reference-robot-pick-west', 'reference-robot-pick-east', 'reference-robot-place-small-pallet', 'reference-gantry-yarn-safe', 'reference-gantry-yarn-pick', 'reference-gantry-yarn-stack', 'reference-gantry-separator-safe', 'reference-gantry-separator-pick', 'reference-gantry-separator-stack']) {
+		assert(referenceV12PoseIds.has(poseId), `参考图 V12 缺少 Pose ${poseId}`);
+	}
+	for (const pose of referenceLineV11.poses || []) {
+		assert(pose.targets.length > 0 && pose.targets.every((item) => referenceV12ActuatorIds.has(item.actuatorId)), `Pose ${pose.poseId} 存在无效执行机构目标`);
+	}
 	const referenceV12Behaviors = new Map((referenceLineV11.behaviors || []).map((item) => [item.behaviorId, item]));
 	for (const behaviorId of ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east', 'reference-v12-gantry-yarn-stack', 'reference-v12-gantry-separator-stack']) {
 		assert(referenceV12Behaviors.has(behaviorId), `参考图 V12 缺少动作编排 ${behaviorId}`);
@@ -300,14 +391,26 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	for (const behaviorId of ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east']) {
 		const behavior = referenceV12Behaviors.get(behaviorId)!;
 		assert(behavior.actorObjectId === 'reference-loading-robot', `${behaviorId} 没有绑定底部上料机器人`);
-		assert(behavior.actions.some((item) => item.kind === 'pick' && item.workPointId?.includes('turntable')), `${behaviorId} 没有语义旋转台抓取动作`);
-		assert(behavior.actions.some((item) => item.kind === 'place' && item.workPointId === 'reference-v12-loading-robot-place'), `${behaviorId} 没有语义放置点`);
+		assert(behavior.actions.some((item) => item.kind === 'movePose' && Boolean(item.poseId)), `${behaviorId} 仍未使用声明式 Pose`);
+		assert(behavior.actions.some((item) => item.kind === 'gripClose' && item.actuatorId === 'reference-robot-gripper'), `${behaviorId} 没有声明式夹具闭合动作`);
+		assert(behavior.actions.some((item) => item.kind === 'attach' && item.workPointId?.includes('turntable')), `${behaviorId} 没有语义旋转台抓取 Attach 动作`);
+		assert(behavior.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v12-loading-robot-place'), `${behaviorId} 没有语义放置 Detach 动作`);
+		assert(behavior.actions.some((item) => item.kind === 'gripOpen' && item.actuatorId === 'reference-robot-gripper'), `${behaviorId} 没有声明式夹具打开动作`);
 		assert(behavior.actions.every((item) => !item.workPointId || referenceV12WorkPointIds.has(item.workPointId)), `${behaviorId} 引用了不存在的工作点`);
 	}
+	for (const behaviorId of ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east', 'reference-v12-gantry-yarn-stack', 'reference-v12-gantry-separator-stack']) {
+		const behavior = referenceV12Behaviors.get(behaviorId)!;
+		assert(!behavior.actions.some((item) => item.kind === 'moveTo' || item.kind === 'pick' || item.kind === 'place'), `${behaviorId} 仍依赖旧 moveTo/pick/place 运动，不满足 V12 声明式工业动作要求`);
+	}
+	const yarnBehaviorV12 = referenceV12Behaviors.get('reference-v12-gantry-yarn-stack')!;
+	assert(yarnBehaviorV12.actions.some((item) => item.kind === 'attach' && item.workPointId === 'reference-v12-gantry-yarn-source'), '丝锭夹具没有在语义取料点 Attach');
+	assert(yarnBehaviorV12.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v12-gantry-pallet-stack'), '丝锭夹具没有在木托码垛点 Detach');
 	const separatorBehaviorV12 = referenceV12Behaviors.get('reference-v12-gantry-separator-stack')!;
 	assert(separatorBehaviorV12.actorObjectId === 'reference-stacking-gantry', '隔板动作没有绑定 V12 码垛桁架');
 	assert(separatorBehaviorV12.interlockIds?.includes('reference-v12-gantry-pallet-zone-exclusive') === true, '隔板动作没有绑定木托共享区互锁');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'wait' && item.waitForInterlockId === 'reference-v12-gantry-pallet-zone-exclusive'), '隔板夹具进入木托区前没有等待共享区互锁');
+	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'attach' && item.workPointId === 'reference-v12-gantry-separator-buffer'), '隔板夹具没有在缓存取料点 Attach');
+	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v12-gantry-pallet-stack'), '隔板夹具没有在木托码垛点 Detach');
 	const gantryInterlockV12 = (referenceLineV11.interlocks || []).find((item) => item.interlockId === 'reference-v12-gantry-pallet-zone-exclusive');
 	assert(Boolean(gantryInterlockV12), '参考图 V12 缺少桁架木托共享区互锁');
 	assert((gantryInterlockV12?.conditions.length || 0) >= 2, '桁架木托共享区互锁条件不完整');
@@ -346,6 +449,14 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		behaviorRootsV12.set(item.objectId, built.root);
 		behaviorBuiltV12.push(built);
 	}
+	const robotMetadataRoot = behaviorRootsV12.get('reference-loading-robot')!;
+	assert(robotMetadataRoot.getObjectByName('Robot-Axis-1')?.userData?.actuator?.kind === 'rotary-joint', '工业机器人 J1 缺少标准 rotary-joint actuator metadata');
+	assert(robotMetadataRoot.getObjectByName('RobotGridGripper-2x6')?.userData?.actuator?.kind === 'gripper', '工业机器人 2×6 夹具缺少标准 gripper actuator metadata');
+	assert((robotMetadataRoot.userData?.actuatorDefinitions?.length || 0) >= 7, '工业机器人根节点没有汇总 6 轴 + 夹具 actuator metadata');
+	const gantryMetadataRoot = behaviorRootsV12.get('reference-stacking-gantry')!;
+	assert(gantryMetadataRoot.getObjectByName('Gantry-Silk-Rail-Carriage')?.userData?.actuator?.kind === 'linear-axis', '丝锭夹具水平轴缺少标准 linear-axis metadata');
+	assert(gantryMetadataRoot.getObjectByName('Gantry-Separator-Z-Slide')?.userData?.actuator?.kind === 'linear-axis', '隔板夹具升降轴缺少标准 linear-axis metadata');
+	assert((gantryMetadataRoot.userData?.actuatorDefinitions?.length || 0) >= 6, '双轨桁架根节点没有汇总两套水平/升降/夹具 actuator metadata');
 	const behaviorRuntimeV12 = new BehaviorRuntime(referenceLineV11, behaviorSceneV12, (objectId) => behaviorRootsV12.get(objectId));
 	try {
 		const robotAxis1 = behaviorRootsV12.get('reference-loading-robot')!.getObjectByName('Robot-Axis-1')!;
@@ -383,6 +494,33 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		behaviorRuntimeV12.setRunning(true);
 		for (let index = 0; index < 120; index += 1) behaviorRuntimeV12.updateFixed(1 / 60);
 		assert(behaviorRuntimeV12.getSnapshot().active === false, 'Live 模式仍在自行生成机器人/桁架动作，破坏 PLC/Telemetry 权威');
+
+		const signalManifest = structuredClone(referenceLineV11);
+		signalManifest.runtime.dataMode = 'simulation';
+		signalManifest.behaviors = [{
+			behaviorId: 'verify-wait-signal', name: '等待 PLC Ready', actorObjectId: 'reference-loading-robot', enabled: true, loop: false,
+			actions: [{ actionId: 'wait-ready', kind: 'waitSignal', signalBindingId: 'verify-ready-binding', signalOperator: 'truthy', timeoutSeconds: 1 }],
+		}];
+		behaviorRuntimeV12.setManifest(signalManifest);
+		behaviorRuntimeV12.setBindingContext({ bindingValues: { 'verify-ready-binding': false }, staleBindingIds: ['verify-ready-binding'] });
+		behaviorRuntimeV12.setRunning(true);
+		behaviorRuntimeV12.updateFixed(1 / 60);
+		assert(behaviorRuntimeV12.getSnapshot().channels[0]?.status === 'waiting-signal-stale', 'waitSignal 没有区分 stale PLC/Telemetry 信号');
+		behaviorRuntimeV12.setBindingContext({ bindingValues: { 'verify-ready-binding': false }, staleBindingIds: [] });
+		behaviorRuntimeV12.updateFixed(1 / 60);
+		assert(behaviorRuntimeV12.getSnapshot().channels[0]?.status === 'waiting-signal', 'waitSignal 对未满足条件没有进入等待状态');
+		behaviorRuntimeV12.setBindingContext({ bindingValues: { 'verify-ready-binding': true }, staleBindingIds: [] });
+		behaviorRuntimeV12.updateFixed(1 / 60);
+		behaviorRuntimeV12.updateFixed(1 / 60);
+		assert(behaviorRuntimeV12.getSnapshot().channels[0]?.status === 'completed', 'waitSignal 条件满足后没有完成动作');
+
+		const timeoutManifest = structuredClone(signalManifest);
+		timeoutManifest.behaviors![0].actions[0].timeoutSeconds = 0.05;
+		behaviorRuntimeV12.setManifest(timeoutManifest);
+		behaviorRuntimeV12.setBindingContext({ bindingValues: { 'verify-ready-binding': false }, staleBindingIds: [] });
+		behaviorRuntimeV12.setRunning(true);
+		for (let index = 0; index < 10; index += 1) behaviorRuntimeV12.updateFixed(1 / 60);
+		assert(behaviorRuntimeV12.getSnapshot().channels[0]?.status === 'error', 'waitSignal 超时没有进入 error/fault 状态');
 	} finally {
 		behaviorRuntimeV12.dispose();
 		for (const built of behaviorBuiltV12) built.dispose();

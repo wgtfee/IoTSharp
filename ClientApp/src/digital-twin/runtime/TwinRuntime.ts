@@ -403,6 +403,7 @@ export class TwinRuntime {
 			entities: this.materialFlowRuntime.entities.getAll(),
 			silkCakeLine: this.packagingLine?.getSnapshot(),
 			componentProcesses: this.componentProcessRuntime?.getSnapshot(),
+			behaviors: this.behaviorRuntime?.getSnapshot(),
 		};
 	}
 
@@ -448,6 +449,7 @@ export class TwinRuntime {
 
 	applyDataUpdates(updates: TwinDataUpdate[]) {
 		this.bindingEngine.apply(updates);
+		this.behaviorRuntime?.setBindingContext(this.bindingEngine.getSignalSnapshot());
 	}
 
 	getSelectionScreenAnchor(): TwinRuntimeScreenAnchor | undefined {
@@ -751,6 +753,7 @@ export class TwinRuntime {
 			(objectId) => this.objectIndex.get(objectId),
 			(message) => this.events.onError?.(message),
 		);
+		this.behaviorRuntime.setBindingContext(this.bindingEngine.getSignalSnapshot());
 		this.behaviorRuntime.setRunning(this.runtimeRunning);
 	}
 
