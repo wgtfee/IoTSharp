@@ -197,6 +197,7 @@ export const createComponentResult = (
 	ports: TwinComponentPortDefinition[],
 	internalFlows: TwinComponentInternalFlowDefinition[] = [],
 ): TwinComponentBuildResult => {
+	attachStandardOutputStoppers(root, ports, internalFlows);
 	attachPortMarkers(root, ports);
 	markShadows(root);
 	root.updateMatrixWorld(true);
@@ -218,6 +219,62 @@ export const createComponentResult = (
 			});
 		},
 	};
+};
+
+export const attachStandardOutputStoppers = (
+	root: THREE.Group,
+	ports: TwinComponentPortDefinition[],
+	internalFlows: TwinComponentInternalFlowDefinition[],
+) => {
+	if (!internalFlows.some((flow) => flow.conveyorSizeClass === 'small')) return;
+	const supportedTypes = new Set(['roller-conveyor', 'double-small-roller-conveyor', 'turn-conveyor-90', 'diverter-conveyor', 'merger-conveyor']);
+	if (!supportedTypes.has(String(root.userData.componentType || ''))) return;
+	if (root.userData.disableAutoOutputStoppers === true) return;
+	const outputs = ports.filter((port) => port.type === 'material-output' || port.type === 'material-bidirectional');
+	if (!outputs.length) return;
+	const metal = createMaterial(0xf59e0b, { roughness: 0.42, metalness: 0.72 });
+	const dark = createMaterial(0x334155, { roughness: 0.55, metalness: 0.72 });
+	const sensorMaterial = createMaterial(0x22c55e, { roughness: 0.35, metalness: 0.18, emissive: 0x14532d, emissiveIntensity: 0.65 });
+	const definitions: Array<Record<string, unknown>> = Array.isArray(root.userData.actuatorDefinitions) ? [...root.userData.actuatorDefinitions] : [];
+	const stopperMetadata: Array<Record<string, unknown>> = [];
+	for (const port of outputs) {
+		const direction = new THREE.Vector3(...port.localDirection).normalize();
+		const position = new THREE.Vector3(...port.localPosition).addScaledVector(direction, -0.26);
+		const safePortId = port.portId.replace(/[^a-zA-Z0-9_-]/g, '-');
+		const group = new THREE.Group();
+		group.name = `OutputStopper-${safePortId}`;
+		group.position.copy(position);
+		group.userData.retractableStopper = true;
+		group.userData.outputPortId = port.portId;
+		group.userData.stopperRaised = true;
+		group.userData.raisedY = position.y;
+		group.userData.loweredY = position.y - 0.22;
+		const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.28, 12), dark);
+		cylinder.name = `OutputStopper-Cylinder-${safePortId}`;
+		cylinder.position.y = -0.14;
+		group.add(cylinder);
+		const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.30, 1.05), metal);
+		bar.name = `OutputStopper-Bar-${safePortId}`;
+		bar.position.y = 0.09;
+		group.add(bar);
+		const sensor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.16), sensorMaterial);
+		sensor.name = `OutputSensor-${safePortId}`;
+		sensor.position.copy(direction.clone().multiplyScalar(-0.18));
+		sensor.position.y = 0.05;
+		sensor.userData.palletSensor = true;
+		sensor.userData.outputPortId = port.portId;
+		sensor.userData.palletPresent = false;
+		group.add(sensor);
+		const actuatorId = `stopper-${port.portId}`;
+		const actuator = { actuatorId, name: `${port.name}挡停气缸`, kind: 'linear-axis', motionAxis: 'y', unit: 'meter', minValue: -0.22, maxValue: 0, homeValue: 0, speed: 0.6 };
+		group.userData.actuator = actuator;
+		group.userData.actuatorId = actuatorId;
+		definitions.push(actuator);
+		stopperMetadata.push({ portId: port.portId, nodePath: group.name, sensorNodePath: sensor.name, actuatorId, stopOffsetMeters: 0.26 });
+		root.add(group);
+	}
+	root.userData.actuatorDefinitions = definitions;
+	root.userData.outputStoppers = stopperMetadata;
 };
 
 export const applyComponentIdentity = (root: THREE.Group, objectId: string, componentType: string, sectionId?: string) => {

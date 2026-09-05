@@ -101,15 +101,23 @@ export class TurntableComponent implements TwinComponentGenerator {
 						pin.position.z = side === 'A' ? 0.22 : -0.22;
 						spindle.add(pin);
 						if (silkCartLoaded) {
+							const cakeEntity = new THREE.Group();
+							cakeEntity.name = `SilkCakeEntity-${side}-R${row + 1}-C${column + 1}`;
+							cakeEntity.position.z = side === 'A' ? 0.48 : -0.48;
+							cakeEntity.userData.materialEntity = true;
+							cakeEntity.userData.payloadType = 'silk-cake';
+							cakeEntity.userData.materialSlotGroup = side;
+							cakeEntity.userData.twinEntityType = 'material';
+							cakeEntity.userData.twinEntityId = `${definition.objectId}:silk:${side}:R${row + 1}:C${column + 1}`;
 							const cake = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.42, 28), silkMaterial);
 							cake.name = `SilkCake-${side}-R${row + 1}-C${column + 1}`;
 							cake.rotation.x = Math.PI / 2;
-							cake.position.z = side === 'A' ? 0.48 : -0.48;
-							spindle.add(cake);
+							cakeEntity.add(cake);
 							const edge = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.025, 8, 28), silkEdgeMaterial);
 							edge.name = `SilkCake-Edge-${side}-R${row + 1}-C${column + 1}`;
-							edge.position.z = side === 'A' ? 0.70 : -0.70;
-							spindle.add(edge);
+							edge.position.z = side === 'A' ? 0.22 : -0.22;
+							cakeEntity.add(edge);
+							spindle.add(cakeEntity);
 						}
 						cart.add(spindle);
 					}
@@ -160,6 +168,10 @@ export class TurntableComponent implements TwinComponentGenerator {
 		root.userData.generator = this.generator;
 		root.userData.withSilkCart = withSilkCart;
 		root.userData.silkCartLoaded = silkCartLoaded;
+		root.userData.materialSlots = withSilkCart ? [
+			{ slotId: 'silk-cart-side-a-pick', name: '丝车 A 面抓取区', role: 'source', localPosition: [0, 2.15, 1.26], payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'A' } },
+			{ slotId: 'silk-cart-side-b-pick', name: '丝车 B 面抓取区', role: 'source', localPosition: [0, 2.15, -1.26], payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'B' } },
+		] : [];
 		root.userData.deckConveyorType = 'chain';
 		root.userData.capabilities = ['material-flow', 'capacity', 'rotation', 'plc-binding'];
 		root.userData.properties = { ...props, deckLength, width, height, baseRadius, withSilkCart, silkCartLoaded };

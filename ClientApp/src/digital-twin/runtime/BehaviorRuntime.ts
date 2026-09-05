@@ -4,13 +4,15 @@ import type {
 	TwinBehaviorActionDefinition,
 	TwinBehaviorDefinition,
 	TwinInterlockDefinition,
+	TwinMaterialSlotDefinition,
 	TwinPoseDefinition,
 	TwinSceneManifest,
+	TwinToolFrameDefinition,
 	TwinVector3,
 	TwinWorkPointDefinition,
 } from '/@/digital-twin/contracts';
 
-type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
+type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-material' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
 
 interface ChannelState {
 	channelKey: string;
@@ -71,6 +73,8 @@ const normalizedAngleDelta = (from: number, to: number) => Math.atan2(Math.sin(t
 export class BehaviorRuntime {
 	private manifest: TwinSceneManifest;
 	private readonly workPoints = new Map<string, TwinWorkPointDefinition>();
+	private readonly materialSlots = new Map<string, TwinMaterialSlotDefinition>();
+	private readonly toolFrames = new Map<string, TwinToolFrameDefinition>();
 	private readonly actuators = new Map<string, TwinActuatorDefinition>();
 	private readonly poses = new Map<string, TwinPoseDefinition>();
 	private readonly interlocks = new Map<string, TwinInterlockDefinition>();
@@ -98,6 +102,8 @@ export class BehaviorRuntime {
 		this.clearPayloads();
 		this.manifest = structuredClone(manifest);
 		this.workPoints.clear();
+		this.materialSlots.clear();
+		this.toolFrames.clear();
 		this.actuators.clear();
 		this.poses.clear();
 		this.interlocks.clear();
@@ -105,6 +111,8 @@ export class BehaviorRuntime {
 		this.semanticState.clear();
 		this.basePoses.clear();
 		for (const item of this.manifest.workPoints || []) this.workPoints.set(item.workPointId, item);
+		for (const item of this.manifest.materialSlots || []) this.materialSlots.set(item.slotId, item);
+		for (const item of this.manifest.toolFrames || []) this.toolFrames.set(item.toolFrameId, item);
 		for (const item of this.manifest.actuators || []) this.actuators.set(item.actuatorId, item);
 		for (const item of this.manifest.poses || []) this.poses.set(item.poseId, item);
 		for (const item of this.manifest.interlocks || []) this.interlocks.set(item.interlockId, item);
@@ -251,6 +259,8 @@ export class BehaviorRuntime {
 		this.clearPayloads();
 		this.channels.clear();
 		this.workPoints.clear();
+		this.materialSlots.clear();
+		this.toolFrames.clear();
 		this.actuators.clear();
 		this.poses.clear();
 		this.interlocks.clear();
@@ -357,7 +367,7 @@ export class BehaviorRuntime {
 					channel.phase = 1;
 				}
 				if (channel.phase === 1) {
-					this.attachPayload(channel, actorRoot, action, behavior.actorObjectId);
+					if (!this.attachPayload(channel, actorRoot, action, behavior.actorObjectId)) return false;
 					channel.phase = action.liftOffset ? 2 : 3;
 				}
 				if (channel.phase === 2) {
@@ -404,9 +414,7 @@ export class BehaviorRuntime {
 				return channel.waitElapsed >= Math.max(0, Number(action.waitSeconds ?? 0));
 			}
 			case 'attach':
-				channel.status = 'acting';
-				this.attachPayload(channel, actorRoot, action, behavior.actorObjectId);
-				return true;
+				return this.attachPayload(channel, actorRoot, action, behavior.actorObjectId);
 			case 'detach':
 				channel.status = 'acting';
 				if (action.workPointId) this.markZoneEntryIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, action.workPointId);
@@ -506,7 +514,35 @@ export class BehaviorRuntime {
 		if (timeout > 0 && channel.waitElapsed >= timeout) throw new Error(`等待信号 ${bindingId} 超时`);
 	}
 
+	private resolveMaterialSlotAnchor(slot: TwinMaterialSlotDefinition) {
+		const owner = this.getObjectRoot(slot.objectId);
+		if (!owner) throw new Error(`物料槽位 ${slot.slotId} 的对象 ${slot.objectId} 不存在`);
+		owner.updateMatrixWorld(true);
+		let referenceAnchor: THREE.Object3D = slot.nodePath ? (this.findNode(owner, slot.nodePath) || owner) : owner;
+		const referenceWorld = referenceAnchor.localToWorld(vector(slot.localPosition));
+		if (!slot.runtimeOwnerType) return { owner, anchor: referenceAnchor, baseLocal: vector(slot.localPosition), world: referenceWorld };
+		let runtimeOwner: THREE.Object3D | undefined;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		this.scene.traverse((node) => {
+			if (node.userData?.transportUnitType !== slot.runtimeOwnerType || !node.userData?.twinEntityId) return;
+			const distance = node.getWorldPosition(new THREE.Vector3()).distanceTo(referenceWorld);
+			if (distance >= bestDistance) return;
+			bestDistance = distance;
+			runtimeOwner = node;
+		});
+		if (!runtimeOwner) return { owner, anchor: referenceAnchor, baseLocal: vector(slot.localPosition), world: referenceWorld };
+		const anchor = slot.runtimeOwnerNodePath ? (this.findNode(runtimeOwner, slot.runtimeOwnerNodePath) || runtimeOwner) : runtimeOwner;
+		anchor.updateMatrixWorld(true);
+		return { owner: runtimeOwner, anchor, baseLocal: new THREE.Vector3(), world: anchor.getWorldPosition(new THREE.Vector3()) };
+	}
+
 	private resolveWorkPointWorld(workPoint: TwinWorkPointDefinition, offset?: TwinVector3) {
+		if (workPoint.materialSlotId) {
+			const slot = this.materialSlots.get(workPoint.materialSlotId);
+			if (!slot) throw new Error(`工作点 ${workPoint.workPointId} 引用了不存在的物料槽位 ${workPoint.materialSlotId}`);
+			const resolved = this.resolveMaterialSlotAnchor(slot);
+			return resolved.anchor.localToWorld(resolved.baseLocal.clone().add(vector(workPoint.localPosition)).add(vector(offset)));
+		}
 		const owner = this.getObjectRoot(workPoint.objectId);
 		if (!owner) throw new Error(`工作点 ${workPoint.workPointId} 的对象 ${workPoint.objectId} 不存在`);
 		owner.updateMatrixWorld(true);
@@ -638,37 +674,87 @@ export class BehaviorRuntime {
 	}
 
 	private attachPayload(channel: ChannelState, actorRoot: THREE.Object3D, action: TwinBehaviorActionDefinition, actorObjectId: string) {
-		if (channel.attachedPayload) return;
+		if (channel.attachedPayload) return true;
 		if (channel.placedPayload) {
-			this.disposePayload(channel.placedPayload);
+			this.releasePayload(channel.placedPayload);
 			channel.placedPayload = undefined;
 		}
 		const payloadType = action.payloadType || 'payload';
-		const payload = this.createPayload(payloadType, actorRoot, action.actorNodePath || channel.actorNodePath);
-		const attachNode = this.resolveAttachNode(actorRoot, action.actorNodePath || channel.actorNodePath);
-		attachNode.add(payload);
-		payload.position.set(0, payloadType === 'separator' ? -0.22 : 0.34, 0);
-		payload.rotation.set(0, 0, 0);
+		const workPoint = action.workPointId ? this.workPoints.get(action.workPointId) : undefined;
+		const sourceSlotId = action.sourceSlotId || workPoint?.materialSlotId;
+		const sourceSlot = sourceSlotId ? this.materialSlots.get(sourceSlotId) : undefined;
+		const toolFrameId = action.toolFrameId || workPoint?.toolFrameId;
+		const toolFrame = toolFrameId ? this.toolFrames.get(toolFrameId) : undefined;
+		const attachNode = this.resolveAttachNode(actorRoot, action.actorNodePath || channel.actorNodePath, toolFrameId);
+		const realEntities = sourceSlot ? this.findMaterialEntities(sourceSlot, payloadType, action.payloadEntityId, Math.max(1, Number(action.payloadCount || 1))) : [];
+		let payload: THREE.Object3D;
+		if (realEntities.length) {
+			const carrier = new THREE.Group();
+			carrier.name = `BehaviorPayloadCarrier-${payloadType}`;
+			carrier.userData.behaviorPayload = true;
+			carrier.userData.behaviorPayloadCarrier = true;
+			carrier.userData.realMaterialPayload = true;
+			carrier.userData.payloadType = payloadType;
+			carrier.userData.payloadEntityIds = realEntities.map((item) => item.userData.twinEntityId);
+			attachNode.add(carrier);
+			carrier.position.copy(vector(toolFrame?.localPosition));
+			const toolRotation = toolFrame?.localRotation || [0, 0, 0];
+			carrier.rotation.set(toolRotation[0], toolRotation[1], toolRotation[2]);
+			for (const entity of realEntities) {
+				carrier.attach(entity);
+				entity.userData.materialAttachedBy = channel.channelKey;
+			}
+			payload = carrier;
+		} else if (sourceSlot) {
+			channel.status = 'waiting-material';
+			return false;
+		} else {
+			payload = this.createPayload(payloadType, actorRoot, action.actorNodePath || channel.actorNodePath);
+			payload.userData.legacySyntheticPayload = true;
+			attachNode.add(payload);
+			payload.position.set(0, payloadType === 'separator' ? -0.22 : 0.34, 0);
+			payload.rotation.set(0, 0, 0);
+		}
 		payload.userData.payloadType = payloadType;
 		payload.userData.behaviorPayload = true;
-		payload.userData.twinEntityType = 'behavior-payload';
-		payload.userData.twinEntityId = `${channel.channelKey}:${channel.completedActions + 1}`;
+		if (!payload.userData.realMaterialPayload) {
+			payload.userData.twinEntityType = 'behavior-payload';
+			payload.userData.twinEntityId = `${channel.channelKey}:${channel.completedActions + 1}`;
+		}
 		channel.attachedPayload = payload;
+		channel.status = 'acting';
 		this.setMaterialState(actorObjectId, action.actorNodePath || channel.actorNodePath, true);
+		return true;
 	}
 
 	private detachPayload(channel: ChannelState, workPoint: TwinWorkPointDefinition | undefined, action: TwinBehaviorActionDefinition) {
 		const payload = channel.attachedPayload;
 		if (!payload) return;
-		this.scene.attach(payload);
-		if (workPoint) {
+		const targetSlotId = action.targetSlotId || workPoint?.materialSlotId;
+		const targetSlot = targetSlotId ? this.materialSlots.get(targetSlotId) : undefined;
+		if (targetSlot) {
+			const resolved = this.resolveMaterialSlotAnchor(targetSlot);
+			resolved.anchor.add(payload);
+			payload.position.copy(resolved.baseLocal).add(workPoint ? vector(workPoint.localPosition) : new THREE.Vector3());
+			const rotation = targetSlot.localRotation || workPoint?.localRotation || [0, 0, 0];
+			payload.rotation.set(rotation[0], rotation[1], rotation[2]);
+		} else {
+			this.scene.attach(payload);
+		}
+		if (!targetSlot && workPoint) {
 			const target = this.resolveWorkPointWorld(workPoint);
 			payload.position.copy(target);
 		}
+		payload.traverse((entity) => {
+			if (entity.userData?.materialEntity) delete entity.userData.materialAttachedBy;
+		});
 		payload.userData.placedByBehavior = true;
 		channel.placedPayload = payload;
 		channel.attachedPayload = undefined;
 		this.setMaterialState(channel.actorObjectId, action.actorNodePath || channel.actorNodePath, false);
+		const fixture = action.actorNodePath || channel.actorNodePath;
+		if (fixture === 'YarnFixture' && /pallet-stack/i.test(workPoint?.workPointId || '')) this.semanticState.set(`${channel.actorObjectId}.yarnFixture.readyForSeparator`, true);
+		if (fixture === 'SeparatorFixture' && /pallet-stack/i.test(workPoint?.workPointId || '')) this.semanticState.set(`${channel.actorObjectId}.yarnFixture.readyForSeparator`, false);
 	}
 
 	private createPayload(payloadType: string, actorRoot: THREE.Object3D, actorNodePath?: string) {
@@ -697,7 +783,30 @@ export class BehaviorRuntime {
 		return group;
 	}
 
-	private resolveAttachNode(actorRoot: THREE.Object3D, actorNodePath?: string) {
+	private findMaterialEntities(slot: TwinMaterialSlotDefinition, payloadType: string, payloadEntityId?: string, count = 1) {
+		const center = this.resolveMaterialSlotAnchor(slot).world;
+		const entityGroup = String(slot.metadata?.entityGroup || '');
+		const candidates: Array<{ node: THREE.Object3D; distance: number }> = [];
+		this.scene.traverse((node) => {
+			if (node.userData?.materialEntity !== true) return;
+			if (node.userData?.materialAttachedBy) return;
+			if (payloadType && node.userData?.payloadType !== payloadType) return;
+			if (payloadEntityId && node.userData?.twinEntityId !== payloadEntityId) return;
+			if (entityGroup && String(node.userData?.materialSlotGroup || '') !== entityGroup) return;
+			const position = node.getWorldPosition(new THREE.Vector3());
+			candidates.push({ node, distance: position.distanceTo(center) });
+		});
+		return candidates.sort((left, right) => left.distance - right.distance).slice(0, count).map((item) => item.node);
+	}
+
+	private resolveAttachNode(actorRoot: THREE.Object3D, actorNodePath?: string, toolFrameId?: string) {
+		if (toolFrameId) {
+			const frame = this.toolFrames.get(toolFrameId);
+			if (frame && frame.objectId === actorRoot.userData?.twinObjectId) {
+				const node = this.findNode(actorRoot, frame.nodePath);
+				if (node) return node;
+			}
+		}
 		if (actorNodePath === 'YarnFixture') return actorRoot.getObjectByName('GantryGripper-2x3') || actorRoot;
 		if (actorNodePath === 'SeparatorFixture') return actorRoot.getObjectByName('Gantry-Separator-Gripper') || actorRoot;
 		return actorRoot.getObjectByName('Robot-Tool-Flange') || (actorNodePath ? this.findNode(actorRoot, actorNodePath) : undefined) || actorRoot;
@@ -718,7 +827,10 @@ export class BehaviorRuntime {
 	}
 
 	private setMaterialState(actorObjectId: string, actorNodePath: string | undefined, hasMaterial: boolean) {
-		if (actorNodePath === 'YarnFixture') this.semanticState.set(`${actorObjectId}.yarnFixture.hasMaterial`, hasMaterial);
+		if (actorNodePath === 'YarnFixture') {
+			this.semanticState.set(`${actorObjectId}.yarnFixture.hasMaterial`, hasMaterial);
+			if (hasMaterial) this.semanticState.set(`${actorObjectId}.yarnFixture.readyForSeparator`, false);
+		}
 		if (actorNodePath === 'SeparatorFixture') this.semanticState.set(`${actorObjectId}.separatorFixture.hasMaterial`, hasMaterial);
 	}
 
@@ -743,6 +855,7 @@ export class BehaviorRuntime {
 				if (action.actorNodePath === 'YarnFixture') {
 					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.inPalletZone`, false);
 					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.hasMaterial`, false);
+					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.readyForSeparator`, false);
 				}
 				if (action.actorNodePath === 'SeparatorFixture') this.semanticState.set(`${behavior.actorObjectId}.separatorFixture.hasMaterial`, false);
 			}
@@ -775,11 +888,24 @@ export class BehaviorRuntime {
 
 	private clearPayloads() {
 		for (const channel of this.channels.values()) {
-			if (channel.attachedPayload) this.disposePayload(channel.attachedPayload);
-			if (channel.placedPayload) this.disposePayload(channel.placedPayload);
+			if (channel.attachedPayload) this.releasePayload(channel.attachedPayload);
+			if (channel.placedPayload) this.releasePayload(channel.placedPayload);
 			channel.attachedPayload = undefined;
 			channel.placedPayload = undefined;
 		}
+	}
+
+	private releasePayload(payload: THREE.Object3D) {
+		if (payload.userData?.legacySyntheticPayload === true || payload.userData?.behaviorPayloadCarrier !== true) {
+			this.disposePayload(payload);
+			return;
+		}
+		const parent = payload.parent || this.scene;
+		for (const child of [...payload.children]) {
+			parent.attach(child);
+			if (child.userData?.materialEntity) delete child.userData.materialAttachedBy;
+		}
+		payload.parent?.remove(payload);
 	}
 
 	private disposePayload(payload: THREE.Object3D) {

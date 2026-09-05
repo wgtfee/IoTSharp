@@ -187,12 +187,41 @@ export interface TwinRoutePalletInitializerDefinition {
 
 export type TwinWorkPointRole = 'pick' | 'place' | 'safe' | 'home' | 'buffer' | 'tcp' | 'stack';
 
+export type TwinMaterialSlotRole = 'source' | 'target' | 'buffer' | 'stack' | 'fixture';
+
+export interface TwinMaterialSlotDefinition {
+	slotId: string;
+	name: string;
+	objectId: string;
+	role: TwinMaterialSlotRole;
+	nodePath?: string;
+	localPosition: TwinVector3;
+	localRotation?: TwinVector3;
+	payloadType?: string;
+	capacity?: number;
+	runtimeOwnerType?: 'plastic-pallet' | 'wooden-pallet' | 'carton';
+	runtimeOwnerNodePath?: string;
+	metadata?: Record<string, unknown>;
+}
+
+export interface TwinToolFrameDefinition {
+	toolFrameId: string;
+	name: string;
+	objectId: string;
+	nodePath: string;
+	localPosition?: TwinVector3;
+	localRotation?: TwinVector3;
+	payloadTypes?: string[];
+}
+
 export interface TwinWorkPointDefinition {
 	workPointId: string;
 	name: string;
 	objectId: string;
 	nodePath?: string;
 	role: TwinWorkPointRole;
+	materialSlotId?: string;
+	toolFrameId?: string;
 	/** 始终相对 objectId 的局部坐标，禁止把场景世界坐标写进动作。 */
 	localPosition: TwinVector3;
 	localRotation?: TwinVector3;
@@ -239,6 +268,8 @@ export interface TwinPoseDefinition {
 	name: string;
 	objectId: string;
 	description?: string;
+	workPointId?: string;
+	toolFrameId?: string;
 	targets: TwinPoseTargetDefinition[];
 }
 
@@ -268,6 +299,11 @@ export interface TwinBehaviorActionDefinition {
 	targetValue?: number;
 	actorNodePath?: string;
 	payloadType?: string;
+	payloadEntityId?: string;
+	payloadCount?: number;
+	sourceSlotId?: string;
+	targetSlotId?: string;
+	toolFrameId?: string;
 	approachOffset?: TwinVector3;
 	liftOffset?: TwinVector3;
 	axis?: 'x' | 'y' | 'z';
@@ -453,6 +489,8 @@ export interface TwinSceneManifest {
 	routes: TwinRouteDefinition[];
 	/** 设备语义工作点、动作编排和联锁均为声明式配置；运行时不得执行任意脚本。 */
 	workPoints?: TwinWorkPointDefinition[];
+	materialSlots?: TwinMaterialSlotDefinition[];
+	toolFrames?: TwinToolFrameDefinition[];
 	actuators?: TwinActuatorDefinition[];
 	poses?: TwinPoseDefinition[];
 	behaviors?: TwinBehaviorDefinition[];
@@ -496,6 +534,13 @@ export const createBlankTwinSceneManifest = (): TwinSceneManifest => ({
 	rootAssetId: null,
 	world: { unit: 'meter', upAxis: 'Y', background: '#07111f' },
 	resources: [],
+	workPoints: [],
+	materialSlots: [],
+	toolFrames: [],
+	actuators: [],
+	poses: [],
+	behaviors: [],
+	interlocks: [],
 	objects: [],
 	bindings: [],
 	routes: [{
@@ -539,6 +584,13 @@ export const createDefaultTwinSceneManifest = (): TwinSceneManifest => ({
 		background: '#07111f',
 	},
 	resources: [],
+	workPoints: [],
+	materialSlots: [],
+	toolFrames: [],
+	actuators: [],
+	poses: [],
+	behaviors: [],
+	interlocks: [],
 	objects: [
 		{
 			objectId: 'phase0-procedural-conveyor',
@@ -838,11 +890,35 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		else if (parentKind !== 'procedural') diagnostics.push({ severity: 'error', code: 'twin.equipment.parent-kind.invalid', message: '整机对象的父对象必须是程序化产线。', path: `objects[${objectIndex}].equipment.parentObjectId` });
 	}
 
+	const materialSlotIds = new Set<string>();
+	for (const [index, slot] of (manifest.materialSlots || []).entries()) {
+		if (!slot.slotId?.trim() || materialSlotIds.has(slot.slotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.id.invalid', message: 'MaterialSlot ID 为空或重复。', path: `materialSlots[${index}].slotId` });
+		materialSlotIds.add(slot.slotId);
+		if (!objectIds.has(slot.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.object.invalid', message: 'MaterialSlot 引用的场景对象不存在。', path: `materialSlots[${index}].objectId` });
+		if (!['source', 'target', 'buffer', 'stack', 'fixture'].includes(slot.role)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.role.invalid', message: 'MaterialSlot 角色不受支持。', path: `materialSlots[${index}].role` });
+		if (!isFiniteVector(slot.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.position.invalid', message: 'MaterialSlot 局部坐标必须是三个有限数值。', path: `materialSlots[${index}].localPosition` });
+		if (slot.localRotation && !isFiniteVector(slot.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.rotation.invalid', message: 'MaterialSlot 局部旋转必须是三个有限数值。', path: `materialSlots[${index}].localRotation` });
+		if (slot.capacity !== undefined && (!Number.isFinite(slot.capacity) || slot.capacity <= 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.material-slot.capacity.invalid', message: 'MaterialSlot 容量必须大于 0。', path: `materialSlots[${index}].capacity` });
+	}
+	const toolFrameIds = new Set<string>();
+	const toolFrameObjectIds = new Map<string, string>();
+	for (const [index, frame] of (manifest.toolFrames || []).entries()) {
+		if (!frame.toolFrameId?.trim() || toolFrameIds.has(frame.toolFrameId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.id.invalid', message: 'TCP/ToolFrame ID 为空或重复。', path: `toolFrames[${index}].toolFrameId` });
+		toolFrameIds.add(frame.toolFrameId);
+		toolFrameObjectIds.set(frame.toolFrameId, frame.objectId);
+		if (!objectIds.has(frame.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.object.invalid', message: 'TCP/ToolFrame 引用的场景对象不存在。', path: `toolFrames[${index}].objectId` });
+		if (!frame.nodePath?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.node.required', message: 'TCP/ToolFrame 必须配置稳定节点路径。', path: `toolFrames[${index}].nodePath` });
+		if (frame.localPosition && !isFiniteVector(frame.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.position.invalid', message: 'TCP 局部坐标必须是三个有限数值。', path: `toolFrames[${index}].localPosition` });
+		if (frame.localRotation && !isFiniteVector(frame.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.rotation.invalid', message: 'TCP 局部旋转必须是三个有限数值。', path: `toolFrames[${index}].localRotation` });
+	}
+
 	const workPointIds = new Set<string>();
 	for (const [index, workPoint] of (manifest.workPoints || []).entries()) {
 		if (!workPoint.workPointId?.trim() || workPointIds.has(workPoint.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.id.invalid', message: '工作点 ID 为空或重复。', path: `workPoints[${index}].workPointId` });
 		workPointIds.add(workPoint.workPointId);
 		if (!objectIds.has(workPoint.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.object.invalid', message: '工作点引用的场景对象不存在。', path: `workPoints[${index}].objectId` });
+		if (workPoint.materialSlotId && !materialSlotIds.has(workPoint.materialSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.material-slot.invalid', message: '工作点引用的 MaterialSlot 不存在。', path: `workPoints[${index}].materialSlotId` });
+		if (workPoint.toolFrameId && !toolFrameIds.has(workPoint.toolFrameId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.tool-frame.invalid', message: '工作点引用的 TCP/ToolFrame 不存在。', path: `workPoints[${index}].toolFrameId` });
 		if (!isFiniteVector(workPoint.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.position.invalid', message: '工作点局部坐标必须是三个有限数值。', path: `workPoints[${index}].localPosition` });
 		if (workPoint.localRotation && !isFiniteVector(workPoint.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.rotation.invalid', message: '工作点局部旋转必须是三个有限数值。', path: `workPoints[${index}].localRotation` });
 	}
@@ -874,6 +950,9 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		poseIds.add(pose.poseId);
 		poseObjectIds.set(pose.poseId, pose.objectId);
 		if (!objectIds.has(pose.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.object.invalid', message: 'Pose 引用的场景对象不存在。', path: `poses[${index}].objectId` });
+		if (pose.workPointId && !workPointIds.has(pose.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.workpoint.invalid', message: 'Pose 引用的工作点不存在。', path: `poses[${index}].workPointId` });
+		if (pose.toolFrameId && !toolFrameIds.has(pose.toolFrameId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.tool-frame.invalid', message: 'Pose 引用的 TCP/ToolFrame 不存在。', path: `poses[${index}].toolFrameId` });
+		if (pose.toolFrameId && toolFrameObjectIds.get(pose.toolFrameId) && toolFrameObjectIds.get(pose.toolFrameId) !== pose.objectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.tool-frame-object.mismatch', message: 'Pose 的 TCP 必须属于 Pose 执行对象。', path: `poses[${index}].toolFrameId` });
 		if (!pose.targets?.length) diagnostics.push({ severity: 'error', code: 'twin.behavior.pose.targets.empty', message: 'Pose 至少需要一个执行机构目标值。', path: `poses[${index}].targets` });
 		const targetActuatorIds = new Set<string>();
 		for (const [targetIndex, target] of (pose.targets || []).entries()) {
@@ -901,6 +980,11 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (!action.actionId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.required', message: '动作步骤必须有 actionId。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
 			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
 			if (action.workPointId && !workPointIds.has(action.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint-reference.invalid', message: '动作引用的工作点不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
+			if (action.sourceSlotId && !materialSlotIds.has(action.sourceSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.source-slot.invalid', message: '动作引用的来源 MaterialSlot 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].sourceSlotId` });
+			if (action.targetSlotId && !materialSlotIds.has(action.targetSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.target-slot.invalid', message: '动作引用的目标 MaterialSlot 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].targetSlotId` });
+			if (action.toolFrameId && !toolFrameIds.has(action.toolFrameId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.tool-frame.invalid', message: '动作引用的 TCP/ToolFrame 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].toolFrameId` });
+			if (action.toolFrameId && toolFrameObjectIds.get(action.toolFrameId) && toolFrameObjectIds.get(action.toolFrameId) !== behavior.actorObjectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.tool-frame-actor.mismatch', message: '动作 TCP 必须属于当前执行对象。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].toolFrameId` });
+			if (action.payloadCount !== undefined && (!Number.isFinite(action.payloadCount) || action.payloadCount < 1 || Math.floor(action.payloadCount) !== action.payloadCount)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.payload-count.invalid', message: '抓取数量必须是大于等于 1 的整数。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].payloadCount` });
 			if (action.kind === 'movePose' && (!action.poseId || !poseIds.has(action.poseId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose.invalid', message: 'movePose 必须引用有效 Pose。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });
 			if (action.poseId && !poseIds.has(action.poseId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose-reference.invalid', message: '动作引用的 Pose 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });
 			if (action.poseId && poseObjectIds.get(action.poseId) && poseObjectIds.get(action.poseId) !== behavior.actorObjectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.pose-actor.mismatch', message: '动作只能引用当前执行对象所属的 Pose。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].poseId` });

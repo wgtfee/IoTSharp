@@ -51,6 +51,16 @@ const diverterSlots: TwinComponentBindingSlot[] = [
 	inputSlot('inPosition', '执行器到位', 'bool', 'in-position'),
 	inputSlot('fault', '设备故障', 'bool', 'fault'),
 ];
+const stopperSlots = (portIds: string[]): TwinComponentBindingSlot[] => portIds.flatMap((portId) => {
+	const prefix = portId.replace(/[^a-zA-Z0-9_-]/g, '-');
+	const label = portId === 'output' ? '出口' : portId;
+	return [
+		inputSlot(`${prefix}-stopperUp`, `${label}挡停升起`, 'bool', 'sensor'),
+		inputSlot(`${prefix}-stopperDown`, `${label}挡停下降`, 'bool', 'sensor'),
+		inputSlot(`${prefix}-palletPresent`, `${label}托盘到位`, 'bool', 'sensor'),
+		inputSlot(`${prefix}-stopperFault`, `${label}挡停故障`, 'bool', 'fault'),
+	];
+});
 const liftSlots: TwinComponentBindingSlot[] = [
 	inputSlot('ready', '设备就绪', 'bool', 'ready'),
 	inputSlot('busy', '运行中', 'bool', 'busy'),
@@ -709,5 +719,24 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		],
 	},
 ];
+
+const standardStopperPorts = new Map<string, string[]>([
+	['builtin-small-roller-conveyor', ['output']],
+	['builtin-double-small-roller-conveyor', ['a-output', 'b-output']],
+	['builtin-turn-conveyor-90', ['output']],
+	['builtin-diverter-conveyor', ['output-a', 'output-b']],
+	['builtin-merger-conveyor', ['output']],
+	['builtin-single-to-double-conveyor', ['output-a', 'output-b']],
+	['builtin-double-to-single-conveyor', ['output']],
+	['builtin-right-angle-single-to-double-conveyor', ['output-a', 'output-b']],
+	['builtin-right-angle-double-to-single-conveyor', ['output']],
+]);
+for (const template of builtInComponentTemplates) {
+	const portIds = standardStopperPorts.get(template.resourceKey);
+	if (!portIds) continue;
+	const existing = new Set((template.bindingSlots || []).map((slot) => slot.slotId));
+	template.bindingSlots = [...(template.bindingSlots || []), ...stopperSlots(portIds).filter((slot) => !existing.has(slot.slotId))];
+	if (!template.capabilities.includes('plc-binding')) template.capabilities.push('plc-binding');
+}
 
 export const getBuiltInComponentTemplate = (resourceKey: string) => builtInComponentTemplates.find((item) => item.resourceKey === resourceKey);

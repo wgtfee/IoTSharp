@@ -233,6 +233,16 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		root.userData.robotAxisCount = 6;
 		root.userData.toolType = toolType;
 		root.userData.gripperHeadCount = toolType === 'silk-grid-2x6' ? 12 : toolType === 'silk-row-1x6' ? 6 : toolType === 'carton-gripper' ? 2 : 1;
+		const tcpNodePath = toolType === 'silk-grid-2x6' ? 'RobotGridGripper-2x6'
+			: toolType === 'silk-row-1x6' ? 'RobotRowGripper-1x6'
+				: toolType === 'carton-gripper' ? 'Robot-Carton-Gripper' : 'Robot-Tool-Flange';
+		root.userData.toolFrames = [{
+			toolFrameId: 'robot-tcp',
+			name: '机器人 TCP',
+			nodePath: tcpNodePath,
+			localPosition: [0, 0, 0],
+			payloadTypes: toolType.startsWith('silk-') ? ['silk-cake'] : toolType === 'carton-gripper' ? ['carton'] : [],
+		}];
 		root.userData.actuatorDefinitions = [];
 		root.traverse((node) => {
 			if (node.userData?.actuator) root.userData.actuatorDefinitions.push({ ...node.userData.actuator, nodePath: node.name });

@@ -126,7 +126,22 @@ try {
 	advanceComponentVisualRuntime(rollerVisualBuilt.root, 0.25, 1);
 	rollers.getMatrixAt(0, after);
 	assert(before.elements.some((value, index) => Math.abs(value - after.elements[index]) > 0.000001), '组件设计器 Run 的可视运行时没有真正旋转滚筒实例');
+	const outputStopper = rollerVisualBuilt.root.getObjectByName('OutputStopper-output') as any;
+	const outputSensor = rollerVisualBuilt.root.getObjectByName('OutputSensor-output') as any;
+	assert(outputStopper?.userData?.retractableStopper === true && outputStopper?.userData?.outputPortId === 'output', '普通小辊道出口没有自带升降挡停气缸');
+	assert(outputSensor?.userData?.palletSensor === true && outputSensor?.userData?.outputPortId === 'output', '普通小辊道出口没有自带托盘检测传感器');
+	assert(rollerVisualBuilt.root.userData?.actuatorDefinitions?.some((item: any) => item.actuatorId === 'stopper-output' && item.kind === 'linear-axis'), '小辊道出口挡停器没有标准 linear-axis actuator');
 } finally { rollerVisualBuilt.dispose(); }
+const smallRollerTemplateWithStopper = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-small-roller-conveyor')!;
+for (const slotId of ['output-stopperUp', 'output-stopperDown', 'output-palletPresent', 'output-stopperFault']) assert(smallRollerTemplateWithStopper.bindingSlots?.some((slot) => slot.slotId === slotId), `小辊道缺少标准挡停 Telemetry Slot ${slotId}`);
+
+const doubleStopperBuilt = buildComponentFromTemplate('builtin-double-small-roller-conveyor', { objectId: 'verify-double-stopper' });
+try {
+	const stoppers: THREE.Object3D[] = [];
+	doubleStopperBuilt.root.traverse((node) => { if (node.userData?.retractableStopper === true) stoppers.push(node); });
+	assert(stoppers.length === 2, '双排小辊道两个出口没有各自独立的升降挡停器');
+	assert(new Set(stoppers.map((item) => item.userData.outputPortId)).size === 2, '双排小辊道挡停器没有按输出 Port 独立绑定');
+} finally { doubleStopperBuilt.dispose(); }
 
 const manualSnapManifest = createManifest(createSmallRoller('manual-snap-a', 0), createSmallRoller('manual-snap-b', 20));
 const manualFromObject = (manualSnapManifest.objects as TwinV7SceneObjectDefinition[])[0];
@@ -181,10 +196,13 @@ assert(autoGantryActuators.some((item) => item.nodePath === 'Gantry-Silk-Rail-Ca
 	&& autoGantryActuators.some((item) => item.nodePath === 'Gantry-Separator-Gripper'), '丝锭桁架自动执行机构节点不完整');
 assert(!(actuatorSyncManifest.actuators || []).some((item) => item.objectId === 'auto-conveyor'), '无动作小辊道错误生成了执行机构');
 assert(actuatorSyncFirst.addedPoseIds.includes('auto-robot:home') && actuatorSyncFirst.addedPoseIds.includes('auto-gantry:home'), '新工业组件没有自动生成 Home Pose');
+assert(actuatorSyncFirst.addedToolFrameIds.some((id) => id === 'auto-robot:robot-tcp') && actuatorSyncFirst.addedToolFrameIds.some((id) => id === 'auto-gantry:gantry-yarn-tcp'), '新拖入机器人/桁架没有自动同步 TCP/ToolFrame');
+assert(actuatorSyncFirst.addedMaterialSlotIds.some((id) => id === 'auto-gantry:separator-stock-a'), '新拖入丝锭桁架没有自动同步隔板 MaterialSlot');
 const actuatorCountAfterFirstSync = actuatorSyncManifest.actuators.length;
 const poseCountAfterFirstSync = actuatorSyncManifest.poses.length;
 const actuatorSyncSecond = ensureComponentActuators(actuatorSyncManifest);
 assert(actuatorSyncSecond.addedActuatorIds.length === 0 && actuatorSyncSecond.addedPoseIds.length === 0, '执行机构自动同步不是幂等的');
+assert(actuatorSyncSecond.addedMaterialSlotIds.length === 0 && actuatorSyncSecond.addedToolFrameIds.length === 0, 'MaterialSlot/TCP 自动同步不是幂等的');
 assert(actuatorSyncManifest.actuators.length === actuatorCountAfterFirstSync && actuatorSyncManifest.poses.length === poseCountAfterFirstSync, '二次执行机构同步产生了重复项');
 const customizedActuator = actuatorSyncManifest.actuators.find((item) => item.objectId === 'auto-robot' && item.nodePath === 'Robot-Axis-1')!;
 customizedActuator.name = '用户自定义 J1';
@@ -420,6 +438,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		'reference-v12-gantry-yarn-source',
 		'reference-v12-gantry-pallet-stack',
 		'reference-v12-gantry-separator-buffer',
+		'reference-v14-gantry-separator-stack',
 		'reference-v12-gantry-yarn-safe',
 		'reference-v12-gantry-separator-safe',
 	]) assert(referenceV12WorkPointIds.has(workPointId), `参考图 V12 缺少语义工作点 ${workPointId}`);
@@ -468,7 +487,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(separatorBehaviorV12.interlockIds?.includes('reference-v12-gantry-pallet-zone-exclusive') === true, '隔板动作没有绑定木托共享区互锁');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'wait' && item.waitForInterlockId === 'reference-v12-gantry-pallet-zone-exclusive'), '隔板夹具进入木托区前没有等待共享区互锁');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'attach' && item.workPointId === 'reference-v12-gantry-separator-buffer'), '隔板夹具没有在缓存取料点 Attach');
-	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v12-gantry-pallet-stack'), '隔板夹具没有在木托码垛点 Detach');
+	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'attach' && item.sourceSlotId === 'reference-gantry-separator-source-slot' && item.toolFrameId === 'reference-gantry-separator-tcp'), 'V14 隔板夹具没有从真实 MaterialSlot/TCP 抓取');
+	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v14-gantry-separator-stack' && item.targetSlotId === 'reference-gantry-separator-stack-slot'), 'V14 隔板夹具没有放到木托隔板 MaterialSlot');
 	const gantryInterlockV12 = (referenceLineV11.interlocks || []).find((item) => item.interlockId === 'reference-v12-gantry-pallet-zone-exclusive');
 	assert(Boolean(gantryInterlockV12), '参考图 V12 缺少桁架木托共享区互锁');
 	assert((gantryInterlockV12?.conditions.length || 0) >= 2, '桁架木托共享区互锁条件不完整');
@@ -489,7 +509,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const behaviorSceneV12 = new THREE.Scene();
 	const behaviorRootsV12 = new Map<string, THREE.Object3D>();
 	const behaviorBuiltV12: Array<{ root: THREE.Group; dispose: () => void }> = [];
-	for (const objectId of ['reference-loading-robot', 'reference-turntable-west', 'reference-turntable-east', 'reference-stacking-gantry']) {
+	for (const objectId of ['reference-loading-robot', 'reference-turntable-west', 'reference-turntable-east', 'reference-stacking-gantry', 'reference-stacking-pallet']) {
 		const item = referenceComponentsV11.find((candidate) => candidate.objectId === objectId)!;
 		assert(Boolean(item), `BehaviorRuntime 回归缺少 V12 对象 ${objectId}`);
 		const built = defaultComponentRegistry.create({
@@ -515,18 +535,43 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(gantryMetadataRoot.getObjectByName('Gantry-Silk-Rail-Carriage')?.userData?.actuator?.kind === 'linear-axis', '丝锭夹具水平轴缺少标准 linear-axis metadata');
 	assert(gantryMetadataRoot.getObjectByName('Gantry-Separator-Z-Slide')?.userData?.actuator?.kind === 'linear-axis', '隔板夹具升降轴缺少标准 linear-axis metadata');
 	assert((gantryMetadataRoot.userData?.actuatorDefinitions?.length || 0) >= 6, '双轨桁架根节点没有汇总两套水平/升降/夹具 actuator metadata');
+	assert(robotMetadataRoot.userData?.toolFrames?.some((item: any) => item.toolFrameId === 'robot-tcp' && item.nodePath === 'RobotGridGripper-2x6'), '工业机器人没有标准 TCP metadata');
+	assert(gantryMetadataRoot.userData?.toolFrames?.some((item: any) => item.toolFrameId === 'gantry-yarn-tcp'), '丝锭桁架没有标准丝锭夹具 TCP metadata');
+	const initialSilkEntityIds = new Set<string>();
+	behaviorSceneV12.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') initialSilkEntityIds.add(String(node.userData.twinEntityId || '')); });
+	assert(initialSilkEntityIds.size === 72, 'V14 两台双面丝车必须生成 72 个带稳定 ID 的真实丝锭实体');
+	const initialSeparatorEntityIds = new Set<string>();
+	behaviorSceneV12.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'separator') initialSeparatorEntityIds.add(String(node.userData.twinEntityId || '')); });
+	assert(initialSeparatorEntityIds.size === 10, 'V14 丝锭桁架两类隔板库存没有生成 10 个稳定 ID 的真实隔板实体');
 	const behaviorRuntimeV12 = new BehaviorRuntime(referenceLineV11, behaviorSceneV12, (objectId) => behaviorRootsV12.get(objectId));
 	try {
 		const robotAxis1 = behaviorRootsV12.get('reference-loading-robot')!.getObjectByName('Robot-Axis-1')!;
 		const robotStartYaw = robotAxis1.rotation.y;
 		let sawBehaviorPayload = false;
+		let sawRealMaterialCarrier = false;
+		let sawRealSeparatorCarrier = false;
+		let sawLegacySyntheticSilk = false;
+		let sawLegacySyntheticSeparator = false;
+		let realEntityIdsStayedStable = true;
 		let sawSeparatorWaiting = false;
 		let sawSeparatorReleased = false;
 		behaviorRuntimeV12.setRunning(true);
 		for (let index = 0; index < 3600; index += 1) {
 			behaviorRuntimeV12.updateFixed(1 / 60);
 			if (index % 10 === 0) {
-				behaviorSceneV12.traverse((node) => { if (node.userData?.behaviorPayload) sawBehaviorPayload = true; });
+				behaviorSceneV12.traverse((node) => {
+					if (node.userData?.behaviorPayload) sawBehaviorPayload = true;
+					if (node.userData?.realMaterialPayload === true && node.userData?.payloadType === 'silk-cake') {
+						sawRealMaterialCarrier = true;
+						for (const entityId of node.userData.payloadEntityIds || []) if (!initialSilkEntityIds.has(String(entityId))) realEntityIdsStayedStable = false;
+					}
+					if (node.userData?.realMaterialPayload === true && node.userData?.payloadType === 'separator') {
+						sawRealSeparatorCarrier = true;
+						for (const entityId of node.userData.payloadEntityIds || []) if (!initialSeparatorEntityIds.has(String(entityId))) realEntityIdsStayedStable = false;
+					}
+					if (node.userData?.legacySyntheticPayload === true && node.userData?.payloadType === 'silk-cake') sawLegacySyntheticSilk = true;
+					if (node.userData?.legacySyntheticPayload === true && node.userData?.payloadType === 'separator') sawLegacySyntheticSeparator = true;
+				});
 				const separator = behaviorRuntimeV12.getSnapshot().channels.find((item) => item.actorNodePath === 'SeparatorFixture');
 				if (separator?.status === 'waiting-interlock') sawSeparatorWaiting = true;
 				if (sawSeparatorWaiting && separator && separator.status !== 'waiting-interlock' && separator.completedActions >= 3) sawSeparatorReleased = true;
@@ -543,6 +588,10 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(Boolean(separatorChannel) && separatorChannel!.interlockWaitCount > 0 && sawSeparatorWaiting, 'V12 隔板夹具没有真实等待木托共享区联锁');
 		assert(sawSeparatorReleased, 'V12 丝锭夹具离开共享区后，隔板联锁没有释放');
 		assert(sawBehaviorPayload, 'V12 BehaviorRuntime 没有产生抓取/放置的可视物料');
+		assert(sawRealMaterialCarrier && realEntityIdsStayedStable, 'V14 机器人/桁架没有抓取同一批稳定 ID 的真实丝锭实体');
+		assert(!sawLegacySyntheticSilk, 'V14 丝锭抓取仍退回 createPayload synthetic 丝锭');
+		assert(sawRealSeparatorCarrier, 'V14 隔板夹具没有抓取稳定 ID 的真实隔板实体');
+		assert(!sawLegacySyntheticSeparator, 'V14 隔板抓取仍退回 createPayload synthetic 隔板');
 		const gantryDetail = behaviorRuntimeV12.getObjectDetail('reference-stacking-gantry') as any;
 		assert(gantryDetail?.behaviorRuntime?.channels?.length === 2, '桁架运行状态没有暴露丝锭/隔板两个动作通道');
 
@@ -628,6 +677,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(Boolean(junction) && Math.abs(junction!.localPosition[2]) < 0.001, '一分二分流中心没有位于中线 Z=0');
 		const expectedAngle = THREE.MathUtils.radToDeg(Math.atan2(1.9 / 2, 2.8));
 		assert(Math.abs(Number(splitBuilt.root.userData?.transitionAngleDegrees) - expectedAngle) < 0.001, '一分二角度没有由双排中心距和过渡长度自动计算');
+		assert((splitBuilt.root.userData?.outputStoppers?.length || 0) === 2, '一分二两个输出 Port 没有各自挡停器');
 	} finally { splitBuilt.dispose(); }
 
 	const mergeBuilt = defaultComponentRegistry.create(createComponentDefinitionFromTemplate('builtin-double-to-single-conveyor', { objectId: 'verify-double-to-single' }));
@@ -639,6 +689,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(Boolean(mergePoint) && Math.abs(mergePoint!.localPosition[2]) < 0.001 && mergeBuilt.root.userData?.mergeAtCenter === true, '二合一没有在两排正中间 Z=0 汇合');
 		const output = mergeBuilt.ports.find((item) => item.portId === 'output')!;
 		assert(Math.abs(output.localPosition[2]) < 0.001, '二合一单排出口没有从中间中心线输出');
+		assert((mergeBuilt.root.userData?.outputStoppers?.length || 0) === 1, '二合一输出 Port 没有唯一挡停器');
 	} finally { mergeBuilt.dispose(); }
 
 	const rightAngleSplitTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-right-angle-single-to-double-conveyor');
@@ -656,6 +707,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const diverter = flow?.points.find((item) => item.kind === 'diverter');
 		assert(Boolean(diverter) && flow.edges.filter((item) => item.fromPointId === diverter!.pointId).length === 2, '直角一分二内部路线没有真实一分二节点');
 		assert(Boolean(rightAngleSplit.root.getObjectByName('RightAngleSplit-Trunk')) && Boolean(rightAngleSplit.root.getObjectByName('RightAngleSplit-Output-A')) && Boolean(rightAngleSplit.root.getObjectByName('RightAngleSplit-Output-B')), '直角一分二几何没有按草图形成一根竖干线和两条右出支线');
+		assert((rightAngleSplit.root.userData?.outputStoppers?.length || 0) === 2, '直角一分二两个出口没有各自挡停器');
 	} finally { rightAngleSplit.dispose(); }
 
 	const rightAngleMergeTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-right-angle-double-to-single-conveyor');
@@ -674,6 +726,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(Boolean(merge) && flow.edges.filter((item) => item.toPointId === merge!.pointId).length === 2, '直角二合一内部路线没有真实二合一节点');
 		assert(rightAngleMerge.root.userData?.mergeOnSharedTrunk === true, '直角二合一没有在右侧公共竖向干线上汇流');
 		assert(Boolean(rightAngleMerge.root.getObjectByName('RightAngleMerge-Input-A')) && Boolean(rightAngleMerge.root.getObjectByName('RightAngleMerge-Input-B')) && Boolean(rightAngleMerge.root.getObjectByName('RightAngleMerge-Trunk')), '直角二合一几何没有按草图形成两条左进入口和一根右侧竖干线');
+		assert((rightAngleMerge.root.userData?.outputStoppers?.length || 0) === 1, '直角二合一输出没有唯一挡停器');
 	} finally { rightAngleMerge.dispose(); }
 
 	const referenceDoubleSmallV11 = referenceComponentsV11.filter((item) => item.component?.resourceKey === 'builtin-double-small-roller-conveyor');

@@ -164,6 +164,7 @@ export class TwinRuntime {
 	private componentTestObjectId?: string;
 	private componentTestPath: THREE.Vector3[] = [];
 	private componentTestDistance = 0;
+	private componentTestElapsed = 0;
 	private componentTestMarker?: THREE.Mesh;
 	private routeLine?: any;
 	private ground?: any;
@@ -293,7 +294,9 @@ export class TwinRuntime {
 	resetComponentTest() {
 		this.behaviorRuntime?.reset();
 		this.componentTestDistance = 0;
+		this.componentTestElapsed = 0;
 		if (this.componentTestMarker && this.componentTestPath.length) this.componentTestMarker.position.copy(this.componentTestPath[0]);
+		if (this.componentTestObjectId) this.setOutputStopperVisual(this.objectIndex.get(this.componentTestObjectId), true, false);
 	}
 
 	setSpeed(speed: number) {
@@ -488,6 +491,7 @@ export class TwinRuntime {
 	applyDataUpdates(updates: TwinDataUpdate[]) {
 		this.bindingEngine.apply(updates);
 		this.behaviorRuntime?.setBindingContext(this.bindingEngine.getSignalSnapshot());
+		this.syncOutputStopperBindings();
 	}
 
 	getSelectionScreenAnchor(): TwinRuntimeScreenAnchor | undefined {
@@ -821,6 +825,7 @@ export class TwinRuntime {
 		this.componentTestPath = path.filter((point, index) => index === 0 || point.distanceTo(path[index - 1]) > 0.001);
 		if (this.componentTestPath.length < 2) return;
 		this.componentTestDistance = 0;
+		this.componentTestElapsed = 0;
 		const marker = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 12), new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x14532d, emissiveIntensity: 0.55 }));
 		marker.name = 'Component-Isolated-Test-Marker';
 		marker.userData.helper = true;
@@ -838,7 +843,29 @@ export class TwinRuntime {
 			lengths.push(total);
 		}
 		if (total <= 0.001) return;
-		this.componentTestDistance = (this.componentTestDistance + deltaSeconds) % total;
+		const root = this.componentTestObjectId ? this.objectIndex.get(this.componentTestObjectId) : undefined;
+		const hasOutputStopper = Array.isArray(root?.userData?.outputStoppers) && root!.userData.outputStoppers.length > 0;
+		if (hasOutputStopper) {
+			this.componentTestElapsed = (this.componentTestElapsed + deltaSeconds) % 6;
+			const elapsed = this.componentTestElapsed;
+			let normalized = 0;
+			if (elapsed < 3) {
+				normalized = (elapsed / 3) * 0.84;
+				this.setOutputStopperVisual(root, true, elapsed >= 2.6);
+			} else if (elapsed < 4) {
+				normalized = 0.84;
+				this.setOutputStopperVisual(root, true, true);
+			} else if (elapsed < 5) {
+				normalized = 0.84 + (elapsed - 4) * 0.16;
+				this.setOutputStopperVisual(root, false, elapsed < 4.35);
+			} else {
+				normalized = 0;
+				this.setOutputStopperVisual(root, true, false);
+			}
+			this.componentTestDistance = Math.min(total, normalized * total);
+		} else {
+			this.componentTestDistance = (this.componentTestDistance + deltaSeconds) % total;
+		}
 		let segment = lengths.findIndex((value) => this.componentTestDistance <= value);
 		if (segment < 0) segment = lengths.length - 1;
 		const segmentStart = segment === 0 ? 0 : lengths[segment - 1];
@@ -847,9 +874,56 @@ export class TwinRuntime {
 		this.componentTestMarker.position.lerpVectors(this.componentTestPath[segment], this.componentTestPath[segment + 1], ratio);
 	}
 
+	private setOutputStopperVisual(root: THREE.Object3D | undefined, raised: boolean, palletPresent: boolean, portId?: string) {
+		if (!root) return;
+		const definitions = Array.isArray(root.userData?.outputStoppers) ? root.userData.outputStoppers as Array<any> : [];
+		for (const definition of definitions) {
+			if (portId && definition.portId !== portId) continue;
+			const stopper = root.getObjectByName(String(definition.nodePath || ''));
+			if (stopper) {
+				const raisedY = Number(stopper.userData?.raisedY ?? stopper.position.y);
+				const loweredY = Number(stopper.userData?.loweredY ?? raisedY - 0.22);
+				stopper.position.y = raised ? raisedY : loweredY;
+				stopper.userData.stopperRaised = raised;
+			}
+			const sensor = root.getObjectByName(String(definition.sensorNodePath || ''));
+			if (sensor) sensor.userData.palletPresent = palletPresent;
+		}
+	}
+
+	private syncOutputStopperBindings() {
+		if (this.manifest.runtime.dataMode !== 'live') return;
+		const values = this.bindingEngine.getSignalSnapshot().bindingValues as Record<string, unknown>;
+		const truthy = (value: unknown): boolean => {
+			if (typeof value === 'boolean') return value;
+			if (typeof value === 'number') return value !== 0;
+			if (typeof value === 'string') return value.trim() !== '' && value !== '0' && value.toLowerCase() !== 'false';
+			if (Array.isArray(value)) return value.some(truthy);
+			return Boolean(value);
+		};
+		for (const object of this.manifest.objects as any[]) {
+			if (object.kind !== 'component' || !object.component?.bindings) continue;
+			const root = this.objectIndex.get(object.objectId);
+			const definitions = Array.isArray(root?.userData?.outputStoppers) ? root!.userData.outputStoppers as Array<any> : [];
+			for (const definition of definitions) {
+				const prefix = String(definition.portId || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+				const upId = object.component.bindings[`${prefix}-stopperUp`];
+				const downId = object.component.bindings[`${prefix}-stopperDown`];
+				const presentId = object.component.bindings[`${prefix}-palletPresent`];
+				const hasUp = Boolean(upId && Object.prototype.hasOwnProperty.call(values, upId));
+				const hasDown = Boolean(downId && Object.prototype.hasOwnProperty.call(values, downId));
+				const stopper = root?.getObjectByName(String(definition.nodePath || ''));
+				const raised = hasUp ? truthy(values[upId]) : hasDown ? !truthy(values[downId]) : Boolean(stopper?.userData?.stopperRaised ?? true);
+				const present = Boolean(presentId && Object.prototype.hasOwnProperty.call(values, presentId) && truthy(values[presentId]));
+				this.setOutputStopperVisual(root, raised, present, definition.portId);
+			}
+		}
+	}
+
 	private clearComponentTestMarker() {
 		this.componentTestPath = [];
 		this.componentTestDistance = 0;
+		this.componentTestElapsed = 0;
 		if (!this.componentTestMarker) return;
 		this.scene.remove(this.componentTestMarker);
 		this.componentTestMarker.geometry.dispose();

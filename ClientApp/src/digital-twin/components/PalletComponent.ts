@@ -50,6 +50,15 @@ export class PalletComponent implements TwinComponentGenerator {
 				root.add(brace);
 			}
 		}
+		if (palletType === 'wooden-pallet') {
+			const stackAnchor = new THREE.Group();
+			stackAnchor.name = 'StackAnchor';
+			stackAnchor.position.y = height;
+			stackAnchor.userData.materialSlot = true;
+			stackAnchor.userData.materialSlotRole = 'stack';
+			root.add(stackAnchor);
+			root.userData.materialSlots = [{ slotId: 'wood-stack', name: '木托码垛中心', role: 'stack', nodePath: 'StackAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 48 }];
+		}
 
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
@@ -114,6 +123,8 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		const cakeAnchor = new THREE.Group();
 		cakeAnchor.name = 'SilkCakeAnchor';
 		cakeAnchor.position.y = baseHeight + 0.21;
+		cakeAnchor.userData.materialSlot = true;
+		cakeAnchor.userData.materialSlotRole = 'target';
 		root.add(cakeAnchor);
 
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
@@ -121,6 +132,7 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		root.userData.transportUnitType = 'plastic-pallet';
 		root.userData.transportUnitVariant = 'small-pallet';
 		root.userData.resourceKey = definition.resourceKey;
+		root.userData.materialSlots = [{ slotId: 'silk-place', name: '小托盘放丝位', role: 'target', nodePath: 'SilkCakeAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 12 }];
 		root.userData.properties = { ...props, diameter, baseHeight, columnHeight, columnDiameter, routeManagedExternally: true };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, []);

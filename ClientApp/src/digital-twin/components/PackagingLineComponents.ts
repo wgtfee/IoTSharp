@@ -227,6 +227,11 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 			for (let i = 0; i < 5; i += 1) {
 				const sheet = addBox(feeder, `SeparatorSheet-${separatorCategory}-${i + 1}`, [PACKAGING_WOOD_PALLET_LENGTH, 0.025, PACKAGING_WOOD_PALLET_WIDTH], [0, 1.10 + i * 0.04, 0], cover);
 				sheet.userData.separatorCategory = separatorCategory;
+				sheet.userData.materialEntity = true;
+				sheet.userData.payloadType = 'separator';
+				sheet.userData.materialSlotGroup = separatorCategory;
+				sheet.userData.twinEntityType = 'material';
+				sheet.userData.twinEntityId = `${context.definition.objectId}:separator:${separatorCategory}:${i + 1}`;
 			}
 			stock.add(feeder);
 			root.add(stock);
@@ -239,6 +244,14 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 		root.traverse((node) => {
 			if (node.userData?.actuator) root.userData.actuatorDefinitions.push({ ...node.userData.actuator, nodePath: node.name });
 		});
+		root.userData.toolFrames = [
+			{ toolFrameId: 'gantry-yarn-tcp', name: '丝锭夹具 TCP', nodePath: 'GantryGripper-2x3', localPosition: [0, -0.28, 0], payloadTypes: ['silk-cake'] },
+			{ toolFrameId: 'gantry-separator-tcp', name: '隔板夹具 TCP', nodePath: 'Gantry-Separator-Gripper', localPosition: [0, -0.34, 0], payloadTypes: ['separator'] },
+		];
+		root.userData.materialSlots = [
+			{ slotId: 'separator-stock-a', name: 'A 类隔板暂存位', role: 'source', nodePath: 'SeparatorFeeder-A', localPosition: [0, 1.18, 0], payloadType: 'separator', capacity: 5, metadata: { entityGroup: 'A' } },
+			{ slotId: 'separator-stock-b', name: 'B 类隔板暂存位', role: 'source', nodePath: 'SeparatorFeeder-B', localPosition: [0, 1.18, 0], payloadType: 'separator', capacity: 5, metadata: { entityGroup: 'B' } },
+		];
 		return finish(root, context, this.generator, this.componentType, { ...props, length, width, height });
 	}
 }

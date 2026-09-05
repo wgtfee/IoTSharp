@@ -1,9 +1,11 @@
-import type { TwinActuatorDefinition, TwinPoseDefinition, TwinSceneManifest } from '../contracts';
+import type { TwinActuatorDefinition, TwinMaterialSlotDefinition, TwinPoseDefinition, TwinSceneManifest, TwinToolFrameDefinition } from '../contracts';
 import { buildComponentFromTemplate } from './ComponentTemplateFactory';
 
 export interface ComponentActuatorSyncResult {
 	addedActuatorIds: string[];
 	addedPoseIds: string[];
+	addedMaterialSlotIds: string[];
+	addedToolFrameIds: string[];
 }
 
 type GeneratedActuatorDefinition = {
@@ -56,8 +58,10 @@ export const ensureComponentActuators = (
 ): ComponentActuatorSyncResult => {
 	manifest.actuators ||= [];
 	manifest.poses ||= [];
+	manifest.materialSlots ||= [];
+	manifest.toolFrames ||= [];
 	const filterIds = objectIds ? new Set(objectIds) : undefined;
-	const result: ComponentActuatorSyncResult = { addedActuatorIds: [], addedPoseIds: [] };
+	const result: ComponentActuatorSyncResult = { addedActuatorIds: [], addedPoseIds: [], addedMaterialSlotIds: [], addedToolFrameIds: [] };
 
 	for (const sceneObject of manifest.objects as Array<any>) {
 		if (sceneObject?.kind !== 'component' || !sceneObject.component?.resourceKey) continue;
@@ -77,6 +81,51 @@ export const ensureComponentActuators = (
 			const generated = Array.isArray(built.root.userData?.actuatorDefinitions)
 				? built.root.userData.actuatorDefinitions as GeneratedActuatorDefinition[]
 				: [];
+			const generatedSlots = Array.isArray(built.root.userData?.materialSlots) ? built.root.userData.materialSlots as Array<Record<string, unknown>> : [];
+			const generatedFrames = Array.isArray(built.root.userData?.toolFrames) ? built.root.userData.toolFrames as Array<Record<string, unknown>> : [];
+
+			for (const definition of generatedSlots) {
+				const localId = String(definition.slotId || '').trim();
+				if (!localId) continue;
+				const candidateId = `${objectId}:${localId}`;
+				const nodePath = String(definition.nodePath || '').trim() || undefined;
+				const existing = manifest.materialSlots.find((item) => item.slotId === candidateId)
+					|| manifest.materialSlots.find((item) => item.objectId === objectId && item.nodePath === nodePath && item.payloadType === definition.payloadType)
+					|| manifest.materialSlots.find((item) => item.objectId === objectId && (item.slotId === localId || item.slotId.endsWith(`:${localId}`)));
+				if (existing) continue;
+				const slot: TwinMaterialSlotDefinition = {
+					slotId: candidateId,
+					name: String(definition.name || localId),
+					objectId,
+					role: (definition.role || 'buffer') as TwinMaterialSlotDefinition['role'],
+					localPosition: (Array.isArray(definition.localPosition) ? definition.localPosition : [0, 0, 0]) as [number, number, number],
+				};
+				if (nodePath) slot.nodePath = nodePath;
+				if (Array.isArray(definition.localRotation)) slot.localRotation = definition.localRotation as [number, number, number];
+				if (definition.payloadType) slot.payloadType = String(definition.payloadType);
+				const capacity = finiteNumber(definition.capacity);
+				if (capacity !== undefined) slot.capacity = capacity;
+				if (definition.metadata && typeof definition.metadata === 'object') slot.metadata = { ...(definition.metadata as Record<string, unknown>) };
+				manifest.materialSlots.push(slot);
+				result.addedMaterialSlotIds.push(slot.slotId);
+			}
+
+			for (const definition of generatedFrames) {
+				const localId = String(definition.toolFrameId || '').trim();
+				const nodePath = String(definition.nodePath || '').trim();
+				if (!localId || !nodePath) continue;
+				const candidateId = `${objectId}:${localId}`;
+				const existing = manifest.toolFrames.find((item) => item.toolFrameId === candidateId)
+					|| manifest.toolFrames.find((item) => item.objectId === objectId && item.nodePath === nodePath)
+					|| manifest.toolFrames.find((item) => item.objectId === objectId && (item.toolFrameId === localId || item.toolFrameId.endsWith(`:${localId}`)));
+				if (existing) continue;
+				const frame: TwinToolFrameDefinition = { toolFrameId: candidateId, name: String(definition.name || localId), objectId, nodePath };
+				if (Array.isArray(definition.localPosition)) frame.localPosition = definition.localPosition as [number, number, number];
+				if (Array.isArray(definition.localRotation)) frame.localRotation = definition.localRotation as [number, number, number];
+				if (Array.isArray(definition.payloadTypes)) frame.payloadTypes = definition.payloadTypes.map(String);
+				manifest.toolFrames.push(frame);
+				result.addedToolFrameIds.push(frame.toolFrameId);
+			}
 			if (!generated.length) continue;
 
 			const homeTargets: TwinPoseDefinition['targets'] = [];
