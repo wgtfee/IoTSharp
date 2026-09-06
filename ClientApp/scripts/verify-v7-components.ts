@@ -37,6 +37,21 @@ import { resolveRoutePath, RouteEngine } from '../src/digital-twin/routes/RouteE
 import { resolveRouteTransportUnitResourceKey } from '../src/digital-twin/runtime/TwinRuntime';
 import { RouteSlotArrayRuntime } from '../src/digital-twin/runtime/RouteSlotArrayRuntime';
 import { BehaviorRuntime } from '../src/digital-twin/runtime/BehaviorRuntime';
+import {
+	addActuatorDefinition,
+	addBehaviorActionDefinition,
+	addBehaviorDefinition,
+	addInterlockDefinition,
+	addMaterialSlotDefinition,
+	addPoseDefinition,
+	addToolFrameDefinition,
+	addWorkPointDefinition,
+	exportTwinOrchestration,
+	importTwinOrchestration,
+	moveBehaviorActionDefinition,
+	removeMaterialSlotDefinition,
+	removeWorkPointDefinition,
+} from '../src/digital-twin/orchestration/TwinOrchestrationDesigner';
 
 const assert = (condition: unknown, message: string) => {
 	if (!condition) throw new Error(message);
@@ -51,6 +66,51 @@ const behaviorRuntimeSource = readFileSync('src/digital-twin/runtime/BehaviorRun
 for (const forbidden of ['YarnFixture', 'SeparatorFixture', 'readyForSeparator', 'inPalletZone']) {
 	assert(!behaviorRuntimeSource.includes(forbidden), `BehaviorRuntime 重新引入了参考包装线业务别名: ${forbidden}`);
 }
+const referenceManifestSource = readFileSync('src/digital-twin/presets/ReferencePackagingLineManifest.ts', 'utf8');
+assert(!referenceManifestSource.includes('reference-packaging-actions-v17'), '参考包装线又依赖独立动作预置 JSON');
+assert(!referenceManifestSource.includes('applyReferenceActionPreset'), '参考包装线又在 Builder 中注入动作编排');
+assert(referenceManifestSource.includes('reference-packaging-v18.scene.json'), '参考包装线没有使用设计器导出的完整 V18 SceneManifest 资产');
+
+// 设计器共用的纯数据 API 必须能从空动作区创建、排序、保存、重新加载完整编排，不允许测试绕过 UI 数据模型直接写专用 Runtime 代码。
+const designerOrchestrationManifest = createDefaultTwinSceneManifest();
+designerOrchestrationManifest.workPoints = [];
+designerOrchestrationManifest.materialSlots = [];
+designerOrchestrationManifest.toolFrames = [];
+designerOrchestrationManifest.actuators = [];
+designerOrchestrationManifest.poses = [];
+designerOrchestrationManifest.behaviors = [];
+designerOrchestrationManifest.interlocks = [];
+const designerActorId = 'designer-zero-code-actor';
+const designerSource = addMaterialSlotDefinition(designerOrchestrationManifest, designerActorId, {
+	name: '双面物料源', role: 'source', payloadType: 'payload', capacity: 36,
+	metadata: { entityGroups: ['A', 'B'], presentationAngles: { A: 0, B: Math.PI }, rotationNodePath: 'Deck', minimumBatch: 12, simulationReplenish: true, simulationReplenishLimit: 2 },
+});
+const designerStack = addMaterialSlotDefinition(designerOrchestrationManifest, designerActorId, {
+	name: '码垛目标', role: 'stack', payloadType: 'payload', capacity: 48, runtimeOwnerType: 'wooden-pallet', runtimeOwnerSelection: 'station-batch', runtimeOwnerNodePath: 'StackAnchor',
+	stackPattern: { rows: 2, columns: 3, layers: 8, spacingX: 0.5, spacingZ: 0.5, firstLayerY: 0.2, layerPitch: 0.4, layerMaterialRequired: true, layerMaterialOffsetY: 0.05 },
+});
+const designerTcp = addToolFrameDefinition(designerOrchestrationManifest, designerActorId, { name: 'TCP', nodePath: 'Tool', payloadTypes: ['payload'] });
+const designerActuator = addActuatorDefinition(designerOrchestrationManifest, designerActorId, { name: 'Axis', nodePath: 'Axis', kind: 'linear-axis', motionAxis: 'x', unit: 'meter', homeValue: 0, speed: 1.5 });
+const designerWorkPoint = addWorkPointDefinition(designerOrchestrationManifest, designerActorId, { name: 'Pick', role: 'pick', materialSlotId: designerSource.slotId, toolFrameId: designerTcp.toolFrameId, localPosition: [1, 2, 3] });
+const designerPose = addPoseDefinition(designerOrchestrationManifest, designerActorId, { name: 'PickPose', workPointId: designerWorkPoint.workPointId, toolFrameId: designerTcp.toolFrameId, targets: [{ actuatorId: designerActuator.actuatorId, value: 1.25 }] });
+const designerInterlock = addInterlockDefinition(designerOrchestrationManifest, { name: 'StackReady', mode: 'all', conditions: [{ source: `${designerStack.slotId}.complete`, operator: 'equals', value: false }] });
+const designerBehavior = addBehaviorDefinition(designerOrchestrationManifest, designerActorId, { name: 'DesignerFlow', interlockIds: [designerInterlock.interlockId], stationCompletionGroup: 'designer', stationRequiredCycles: 2, loop: true });
+const designerMove = addBehaviorActionDefinition(designerBehavior, { kind: 'movePose', poseId: designerPose.poseId, speedRatio: 0.75 });
+const designerAttach = addBehaviorActionDefinition(designerBehavior, { kind: 'attach', sourceSlotId: designerSource.slotId, toolFrameId: designerTcp.toolFrameId, payloadType: 'payload', payloadCount: 12 });
+addBehaviorActionDefinition(designerBehavior, { kind: 'detach', targetSlotId: designerStack.slotId, toolFrameId: designerTcp.toolFrameId, payloadType: 'payload', payloadCount: 6 });
+assert(moveBehaviorActionDefinition(designerBehavior, 1, -1) && designerBehavior.actions[0].actionId === designerAttach.actionId && designerBehavior.actions[1].actionId === designerMove.actionId, '设计器动作排序 API 未生效');
+const designerSnapshot = exportTwinOrchestration(designerOrchestrationManifest);
+const designerRoundTrip = JSON.parse(JSON.stringify(designerSnapshot));
+const designerReloaded = createDefaultTwinSceneManifest();
+importTwinOrchestration(designerReloaded, designerRoundTrip);
+assert(designerReloaded.materialSlots?.find((item) => item.slotId === designerSource.slotId)?.metadata?.simulationReplenish === true, '设计器 MaterialSlot Simulation 补料配置保存/加载丢失');
+assert((designerReloaded.materialSlots?.find((item) => item.slotId === designerSource.slotId)?.metadata?.entityGroups as string[])?.join(',') === 'A,B', '设计器双面物料源分组保存/加载丢失');
+assert(designerReloaded.behaviors?.[0]?.actions[0]?.actionId === designerAttach.actionId && designerReloaded.behaviors?.[0]?.interlockIds?.[0] === designerInterlock.interlockId, '设计器 Behavior/Interlock 保存/加载丢失');
+assert(designerReloaded.poses?.[0]?.targets?.[0]?.value === 1.25 && designerReloaded.actuators?.[0]?.speed === 1.5, '设计器 Pose/Actuator 保存/加载丢失');
+removeWorkPointDefinition(designerReloaded, designerWorkPoint.workPointId);
+assert(!designerReloaded.poses?.[0]?.workPointId, '删除 WorkPoint 后 Pose 引用未清理');
+removeMaterialSlotDefinition(designerReloaded, designerSource.slotId);
+assert(!designerReloaded.behaviors?.[0]?.actions.some((action) => action.sourceSlotId === designerSource.slotId), '删除 MaterialSlot 后动作引用未清理');
 
 const resourceId = '11111111-1111-4111-8111-111111111111';
 const smallTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-small-roller-conveyor')!;

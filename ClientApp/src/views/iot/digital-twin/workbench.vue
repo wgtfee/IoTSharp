@@ -332,6 +332,9 @@
 						<div class="twin-behavior-grid"><el-input v-model="slot.runtimeOwnerNodePath" clearable size="small" placeholder="载体内部放置节点" @change="syncBehaviorManifest" /><el-input v-model="slot.placedStage" clearable size="small" placeholder="放置后阶段标记（可选）" @change="syncBehaviorManifest" /></div>
 						<el-checkbox :model-value="Boolean(slot.distributePayloadAcrossRuntimeOwners)" @change="toggleRuntimeOwnerDistribution(slot, Boolean($event))">按当前工位载体批次分发物料</el-checkbox>
 						<div v-if="slot.distributePayloadAcrossRuntimeOwners && slot.runtimeOwnerItemOffset" class="twin-coordinate-grid"><el-input-number v-model="slot.runtimeOwnerItemOffset[0]" :step="0.05" size="small" controls-position="right" placeholder="件间 X" @change="syncBehaviorManifest" /><el-input-number v-model="slot.runtimeOwnerItemOffset[1]" :step="0.05" size="small" controls-position="right" placeholder="件间 Y" @change="syncBehaviorManifest" /><el-input-number v-model="slot.runtimeOwnerItemOffset[2]" :step="0.05" size="small" controls-position="right" placeholder="件间 Z" @change="syncBehaviorManifest" /></div>
+						<div class="twin-behavior-grid"><el-input :model-value="formatSlotEntityGroups(slot)" clearable size="small" placeholder="源分组，如 A,B" @change="setSlotEntityGroups(slot, $event)" /><el-input :model-value="String(slot.metadata?.rotationNodePath || '')" clearable size="small" placeholder="源旋转节点（可选）" @change="setSlotMetadataValue(slot, 'rotationNodePath', $event)" /></div>
+						<div class="twin-behavior-grid"><el-input :model-value="formatSlotPresentationAngles(slot)" clearable size="small" placeholder="分组角度，如 A:0,B:3.14159" @change="setSlotPresentationAngles(slot, $event)" /><el-input-number :model-value="Number(slot.metadata?.minimumBatch || 1)" :min="1" :step="1" size="small" controls-position="right" placeholder="最小可抓批量" @change="setSlotMetadataNumber(slot, 'minimumBatch', $event)" /></div>
+						<div class="twin-behavior-grid"><el-checkbox :model-value="slot.metadata?.simulationReplenish === true" @change="setSlotSimulationReplenish(slot, Boolean($event))">Simulation 自动补料</el-checkbox><el-input-number :model-value="Number(slot.metadata?.simulationReplenishLimit || 0)" :min="0" :step="1" size="small" controls-position="right" placeholder="最多补料次数，0=不限" @change="setSlotMetadataNumber(slot, 'simulationReplenishLimit', $event)" /></div>
 						<div class="twin-behavior-grid"><el-switch :model-value="Boolean(slot.stackPattern)" active-text="码垛规则" @change="toggleStackPattern(slot, Boolean($event))" /><el-select v-model="slot.stackPatternSlotId" clearable filterable size="small" placeholder="层间物料引用主码垛槽位" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
 						<div v-if="slot.stackPattern" class="twin-behavior-item">
 							<div class="twin-coordinate-grid"><el-input-number v-model="slot.stackPattern.rows" :min="1" :step="1" size="small" controls-position="right" placeholder="行" @change="syncBehaviorManifest" /><el-input-number v-model="slot.stackPattern.columns" :min="1" :step="1" size="small" controls-position="right" placeholder="列" @change="syncBehaviorManifest" /><el-input-number v-model="slot.stackPattern.layers" :min="1" :step="1" size="small" controls-position="right" placeholder="层" @change="syncBehaviorManifest" /></div>
@@ -350,6 +353,7 @@
 					<div v-for="actuator in selectedActuators" :key="actuator.actuatorId" class="twin-behavior-item">
 						<div class="twin-behavior-item__head"><el-input v-model="actuator.name" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeActuator(actuator.actuatorId)">×</el-button></div>
 						<div class="twin-behavior-grid"><el-select v-model="actuator.kind" size="small" @change="syncBehaviorManifest"><el-option label="旋转关节" value="rotary-joint" /><el-option label="直线轴" value="linear-axis" /><el-option label="夹具" value="gripper" /></el-select><el-input v-model="actuator.nodePath" size="small" placeholder="Three.js 节点路径" @change="syncBehaviorManifest" /></div>
+						<div class="twin-behavior-grid"><el-select v-model="actuator.unit" size="small" @change="syncBehaviorManifest"><el-option label="弧度 rad" value="rad" /><el-option label="角度 degree" value="degree" /><el-option label="米 meter" value="meter" /><el-option label="布尔 boolean" value="boolean" /></el-select><el-input-number v-model="actuator.speed" :min="0.001" :step="0.1" size="small" controls-position="right" placeholder="速度" @change="syncBehaviorManifest" /></div>
 						<div v-if="actuator.kind !== 'gripper'" class="twin-behavior-grid"><el-select v-model="actuator.motionAxis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="actuator.homeValue" :step="0.1" size="small" controls-position="right" placeholder="Home" @change="syncBehaviorManifest" /></div>
 					</div>
 					<div class="twin-inline-control"><strong>Pose 姿态</strong><el-tag size="small" type="info">{{ selectedPoses.length }}</el-tag><el-button text type="primary" size="small" @click="addPose">新增</el-button></div>
@@ -363,11 +367,13 @@
 					<div v-for="behavior in selectedBehaviors" :key="behavior.behaviorId" class="twin-behavior-item">
 						<div class="twin-behavior-item__head"><el-input v-model="behavior.name" size="small" @change="syncBehaviorManifest" /><el-switch v-model="behavior.enabled" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeBehavior(behavior.behaviorId)">×</el-button></div>
 						<div class="twin-behavior-grid"><el-input v-model="behavior.stationCompletionGroup" clearable size="small" placeholder="工位完成组（可选）" @change="syncBehaviorManifest" /><el-input-number v-model="behavior.stationRequiredCycles" :min="1" :step="1" size="small" controls-position="right" placeholder="工位所需循环次数" @change="syncBehaviorManifest" /></div>
+						<el-select v-model="behavior.interlockIds" multiple clearable filterable size="small" placeholder="Behavior 启动联锁（可多选）" @change="syncBehaviorManifest"><el-option v-for="option in interlockOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						<el-checkbox v-model="behavior.loop" @change="syncBehaviorManifest">循环仿真</el-checkbox>
 						<div class="twin-inline-control"><span>初始状态</span><el-button text type="primary" size="small" @click="addStateAssignment(ensureBehaviorInitialState(behavior))">增加</el-button><el-button text type="primary" size="small" @click="addBehaviorAction(behavior)">增加步骤</el-button></div>
 						<div v-for="(state, stateIndex) in behavior.initialState || []" :key="`${behavior.behaviorId}:initial:${stateIndex}`" class="twin-condition-row"><el-input v-model="state.source" size="small" placeholder="状态源，如 equipment.channel.ready" @change="syncBehaviorManifest" /><el-input :model-value="String(state.value ?? '')" size="small" placeholder="初始值" @change="setStateAssignmentValue(state, $event)" /><el-button circle text type="danger" size="small" @click="removeStateAssignment(behavior.initialState!, stateIndex)">×</el-button></div>
 						<div v-for="(action, actionIndex) in behavior.actions" :key="action.actionId" class="twin-action-row">
 							<div class="twin-action-row__head"><span>{{ actionIndex + 1 }}</span><el-select v-model="action.kind" size="small" @change="syncBehaviorManifest"><el-option v-for="option in behaviorActionKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-button text size="small" :disabled="actionIndex === 0" @click="moveBehaviorAction(behavior, actionIndex, -1)">↑</el-button><el-button text size="small" :disabled="actionIndex === behavior.actions.length - 1" @click="moveBehaviorAction(behavior, actionIndex, 1)">↓</el-button><el-button circle text type="danger" size="small" @click="removeBehaviorAction(behavior, action.actionId)">×</el-button></div>
+							<el-input-number v-model="action.speedRatio" :min="0.05" :max="2" :step="0.05" size="small" controls-position="right" placeholder="速度倍率" @change="syncBehaviorManifest" />
 							<el-select v-if="['moveTo','pick','place','home'].includes(action.kind)" v-model="action.workPointId" size="small" clearable filterable placeholder="语义工作点" @change="syncBehaviorManifest"><el-option v-for="option in workPointOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-if="['movePose','home'].includes(action.kind)" v-model="action.poseId" size="small" clearable filterable placeholder="Pose 姿态" @change="syncBehaviorManifest"><el-option v-for="option in poseOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-if="action.kind === 'prepareSlot'" v-model="action.sourceSlotId" size="small" clearable filterable placeholder="准备来源 MaterialSlot" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
@@ -389,7 +395,7 @@
 					<div v-for="interlock in selectedBehaviorInterlocks" :key="interlock.interlockId" class="twin-behavior-item">
 						<div class="twin-behavior-item__head"><el-input v-model="interlock.name" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeInterlock(interlock.interlockId)">×</el-button></div>
 						<div class="twin-behavior-grid"><el-input v-model="interlock.description" size="small" clearable placeholder="联锁说明" @change="syncBehaviorManifest" /><el-select v-model="interlock.mode" size="small" @change="syncBehaviorManifest"><el-option label="全部满足（AND）" value="all" /><el-option label="任一满足（OR）" value="any" /></el-select></div>
-						<div v-for="(condition, conditionIndex) in interlock.conditions" :key="`${interlock.interlockId}:${conditionIndex}`" class="twin-condition-row"><el-input v-model="condition.source" size="small" placeholder="状态源，如 equipment.channel.zoneOccupied" @change="syncBehaviorManifest" /><el-select v-model="condition.operator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-button circle text type="danger" size="small" @click="removeInterlockCondition(interlock, conditionIndex)">×</el-button></div>
+						<div v-for="(condition, conditionIndex) in interlock.conditions" :key="`${interlock.interlockId}:${conditionIndex}`" class="twin-condition-row"><el-input v-model="condition.source" size="small" placeholder="状态源，如 equipment.channel.zoneOccupied" @change="syncBehaviorManifest" /><el-select v-model="condition.operator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-input v-if="condition.operator === 'equals' || condition.operator === 'notEquals'" :model-value="String(condition.value ?? '')" size="small" placeholder="比较值" @change="setInterlockConditionValue(condition, $event)" /><el-button circle text type="danger" size="small" @click="removeInterlockCondition(interlock, conditionIndex)">×</el-button></div>
 						<el-button text type="primary" size="small" @click="addInterlockCondition(interlock)">增加条件</el-button>
 					</div>
 				</div>
@@ -467,6 +473,7 @@ import { assetApi } from '/@/api/asset';
 import { deviceApi } from '/@/api/devices';
 import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinBindingDeviceOption, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
 import { cloneTwinManifest, createBlankTwinSceneManifest, createRouteDecisionRule, createRouteEdge, createRoutePoint, createSilkCakeEquipmentObjectDefinitions, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinActuatorDefinition, type TwinBehaviorActionDefinition, type TwinBehaviorDefinition, type TwinBindingTargetKind, type TwinEquipmentType, type TwinInterlockDefinition, type TwinMaterialSlotDefinition, type TwinObjectBindingDefinition, type TwinPoseDefinition, type TwinRouteDecisionRule, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition, type TwinRouteRuleOperator, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinStateAssignmentDefinition, type TwinToolFrameDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
+import { addActuatorDefinition, addBehaviorActionDefinition, addBehaviorDefinition, addInterlockDefinition, addMaterialSlotDefinition, addPoseDefinition, addToolFrameDefinition, addWorkPointDefinition, moveBehaviorActionDefinition, removeActuatorDefinition, removeBehaviorActionDefinition, removeBehaviorDefinition, removeInterlockDefinition, removeMaterialSlotDefinition, removePoseDefinition, removeToolFrameDefinition, removeWorkPointDefinition } from '/@/digital-twin/orchestration/TwinOrchestrationDesigner';
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { applyComponentSnap, areComponentPortsCompatible, builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, resolveComponentPorts, snapSceneComponent, upsertGeneratedComponentRoute, upsertGeneratedComponentRoutes, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { createReferencePackagingLineTwinSceneManifest, upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
@@ -1172,31 +1179,21 @@ const syncBehaviorManifest = () => {
 const addWorkPoint = () => {
 	const objectId = selected.value?.objectId;
 	if (!objectId) return;
-	(manifest.value.workPoints ||= []).push({ workPointId: createId('workpoint'), name: '新工作点', objectId, role: 'safe', localPosition: [0, 1, 0] });
+	addWorkPointDefinition(manifest.value, objectId);
 	syncBehaviorManifest();
 };
 const removeWorkPoint = (workPointId: string) => {
-	manifest.value.workPoints = (manifest.value.workPoints || []).filter((item) => item.workPointId !== workPointId);
-	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.workPointId === workPointId) delete action.workPointId;
+	removeWorkPointDefinition(manifest.value, workPointId);
 	syncBehaviorManifest();
 };
 const addMaterialSlot = () => {
 	const objectId = selected.value?.objectId;
 	if (!objectId) return;
-	const slot: TwinMaterialSlotDefinition = {
-		slotId: createId('material-slot'), name: '新物料槽位', objectId, role: 'buffer', localPosition: [0, 0, 0], capacity: 1,
-	};
-	(manifest.value.materialSlots ||= []).push(slot);
+	addMaterialSlotDefinition(manifest.value, objectId, { capacity: 1 });
 	syncBehaviorManifest();
 };
 const removeMaterialSlot = (slotId: string) => {
-	manifest.value.materialSlots = (manifest.value.materialSlots || []).filter((item) => item.slotId !== slotId);
-	for (const point of manifest.value.workPoints || []) if (point.materialSlotId === slotId) delete point.materialSlotId;
-	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) {
-		if (action.sourceSlotId === slotId) delete action.sourceSlotId;
-		if (action.targetSlotId === slotId) delete action.targetSlotId;
-	}
-	for (const slot of manifest.value.materialSlots || []) if (slot.stackPatternSlotId === slotId) delete slot.stackPatternSlotId;
+	removeMaterialSlotDefinition(manifest.value, slotId);
 	syncBehaviorManifest();
 };
 const toggleStackPattern = (slot: TwinMaterialSlotDefinition, enabled: boolean) => {
@@ -1209,18 +1206,56 @@ const toggleRuntimeOwnerDistribution = (slot: TwinMaterialSlotDefinition, enable
 	if (enabled) slot.runtimeOwnerItemOffset ||= [0, 0, 0];
 	syncBehaviorManifest();
 };
+const ensureMaterialSlotMetadata = (slot: TwinMaterialSlotDefinition) => (slot.metadata ||= {});
+const formatSlotEntityGroups = (slot: TwinMaterialSlotDefinition) => Array.isArray(slot.metadata?.entityGroups) ? (slot.metadata!.entityGroups as unknown[]).map(String).join(',') : '';
+const setSlotEntityGroups = (slot: TwinMaterialSlotDefinition, raw: unknown) => {
+	const metadata = ensureMaterialSlotMetadata(slot);
+	const groups = String(raw ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+	if (groups.length) metadata.entityGroups = groups; else delete metadata.entityGroups;
+	syncBehaviorManifest();
+};
+const formatSlotPresentationAngles = (slot: TwinMaterialSlotDefinition) => {
+	const source = slot.metadata?.presentationAngles;
+	if (!source || typeof source !== 'object' || Array.isArray(source)) return '';
+	return Object.entries(source as Record<string, unknown>).map(([group, angle]) => `${group}:${Number(angle)}`).join(',');
+};
+const setSlotPresentationAngles = (slot: TwinMaterialSlotDefinition, raw: unknown) => {
+	const metadata = ensureMaterialSlotMetadata(slot);
+	const angles: Record<string, number> = {};
+	for (const token of String(raw ?? '').split(',')) {
+		const [group, value] = token.split(':').map((item) => item.trim());
+		const angle = Number(value);
+		if (group && Number.isFinite(angle)) angles[group] = angle;
+	}
+	if (Object.keys(angles).length) metadata.presentationAngles = angles; else delete metadata.presentationAngles;
+	syncBehaviorManifest();
+};
+const setSlotMetadataValue = (slot: TwinMaterialSlotDefinition, key: string, raw: unknown) => {
+	const metadata = ensureMaterialSlotMetadata(slot);
+	const value = String(raw ?? '').trim();
+	if (value) metadata[key] = value; else delete metadata[key];
+	syncBehaviorManifest();
+};
+const setSlotMetadataNumber = (slot: TwinMaterialSlotDefinition, key: string, raw: unknown) => {
+	const metadata = ensureMaterialSlotMetadata(slot);
+	const value = Number(raw);
+	if (Number.isFinite(value)) metadata[key] = value; else delete metadata[key];
+	syncBehaviorManifest();
+};
+const setSlotSimulationReplenish = (slot: TwinMaterialSlotDefinition, enabled: boolean) => {
+	const metadata = ensureMaterialSlotMetadata(slot);
+	metadata.simulationReplenish = enabled;
+	if (enabled && !Number.isFinite(Number(metadata.simulationReplenishLimit))) metadata.simulationReplenishLimit = 0;
+	syncBehaviorManifest();
+};
 const addToolFrame = () => {
 	const objectId = selected.value?.objectId;
 	if (!objectId) return;
-	const frame: TwinToolFrameDefinition = { toolFrameId: createId('tool-frame'), name: '新 TCP / ToolFrame', objectId, nodePath: selected.value?.nodePath || '', localPosition: [0, 0, 0], payloadTypes: [] };
-	(manifest.value.toolFrames ||= []).push(frame);
+	addToolFrameDefinition(manifest.value, objectId, { nodePath: selected.value?.nodePath || '' });
 	syncBehaviorManifest();
 };
 const removeToolFrame = (toolFrameId: string) => {
-	manifest.value.toolFrames = (manifest.value.toolFrames || []).filter((item) => item.toolFrameId !== toolFrameId);
-	for (const point of manifest.value.workPoints || []) if (point.toolFrameId === toolFrameId) delete point.toolFrameId;
-	for (const pose of manifest.value.poses || []) if (pose.toolFrameId === toolFrameId) delete pose.toolFrameId;
-	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.toolFrameId === toolFrameId) delete action.toolFrameId;
+	removeToolFrameDefinition(manifest.value, toolFrameId);
 	syncBehaviorManifest();
 };
 const setToolFramePayloadTypes = (frame: TwinToolFrameDefinition, raw: unknown) => {
@@ -1230,29 +1265,21 @@ const setToolFramePayloadTypes = (frame: TwinToolFrameDefinition, raw: unknown) 
 const addActuator = () => {
 	const objectId = selected.value?.objectId;
 	if (!objectId) return;
-	const actuator: TwinActuatorDefinition = {
-		actuatorId: createId('actuator'), name: '新执行机构', objectId,
-		nodePath: selected.value?.nodePath || '', kind: 'linear-axis', motionAxis: 'y', unit: 'meter', homeValue: 0, speed: 1,
-	};
-	(manifest.value.actuators ||= []).push(actuator);
+	addActuatorDefinition(manifest.value, objectId, { nodePath: selected.value?.nodePath || '' });
 	syncBehaviorManifest();
 };
 const removeActuator = (actuatorId: string) => {
-	manifest.value.actuators = (manifest.value.actuators || []).filter((item) => item.actuatorId !== actuatorId);
-	for (const pose of manifest.value.poses || []) pose.targets = pose.targets.filter((item) => item.actuatorId !== actuatorId);
-	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.actuatorId === actuatorId) delete action.actuatorId;
+	removeActuatorDefinition(manifest.value, actuatorId);
 	syncBehaviorManifest();
 };
 const addPose = () => {
 	const objectId = selected.value?.objectId;
 	if (!objectId) return;
-	const pose: TwinPoseDefinition = { poseId: createId('pose'), name: '新 Pose', objectId, targets: [] };
-	(manifest.value.poses ||= []).push(pose);
+	addPoseDefinition(manifest.value, objectId);
 	syncBehaviorManifest();
 };
 const removePose = (poseId: string) => {
-	manifest.value.poses = (manifest.value.poses || []).filter((item) => item.poseId !== poseId);
-	for (const behavior of manifest.value.behaviors || []) for (const action of behavior.actions || []) if (action.poseId === poseId) delete action.poseId;
+	removePoseDefinition(manifest.value, poseId);
 	syncBehaviorManifest();
 };
 const addPoseTarget = (pose: TwinPoseDefinition) => {
@@ -1277,26 +1304,23 @@ const capturePoseFromRuntime = (pose: TwinPoseDefinition) => {
 const addBehavior = () => {
 	const actorObjectId = selected.value?.objectId;
 	if (!actorObjectId) return;
-	(manifest.value.behaviors ||= []).push({ behaviorId: createId('behavior'), name: '新动作编排', actorObjectId, enabled: true, loop: true, actions: [] });
+	addBehaviorDefinition(manifest.value, actorObjectId);
 	syncBehaviorManifest();
 };
 const removeBehavior = (behaviorId: string) => {
-	manifest.value.behaviors = (manifest.value.behaviors || []).filter((item) => item.behaviorId !== behaviorId);
+	removeBehaviorDefinition(manifest.value, behaviorId);
 	syncBehaviorManifest();
 };
 const addBehaviorAction = (behavior: TwinBehaviorDefinition) => {
-	behavior.actions.push({ actionId: createId('action'), kind: 'moveTo', speedRatio: 1 });
+	addBehaviorActionDefinition(behavior);
 	syncBehaviorManifest();
 };
 const removeBehaviorAction = (behavior: TwinBehaviorDefinition, actionId: string) => {
-	behavior.actions = behavior.actions.filter((item) => item.actionId !== actionId);
+	removeBehaviorActionDefinition(behavior, actionId);
 	syncBehaviorManifest();
 };
 const moveBehaviorAction = (behavior: TwinBehaviorDefinition, index: number, offset: number) => {
-	const target = index + offset;
-	if (target < 0 || target >= behavior.actions.length) return;
-	const [action] = behavior.actions.splice(index, 1);
-	behavior.actions.splice(target, 0, action);
+	if (!moveBehaviorActionDefinition(behavior, index, offset)) return;
 	syncBehaviorManifest();
 };
 const addStateAssignment = (target: TwinStateAssignmentDefinition[]) => { target.push({ source: '', value: true }); syncBehaviorManifest(); };
@@ -1310,21 +1334,22 @@ const setStateAssignmentValue = (assignment: TwinStateAssignmentDefinition, raw:
 	assignment.value = lower === 'true' ? true : lower === 'false' ? false : lower === 'null' ? null : text !== '' && Number.isFinite(Number(text)) ? Number(text) : text;
 	syncBehaviorManifest();
 };
+const setInterlockConditionValue = (condition: TwinInterlockDefinition['conditions'][number], raw: unknown) => {
+	const text = String(raw ?? '').trim();
+	const lower = text.toLowerCase();
+	condition.value = lower === 'true' ? true : lower === 'false' ? false : lower === 'null' ? null : text !== '' && Number.isFinite(Number(text)) ? Number(text) : text;
+	syncBehaviorManifest();
+};
 const addInterlock = () => {
 	const actorObjectId = selected.value?.objectId;
 	if (!actorObjectId) return;
-	const interlock: TwinInterlockDefinition = { interlockId: createId('interlock'), name: '新联锁', mode: 'all', conditions: [{ source: `${actorObjectId}.ready`, operator: 'truthy' }] };
-	(manifest.value.interlocks ||= []).push(interlock);
+	const interlock = addInterlockDefinition(manifest.value, { conditions: [{ source: `${actorObjectId}.ready`, operator: 'truthy' }] });
 	const behavior = selectedBehaviors.value[0];
 	if (behavior) (behavior.interlockIds ||= []).push(interlock.interlockId);
 	syncBehaviorManifest();
 };
 const removeInterlock = (interlockId: string) => {
-	manifest.value.interlocks = (manifest.value.interlocks || []).filter((item) => item.interlockId !== interlockId);
-	for (const behavior of manifest.value.behaviors || []) {
-		behavior.interlockIds = (behavior.interlockIds || []).filter((item) => item !== interlockId);
-		for (const action of behavior.actions || []) if (action.waitForInterlockId === interlockId) delete action.waitForInterlockId;
-	}
+	removeInterlockDefinition(manifest.value, interlockId);
 	syncBehaviorManifest();
 };
 const addInterlockCondition = (interlock: TwinInterlockDefinition) => { interlock.conditions.push({ source: '', operator: 'truthy' }); syncBehaviorManifest(); };

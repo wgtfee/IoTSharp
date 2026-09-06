@@ -8,28 +8,11 @@ import {
 import type { TwinV7SceneObjectDefinition } from '../contracts/v7-components';
 import { getBuiltInComponentTemplate } from '../components/BuiltInComponentCatalog';
 import { areComponentPortsCompatible, resolveComponentPorts, upsertGeneratedComponentRoutes } from '../components/ComponentConnectionEngine';
-import referencePackagingActionsV17 from './reference-packaging-actions-v17.json';
+import referencePackagingSceneV18 from './reference-packaging-v18.scene.json';
 
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
 export const REFERENCE_PACKAGING_LAYOUT_VERSION = 18;
-
-const applyReferenceActionPreset = (manifest: TwinSceneManifest) => {
-	const preset = referencePackagingActionsV17 as unknown as Pick<TwinSceneManifest, 'materialSlots' | 'toolFrames' | 'workPoints' | 'actuators' | 'poses' | 'interlocks' | 'behaviors'>;
-	manifest.materialSlots = structuredClone(preset.materialSlots || []);
-	manifest.toolFrames = structuredClone(preset.toolFrames || []);
-	manifest.workPoints = structuredClone(preset.workPoints || []);
-	manifest.actuators = structuredClone(preset.actuators || []);
-	manifest.poses = structuredClone(preset.poses || []);
-	manifest.interlocks = structuredClone(preset.interlocks || []);
-	manifest.behaviors = structuredClone(preset.behaviors || []);
-	const primarySmallRouteId = manifest.runtime.primarySmallPalletRouteId;
-	const primaryWoodenRouteId = manifest.runtime.primaryWoodenPalletRouteId;
-	manifest.runtime.routePalletInitializers = [
-		...(primarySmallRouteId ? [{ routeId: primarySmallRouteId, telemetryKey: `PalletSlots.${primarySmallRouteId}`, simulationDefaultCount: 6, emptyValue: 0 }] : []),
-		...(primaryWoodenRouteId ? [{ routeId: primaryWoodenRouteId, telemetryKey: `PalletSlots.${primaryWoodenRouteId}`, simulationDefaultCount: 3, emptyValue: 0 }] : []),
-	];
-};
 
 const componentObject = (
 	resourceKey: string,
@@ -482,7 +465,7 @@ const createUpperFrameRoute = (): TwinRouteDefinition => ({
  * 依据用户提供的最新标注图创建独立的组件化 3D 产线 V11。
  * 以中央机器人 (-4,-10) 为标定原点，按约 0.06m/像素校准主要设备和辊道锚点。
  */
-export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
+const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	const manifest = createBlankTwinSceneManifest();
 	manifest.name = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
 	manifest.description = 'V18 标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；外检、套袋、缠膜、贴标使用组件内部时间轴；木托从2×3×8码垛、隔板、天盖一直运行到缠膜、贴标和成品出库。';
@@ -645,7 +628,16 @@ export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManife
 		primarySmallPalletRouteId: smallProcessRoute?.routeId,
 		primaryWoodenPalletRouteId: woodenProcessRoute?.routeId,
 	};
-	applyReferenceActionPreset(manifest);
+	return manifest;
+};
+
+/**
+ * 参考线本身就是 3D 场景设计器导出的普通 TwinSceneManifest 数据资产。
+ * 新建场景只实例化该资产并生成新的 sceneId；动作编排不再由 Builder/Runtime 注入。
+ */
+export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
+	const manifest = structuredClone(referencePackagingSceneV18) as TwinSceneManifest;
+	manifest.sceneId = createBlankTwinSceneManifest().sceneId;
 	return manifest;
 };
 
