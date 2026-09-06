@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { TwinObjectBindingDefinition, TwinRouteDefinition, TwinSceneManifest, TwinTransportUnitType } from '/@/digital-twin/contracts';
 import { parseRouteSlotArray, routeSlotProgress } from '/@/digital-twin/bindings/RouteSlotArray';
 import { createComponentDefinitionFromTemplate, defaultComponentRegistry } from '/@/digital-twin/components';
-import { RouteEngine } from '/@/digital-twin/routes/RouteEngine';
+import { RouteEngine, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 
 interface RouteSlotEntity {
@@ -19,6 +19,7 @@ interface RouteSlotEntity {
 	root: THREE.Group;
 	simulationEngine?: RouteEngine;
 	simulationProcess?: ComponentProcessRuntime;
+	routingContext?: TwinRouteRoutingContext;
 	routeCode?: 'A' | 'B';
 	initialProgress?: number;
 }
@@ -211,6 +212,7 @@ export class RouteSlotArrayRuntime {
 					process.setRunning(this.running);
 					entity.simulationEngine = engine;
 					entity.simulationProcess = process;
+					entity.routingContext = routingContext;
 					entity.routeCode = routeCode;
 					entity.initialProgress = initialProgress;
 					entity.currentProgress = initialProgress;
@@ -243,6 +245,7 @@ export class RouteSlotArrayRuntime {
 		for (const entity of this.entities.values()) {
 			if (!entity.root.visible) continue;
 			if (entity.simulationEngine) {
+				this.refreshSimulationRoutingContext(entity);
 				const allowRouteStep = entity.simulationProcess?.updateFixed(deltaSeconds) ?? true;
 				if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
 				entity.simulationEngine.render(1);
@@ -269,6 +272,26 @@ export class RouteSlotArrayRuntime {
 			this.applyPose(entity, curveInfo, entity.currentProgress);
 			entity.root.userData.routeCompleted = !curveInfo.loop && entity.currentProgress >= 0.999;
 		}
+	}
+
+	private refreshSimulationRoutingContext(entity: RouteSlotEntity) {
+		if (!entity.simulationEngine || !entity.routingContext) return;
+		let materialCount = 0;
+		const materialTypes = new Set<string>();
+		entity.root.traverse((node) => {
+			if (node.userData?.materialEntity !== true) return;
+			materialCount += 1;
+			const payloadType = String(node.userData?.payloadType || '').trim();
+			if (payloadType) materialTypes.add(payloadType);
+		});
+		entity.routingContext.payload = {
+			...(entity.routingContext.payload || {}),
+			materialCount,
+			materialTypes: [...materialTypes],
+		};
+		entity.root.userData.materialCount = materialCount;
+		entity.root.userData.materialTypes = [...materialTypes];
+		entity.simulationEngine.setRoutingContext(entity.routingContext);
 	}
 
 	private applyStationQueueVisual(entity: RouteSlotEntity, stationDistance: number, routeLength: number) {
@@ -355,6 +378,8 @@ export class RouteSlotArrayRuntime {
 				routeCode: entity.routeCode,
 				progress: entity.simulationEngine!.getSnapshot().progress,
 				state: entity.simulationEngine!.getSnapshot().state,
+				activeEdgeIds: entity.simulationEngine!.getSnapshot().activeEdgeIds,
+				currentEdgeId: entity.simulationEngine!.getSnapshot().currentEdgeId,
 				position: entity.root.position.toArray() as [number, number, number],
 				activeProcessComponentObjectId: entity.simulationProcess?.getSnapshot().activeComponentObjectId,
 			}));

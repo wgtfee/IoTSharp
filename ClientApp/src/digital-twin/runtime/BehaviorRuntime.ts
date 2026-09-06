@@ -794,13 +794,16 @@ export class BehaviorRuntime {
 		const toolFrame = toolFrameId ? this.toolFrames.get(toolFrameId) : undefined;
 		const attachNode = this.resolveAttachNode(actorRoot, action.actorNodePath || channel.actorNodePath, toolFrameId);
 		const requestedCount = Math.max(1, Number(action.payloadCount || 1));
+		const minimumRequestedCount = action.allowPartialPayload === true
+			? Math.min(requestedCount, Math.max(1, Math.floor(Number(action.minimumPayloadCount || 1))))
+			: requestedCount;
 		if (sourceSlot) this.ensureSimulationMaterialTemplate(sourceSlot);
 		let realEntities = sourceSlot ? this.findMaterialEntities(sourceSlot, payloadType, action.payloadEntityId, requestedCount, actorObjectId) : [];
-		if (sourceSlot && realEntities.length < requestedCount && this.trySimulationMaterialReplenish(sourceSlot)) {
+		if (sourceSlot && realEntities.length < minimumRequestedCount && this.trySimulationMaterialReplenish(sourceSlot)) {
 			realEntities = this.findMaterialEntities(sourceSlot, payloadType, action.payloadEntityId, requestedCount, actorObjectId);
 		}
 		let payload: THREE.Object3D;
-		if (sourceSlot && realEntities.length < requestedCount) {
+		if (sourceSlot && realEntities.length < minimumRequestedCount) {
 			channel.status = 'waiting-material';
 			return false;
 		}
@@ -882,6 +885,29 @@ export class BehaviorRuntime {
 	private distributePayloadAcrossStationPallets(channel: ChannelState, payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
 		const palletIds = this.getStationPalletIds(this.getObjectRoot(channel.actorObjectId));
 		const materials = payload.children.filter((item) => item.userData?.materialEntity === true);
+		const distributionMode = slot.runtimeOwnerDistributionMode || 'balanced';
+		if (distributionMode === 'one-per-owner') {
+			const allowPartial = slot.allowPartialRuntimeOwnerDistribution === true;
+			if (!palletIds.length || !materials.length || materials.length > palletIds.length || (!allowPartial && materials.length !== palletIds.length)) {
+				channel.status = 'waiting-station';
+				return false;
+			}
+			for (let index = 0; index < materials.length; index += 1) {
+				const resolved = this.resolveMaterialSlotAnchor(slot, palletIds[index]);
+				const material = materials[index];
+				resolved.anchor.attach(material);
+				material.position.set(0, 0, 0);
+				material.rotation.set(0, 0, 0);
+				delete material.userData.materialAttachedBy;
+				material.userData.runtimeOwnerEntityId = palletIds[index];
+				material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
+				material.userData.runtimeOwnerItemIndex = 1;
+				material.userData.runtimeOwnerItemCount = 1;
+				if (slot.placedStage) material.userData.materialStage = slot.placedStage;
+			}
+			payload.removeFromParent();
+			return true;
+		}
 		if (!palletIds.length || materials.length < palletIds.length || materials.length % palletIds.length !== 0) {
 			channel.status = 'waiting-station';
 			return false;

@@ -574,7 +574,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		&& palletInitializersV12.some((item) => item.routeId === primaryWoodenRouteIdV18), '参考图 V18 RouteSlot 初始化必须且只能包含主小托盘闭环和主木托后包装路线');
 	const smallPalletInitializerV18 = palletInitializersV12.find((item) => item.routeId === primarySmallRouteIdV15)!;
 	const woodenPalletInitializerV18 = palletInitializersV12.find((item) => item.routeId === primaryWoodenRouteIdV18)!;
-	assert(smallPalletInitializerV18.simulationDefaultCount >= 6, '参考图 V18 主工艺闭环仿真默认小托盘少于 6 个');
+	assert(smallPalletInitializerV18.simulationDefaultCount >= 12, '参考图 V18 主工艺闭环仿真默认小托盘少于 12 个');
 	assert(smallPalletInitializerV18.telemetryKey === `PalletSlots.${primarySmallRouteIdV15}`, '参考图 V18 主小托盘路线 PLC 托盘数组语义键不稳定');
 	assert(woodenPalletInitializerV18.simulationDefaultCount >= 1 && woodenPalletInitializerV18.telemetryKey === `PalletSlots.${primaryWoodenRouteIdV18}`, '参考图 V18 木托路线没有独立 Simulation/PLC routeSlotArray 初始化');
 	const primarySmallRouteV15 = referenceLineV11.routes.find((route) => route.routeId === primarySmallRouteIdV15)!;
@@ -643,7 +643,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		let sawLoadingBatch = false;
 		let sawLoadingBatchSeparated = false;
 		let sawRobotMotion = false;
-		let sawSixPalletsWithTwoCakes = false;
+		let sawTwelvePalletsWithOneCake = false;
 		let sawGantryBatch = false;
 		let sawGantryMotion = false;
 		let sawFirstStackLayer = false;
@@ -654,7 +654,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			v15IntegratedBehavior.updateFixed(1 / 60);
 			const loadingIds = Array.isArray(loadingRoot.userData.stationPalletIds) ? loadingRoot.userData.stationPalletIds : [];
 			const gantryIds = Array.isArray(gantryRoot.userData.stationPalletIds) ? gantryRoot.userData.stationPalletIds : [];
-			if (loadingIds.length === 6) sawLoadingBatch = true;
+			if (loadingIds.length === 12) sawLoadingBatch = true;
 			if (Math.abs(robotAxis1.rotation.y - robotStartYaw) > 0.02) sawRobotMotion = true;
 			if (gantryIds.length === 6) sawGantryBatch = true;
 			const yarnChannel = v15IntegratedBehavior.getSnapshot().channels.find((item) => item.actorNodePath === 'Gantry-Silk-Rail-Carriage');
@@ -666,12 +666,12 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (node.userData?.transportUnitType === 'plastic-pallet') runtimePallets.push(node);
 				else if (node.userData?.transportUnitType === 'wooden-pallet') runtimeWoodPallets.push(node);
 			});
-			if (runtimePallets.length === 6 && runtimePallets.every((pallet) => {
+			if (runtimePallets.length === 12 && runtimePallets.every((pallet) => {
 				let count = 0;
 				pallet.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
-				return count === 2;
-			})) sawSixPalletsWithTwoCakes = true;
-			if (loadingIds.length === 6 && runtimePallets.length === 6) {
+				return count === 1;
+			})) sawTwelvePalletsWithOneCake = true;
+			if (loadingIds.length === 12 && runtimePallets.length === 12) {
 				let minimumDistance = Number.POSITIVE_INFINITY;
 				for (let left = 0; left < runtimePallets.length; left += 1) for (let right = left + 1; right < runtimePallets.length; right += 1) {
 					minimumDistance = Math.min(minimumDistance, runtimePallets[left].position.distanceTo(runtimePallets[right].position));
@@ -679,14 +679,14 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (minimumDistance > 0.5) sawLoadingBatchSeparated = true;
 			}
 			if (runtimeWoodPallets.some((pallet) => Number(pallet.userData?.stackedItemCount || 0) >= 6)) sawFirstStackLayer = true;
-			if (sawLoadingBatch && sawLoadingBatchSeparated && sawRobotMotion && sawSixPalletsWithTwoCakes && sawGantryBatch && sawGantryMotion && sawFirstStackLayer) break;
+			if (sawLoadingBatch && sawLoadingBatchSeparated && sawRobotMotion && sawTwelvePalletsWithOneCake && sawGantryBatch && sawGantryMotion && sawFirstStackLayer) break;
 		}
 		const integratedPalletSnapshot = v15IntegratedSlots.getSimulationSnapshot();
 		const integratedBehaviorSnapshot = v15IntegratedBehavior.getSnapshot();
 		assert(sawLoadingBatch, `V15 integrated runtime did not form loading batch: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawLoadingBatchSeparated, `V15 integrated runtime loading batch visually overlapped into one pallet: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawRobotMotion, `V15 integrated runtime robot did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-loading-robot'))}`);
-		assert(sawSixPalletsWithTwoCakes, `V15 integrated runtime did not distribute 12 cakes to 6 pallets: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawTwelvePalletsWithOneCake, `V18 integrated runtime did not distribute 12 cakes one-per-pallet across 12 pallets: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawGantryBatch, `V15 integrated runtime did not form gantry batch: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawGantryMotion, `V15 integrated runtime gantry did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}`);
 		assert(sawFirstStackLayer, `V15 integrated runtime did not stack first layer: stack=${Number(stackRoot.userData.stackedItemCount || 0)}`);
@@ -704,6 +704,13 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		for (const point of route.points) if (point.process && ['wrapping', 'labeling'].includes(point.process.type)) point.process.cycleSeconds = 0.8;
 	}
 	assert(!v18FullManifest.objects.some((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')), 'V18 参考线仍依赖 ProceduralPackagingLine');
+	const v18SmallRoute = v18FullManifest.routes.find((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId)!;
+	const v18LoadingProcess = v18SmallRoute.points.find((item) => item.componentObjectId === 'reference-loading-robot' && item.process)?.process;
+	const v18SmallInitializer = v18FullManifest.runtime.routePalletInitializers?.find((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
+	assert(v18LoadingProcess?.batchSize === 12 && v18SmallInitializer?.simulationDefaultCount === 12, 'V18 机器人上料必须是 2×6=12 托批次且 Simulation 默认 12 个小托盘');
+	assert(v18SmallRoute.edges.some((item) => item.edgeId === 'component-edge-reference-conveyor-ref-empty-return-down-main-through')
+		&& v18SmallRoute.decisionRules.some((item) => item.ruleId === 'reference-empty-return-rule' && item.payloadKey === 'materialCount' && item.matchValue === 0),
+		'V18 缺少外检后空托直回流支路或 materialCount=0 分流规则');
 	const v18FullScene = new THREE.Scene();
 	const v18FullRoots = new Map<string, THREE.Group>();
 	const v18FullBuilt: Array<{ root: THREE.Group; dispose: () => void }> = [];
@@ -730,10 +737,18 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const wrapperStartY = wrapperArm.rotation.y;
 		const labelStartRotation = labelJoint?.rotation.clone();
 		const woodenPallets = new Map<string, THREE.Object3D>();
+		const smallPallets = new Map<string, THREE.Object3D>();
 		v18FullScene.traverse((node) => {
 			if (node.userData?.twinEntityType === 'route-slot-pallet' && node.userData?.transportUnitType === 'wooden-pallet') woodenPallets.set(String(node.userData.twinEntityId), node);
+			if (node.userData?.twinEntityType === 'route-slot-pallet' && node.userData?.transportUnitType === 'plastic-pallet') smallPallets.set(String(node.userData.twinEntityId), node);
 		});
 		assert(woodenPallets.size === 3, `V18 多循环必须创建 3 个木托，实际 ${woodenPallets.size}`);
+		assert(smallPallets.size === 12, `V18 双排机器人上料位必须初始化 12 个小托盘，实际 ${smallPallets.size}`);
+		const silkCountOnPallet = (pallet: THREE.Object3D | undefined) => {
+			let count = 0;
+			pallet?.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
+			return count;
+		};
 		const materialCounts = (pallet: THREE.Object3D) => {
 			let silk = 0, separator = 0, cover = 0;
 			pallet.traverse((node) => {
@@ -757,6 +772,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const completedPalletIds: string[] = [];
 		let loadingBatchCount = 0, gantryBatchCount = 0;
 		let loadingBatchActive = false, gantryBatchActive = false;
+		let sawFullTwelveLoad = false, sawPartialSixLoad = false, sawSixEmptyReturn = false;
+		let onePerPalletViolation = false, emptyReturnEnteredGantry = false;
 		const stationArrayKeys = ['stationPalletIds', 'stationWaitingPalletIds', 'stationReadyToReleasePalletIds', 'stationReleasedPalletIds'];
 		v18FullSlots.setRunning(true);
 		v18FullBehavior.setRunning(true);
@@ -766,10 +783,25 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			for (const root of v18FullRoots.values()) advanceComponentVisualRuntime(root, 1 / 30, 1);
 			const loadingIds = Array.isArray(loadingRoot.userData.stationPalletIds) ? loadingRoot.userData.stationPalletIds : [];
 			const gantryIds = Array.isArray(gantryRoot.userData.stationPalletIds) ? gantryRoot.userData.stationPalletIds : [];
-			if (loadingIds.length === 6 && !loadingBatchActive) { loadingBatchCount += 1; loadingBatchActive = true; }
+			if (loadingIds.length === 12 && !loadingBatchActive) { loadingBatchCount += 1; loadingBatchActive = true; }
 			if (!loadingIds.length) loadingBatchActive = false;
 			if (gantryIds.length === 6 && !gantryBatchActive) { gantryBatchCount += 1; gantryBatchActive = true; }
 			if (!gantryIds.length) gantryBatchActive = false;
+			for (const pallet of smallPallets.values()) if (silkCountOnPallet(pallet) > 1) onePerPalletViolation = true;
+			const loadCounts = loadingRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+			if (loadingIds.length === 12 && Number(loadCounts?.load || 0) >= 1) {
+				const counts = loadingIds.map((id: string) => silkCountOnPallet(smallPallets.get(String(id))));
+				if (counts.every((count) => count === 1)) sawFullTwelveLoad = true;
+				if (counts.filter((count) => count === 1).length === 6 && counts.filter((count) => count === 0).length === 6) sawPartialSixLoad = true;
+			}
+			const smallSnapshots = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
+			const emptyReturnSnapshots = smallSnapshots.filter((item) => item.currentEdgeId === 'component-edge-reference-conveyor-ref-empty-return-down-main-through');
+			if (emptyReturnSnapshots.length === 6 && emptyReturnSnapshots.every((item) => silkCountOnPallet(smallPallets.get(item.palletId)) === 0)) sawSixEmptyReturn = true;
+			const gantryStationIds = new Set([
+				...(Array.isArray(gantryRoot.userData.stationPalletIds) ? gantryRoot.userData.stationPalletIds.map(String) : []),
+				...(Array.isArray(gantryRoot.userData.stationWaitingPalletIds) ? gantryRoot.userData.stationWaitingPalletIds.map(String) : []),
+			]);
+			if (emptyReturnSnapshots.some((item) => gantryStationIds.has(item.palletId))) emptyReturnEnteredGantry = true;
 
 			for (const snapshot of v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId)) {
 				const pallet = woodenPallets.get(snapshot.palletId)!;
@@ -821,13 +853,16 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const finalSmallSnapshots = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
 		assert(completedPalletIds.length === 3 && new Set(completedPalletIds).size === 3,
 			`V18 连续 3 成品失败：completed=${JSON.stringify(completedPalletIds)}, wood=${JSON.stringify(v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId))}, small=${JSON.stringify(finalSmallSnapshots)}, behavior=${JSON.stringify(fullBehaviorSnapshot.channels)}`);
-		assert(loadingBatchCount >= 12, `V18 3 个成品至少需要 12 次机器人 2×6 批次，实际 ${loadingBatchCount}`);
-		assert(gantryBatchCount >= 12, `V18 3 个成品至少需要 12 次桁架 6 托批次，实际 ${gantryBatchCount}`);
-		assert(finalSmallSnapshots.length === 6 && finalSmallSnapshots.every((item) => item.state !== 'error'), 'V18 多循环后 6 个小托盘没有保持闭环运行');
+		assert(loadingBatchCount >= 16, `V18 3 个成品跨 18 锭/面尾批至少需要 16 次机器人批次，实际 ${loadingBatchCount}`);
+		assert(gantryBatchCount >= 24, `V18 3 个成品 2×3×8 至少需要 24 次桁架 6 托批次，实际 ${gantryBatchCount}`);
+		assert(sawFullTwelveLoad && sawPartialSixLoad, `V18 没有同时观察到 12 锭整批和 6 锭尾批：full=${sawFullTwelveLoad}, partial=${sawPartialSixLoad}`);
+		assert(!onePerPalletViolation, 'V18 机器人上料出现单个小托盘超过 1 锭，违反一爪一丝锭/一锭一托');
+		assert(sawSixEmptyReturn && !emptyReturnEnteredGantry, `V18 6 个尾批空托没有从外检后直回流或误入桁架：return=${sawSixEmptyReturn}, enteredGantry=${emptyReturnEnteredGantry}`);
+		assert(finalSmallSnapshots.length === 12 && finalSmallSnapshots.every((item) => item.state !== 'error'), 'V18 多循环后 12 个小托盘没有保持双排闭环运行');
 		assert(Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0) >= 1
 			&& Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0) >= 1,
 			'V18 三成品没有触发声明式丝车 Simulation 补料，无法证明跨库存周期运行');
-		console.log(`V18 multi-cycle PASS: products=${completedPalletIds.join(',')}; robotBatches=${loadingBatchCount}; gantryBatches=${gantryBatchCount}; refills=west:${Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0)},east:${Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0)},separator:${Number(v18FullRoots.get('reference-stacking-gantry')?.userData.simulationMaterialRefillCount || 0)}`);
+		console.log(`V18 multi-cycle PASS: products=${completedPalletIds.join(',')}; robotBatches=${loadingBatchCount}; gantryBatches=${gantryBatchCount}; load=12+6; emptyReturn=6; refills=west:${Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0)},east:${Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0)},separator:${Number(v18FullRoots.get('reference-stacking-gantry')?.userData.simulationMaterialRefillCount || 0)}`);
 	} finally {
 		v18FullBehavior.dispose();
 		v18FullSlots.dispose();
@@ -855,7 +890,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		behaviorRootsV12.set(item.objectId, built.root);
 		behaviorBuiltV12.push(built);
 	}
-	const behaviorStationPalletIds = Array.from({ length: 6 }, (_, index) => `V15-STATION-PALLET-${index + 1}`);
+	const behaviorStationPalletIds = Array.from({ length: 12 }, (_, index) => `V18-STATION-PALLET-${index + 1}`);
 	const behaviorStationPalletRoots: THREE.Group[] = [];
 	for (let index = 0; index < behaviorStationPalletIds.length; index += 1) {
 		const built = defaultComponentRegistry.create(createComponentDefinitionFromTemplate('builtin-small-pallet', { objectId: `verify-v15-station-pallet-${index + 1}` }));
@@ -893,8 +928,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			loadingStationRoot.userData.stationBehaviorRequirements = { load: 1 };
 			loadingStationRoot.userData.stationCompletedGroupCounts = {};
 			loadingStationRoot.userData.stationCompletedGroups = [];
-			gantryStationRoot.userData.stationPalletIds = [...behaviorStationPalletIds];
-			gantryStationRoot.userData.stationBehaviorRequirements = { yarn: 2, separator: 2 };
+			gantryStationRoot.userData.stationPalletIds = behaviorStationPalletIds.slice(0, 6);
+			gantryStationRoot.userData.stationBehaviorRequirements = { yarn: 1, separator: 1 };
 			gantryStationRoot.userData.stationCompletedGroupCounts = {};
 			gantryStationRoot.userData.stationCompletedGroups = [];
 		};
@@ -935,7 +970,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			}
 			const loadCounts = loadingStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
 			const gantryCounts = gantryStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
-			if (Number(loadCounts?.load || 0) >= 1 && Number(gantryCounts?.yarn || 0) >= 2 && Number(gantryCounts?.separator || 0) >= 2) {
+			if (Number(loadCounts?.load || 0) >= 1 && Number(gantryCounts?.yarn || 0) >= 1 && Number(gantryCounts?.separator || 0) >= 1) {
 				firstBatchCompleted = true;
 				break;
 			}
@@ -960,30 +995,26 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(gantryDetail?.behaviorRuntime?.channels?.length === 2, '桁架运行状态没有暴露丝锭/隔板两个动作通道');
 
 		const stackPalletRoot = behaviorRootsV12.get('reference-stacking-pallet')!;
-		assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === 12, `V15 第一批 2×6 没有码出两层共 12 个真实丝锭：stack=${Number(stackPalletRoot.userData.stackedItemCount || 0)}, yarn=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
-		assert(Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === 2, `V15 第一批 2×6 没有完成两层隔板：separator=${Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0)}, groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
-		const clearV15StationBatch = () => {
-			loadingStationRoot.userData.stationPalletIds = [];
-			gantryStationRoot.userData.stationPalletIds = [];
+		assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === 6 && Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === 1,
+			'V18 前 6 个有料托没有形成第一层 2×3 + 1 张隔板');
+
+		// 同一个 12 托机器人批次的后 6 托作为第二个桁架 2×3 批次。
+		gantryStationRoot.userData.stationPalletIds = [];
+		behaviorRuntimeV12.updateFixed(1 / 60);
+		gantryStationRoot.userData.stationPalletIds = behaviorStationPalletIds.slice(6, 12);
+		gantryStationRoot.userData.stationBehaviorRequirements = { yarn: 1, separator: 1 };
+		gantryStationRoot.userData.stationCompletedGroupCounts = {};
+		gantryStationRoot.userData.stationCompletedGroups = [];
+		let secondGantryBatchCompleted = false;
+		for (let tick = 0; tick < 7200; tick += 1) {
 			behaviorRuntimeV12.updateFixed(1 / 60);
-		};
-		for (let batch = 2; batch <= 4; batch += 1) {
-			clearV15StationBatch();
-			activateV15StationBatch();
-			let batchCompleted = false;
-			for (let tick = 0; tick < 7200; tick += 1) {
-				behaviorRuntimeV12.updateFixed(1 / 60);
-				const loadCounts = loadingStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
-				const gantryCounts = gantryStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
-				if (Number(loadCounts?.load || 0) >= 1 && Number(gantryCounts?.yarn || 0) >= 2 && Number(gantryCounts?.separator || 0) >= 2) {
-					batchCompleted = true;
-					break;
-				}
-			}
-			assert(batchCompleted, `V15 第 ${batch} 个 2×6 批次没有完成机器人上料 + 两轮 2×3 桁架码垛`);
-			assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === batch * 12, `V15 第 ${batch} 批后木托真实丝锭数量不等于 ${batch * 12}`);
-			assert(Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === batch * 2, `V15 第 ${batch} 批后隔板数量不等于 ${batch * 2}`);
+			const counts = gantryStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+			if (Number(counts?.yarn || 0) >= 1 && Number(counts?.separator || 0) >= 1) { secondGantryBatchCompleted = true; break; }
 		}
+		assert(secondGantryBatchCompleted, 'V18 后 6 个有料托没有完成第二轮 2×3 + 1 张隔板');
+		assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === 12 && Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === 2,
+			'V18 12 个有料托没有形成两层共 12 锭 + 2 张隔板');
+
 		const stackAnchorV15 = stackPalletRoot.getObjectByName('StackAnchor')!;
 		const stackedSilkV15: THREE.Object3D[] = [];
 		const stackedSeparatorsV15: THREE.Object3D[] = [];
@@ -992,28 +1023,24 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			if (node.userData?.payloadType === 'silk-cake') stackedSilkV15.push(node);
 			if (node.userData?.payloadType === 'separator') stackedSeparatorsV15.push(node);
 		});
-		assert(stackedSilkV15.length === 48, `V15 木托最终不是 48 个真实丝锭，而是 ${stackedSilkV15.length}`);
-		assert(stackedSeparatorsV15.length === 8, `V15 木托最终不是 8 张真实隔板，而是 ${stackedSeparatorsV15.length}`);
-		assert(new Set(stackedSilkV15.map((node) => String(node.userData.twinEntityId))).size === 48, 'V15 48 个码垛丝锭没有保持唯一稳定 twinEntityId');
-		assert(stackedSilkV15.every((node) => initialSilkEntityIds.has(String(node.userData.twinEntityId))), 'V15 木托出现了不是来自原始丝车的 synthetic 丝锭');
-		assert(new Set(stackedSilkV15.map((node) => String(node.userData.stackSlotId))).size === 48, 'V15 2×3×8 StackSlot 出现重复占位');
-		assert(stackedSilkV15.every((node) => String(node.userData.runtimeOwnerEntityId || '') === String(stackPalletRoot.userData.twinEntityId || '')), 'V15 码垛后的丝锭 runtimeOwnerEntityId 没有切换为当前木托');
-		assert(stackedSilkV15.every((node) => node.userData.runtimeOwnerType === 'wooden-pallet'), 'V15 码垛后的丝锭 runtimeOwnerType 不是 wooden-pallet');
-		assert(new Set(stackedSilkV15.map((node) => `${node.position.x.toFixed(3)},${node.position.y.toFixed(3)},${node.position.z.toFixed(3)}`)).size === 48, 'V15 48 个丝锭实际落点没有形成 48 个唯一坐标');
-		for (let layer = 1; layer <= 8; layer += 1) {
-			assert(stackedSilkV15.filter((node) => Number(node.userData.stackLayer) === layer).length === 6, `V15 第 ${layer} 层不是 2×3 共 6 锭`);
-			assert(stackedSeparatorsV15.filter((node) => Number(node.userData.stackLayerMaterialIndex) === layer).length === 1, `V15 第 ${layer} 层没有唯一隔板`);
+		assert(stackedSilkV15.length === 12, `V18 两个 6 托桁架批次最终不是 12 个真实丝锭，而是 ${stackedSilkV15.length}`);
+		assert(stackedSeparatorsV15.length === 2, `V18 两层最终不是 2 张真实隔板，而是 ${stackedSeparatorsV15.length}`);
+		assert(new Set(stackedSilkV15.map((node) => String(node.userData.twinEntityId))).size === 12, 'V18 12 个码垛丝锭没有保持唯一稳定 twinEntityId');
+		assert(stackedSilkV15.every((node) => initialSilkEntityIds.has(String(node.userData.twinEntityId))), 'V18 木托出现了不是来自原始丝车的 synthetic 丝锭');
+		assert(new Set(stackedSilkV15.map((node) => String(node.userData.stackSlotId))).size === 12, 'V18 前两层 StackSlot 出现重复占位');
+		assert(stackedSilkV15.every((node) => String(node.userData.runtimeOwnerEntityId || '') === String(stackPalletRoot.userData.twinEntityId || '')), 'V18 码垛后的丝锭 runtimeOwnerEntityId 没有切换为当前木托');
+		assert(stackedSilkV15.every((node) => node.userData.runtimeOwnerType === 'wooden-pallet'), 'V18 码垛后的丝锭 runtimeOwnerType 不是 wooden-pallet');
+		assert(new Set(stackedSilkV15.map((node) => `${node.position.x.toFixed(3)},${node.position.y.toFixed(3)},${node.position.z.toFixed(3)}`)).size === 12, 'V18 12 个丝锭实际落点没有形成 12 个唯一坐标');
+		for (let layer = 1; layer <= 2; layer += 1) {
+			assert(stackedSilkV15.filter((node) => Number(node.userData.stackLayer) === layer).length === 6, `V18 第 ${layer} 层不是 2×3 共 6 锭`);
+			assert(stackedSeparatorsV15.filter((node) => Number(node.userData.stackLayerMaterialIndex) === layer).length === 1, `V18 第 ${layer} 层没有唯一隔板`);
 		}
-		assert(stackPalletRoot.userData.stackComplete === true && stackPalletRoot.userData.readyForPostProcess === true, 'V15 48 锭 + 8 隔板完成后木托没有进入满托/后包装就绪状态');
+		assert(stackPalletRoot.userData.stackComplete !== true, 'V18 只有两层时木托不应提前进入满托状态');
 		assert(behaviorStationPalletRoots.every((root) => {
 			let count = 0;
 			root.getObjectByName('SilkCakeAnchor')?.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
 			return count === 0;
-		}), 'V15 完成两轮 2×3 后仍有丝锭残留在小托盘，不能进入空托回流');
-		const westTurntableAngle = behaviorRootsV12.get('reference-turntable-west')!.getObjectByName('RotatingDeck')!.rotation.y;
-		const eastTurntableAngle = behaviorRootsV12.get('reference-turntable-east')!.getObjectByName('RotatingDeck')!.rotation.y;
-		const isHalfTurn = (angle: number) => Math.abs(Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle))) - Math.PI) < 0.05;
-		assert(isHalfTurn(westTurntableAngle) && isHalfTurn(eastTurntableAngle), 'V15 第 3/4 批没有真实执行双面丝车 180° 换面');
+		}), 'V18 两个 6 托桁架批次完成后仍有丝锭残留在 12 个小托盘');
 
 		const liveManifest = structuredClone(referenceLineV11);
 		liveManifest.runtime.dataMode = 'live';
@@ -1240,7 +1267,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(saved.runtime.primaryWoodenPalletRouteId === referenceLineV11.runtime.primaryWoodenPalletRouteId, `V${sourceVersion}->V18 主木托路线 ID 未刷新`);
 		const smallInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primarySmallPalletRouteId);
 		const woodInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId);
-		assert(smallInit?.simulationDefaultCount === 6 && woodInit?.simulationDefaultCount === 3, `V${sourceVersion}->V18 没有迁移 6 小托 + 3 木托初始化`);
+		assert(smallInit?.simulationDefaultCount === 12 && woodInit?.simulationDefaultCount === 3, `V${sourceVersion}->V18 没有迁移 12 小托 + 3 木托初始化`);
 		const woodRoute = saved.routes.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId)!;
 		const woodProcesses = woodRoute.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type);
 		assert(['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => woodProcesses.includes(type)), `V${sourceVersion}->V18 后包装路线不完整`);

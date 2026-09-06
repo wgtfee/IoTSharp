@@ -738,7 +738,7 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		&& canonicalWoodRouteId
 		&& manifest.runtime.primarySmallPalletRouteId === canonicalSmallRouteId
 		&& manifest.runtime.primaryWoodenPalletRouteId === canonicalWoodRouteId
-		&& currentInitializers.some((item) => item.routeId === canonicalSmallRouteId && item.simulationDefaultCount === 6)
+		&& currentInitializers.some((item) => item.routeId === canonicalSmallRouteId && item.simulationDefaultCount === 12)
 		&& currentInitializers.some((item) => item.routeId === canonicalWoodRouteId && item.simulationDefaultCount === 3)
 		&& ['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => currentWoodProcessTypes.includes(type))
 		&& (canonicalForHealthCheck.behaviors || []).every((item) => currentBehaviorIds.has(item.behaviorId))

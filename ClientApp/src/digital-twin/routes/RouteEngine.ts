@@ -9,6 +9,7 @@ export interface TwinRouteEngineSnapshot {
 	speed: number;
 	activePointIds: string[];
 	activeEdgeIds: string[];
+	currentEdgeId?: string;
 	unavailableEdgeIds: string[];
 	waitingReason?: 'ROUTE_NOT_READY' | 'DIVERTER_NOT_READY' | 'TARGET_SECTION_FULL' | 'TARGET_SECTION_BLOCKED' | 'TARGET_SECTION_SIGNAL_STALE';
 	waitingEdgeId?: string;
@@ -224,7 +225,9 @@ export class RouteEngine {
 			edgeOccupancy: { ...(context.edgeOccupancy || {}) },
 			staleBindingIds: [...(context.staleBindingIds || [])],
 		};
-		if (!this.pathLocked || this.unresolvedJunctionPointId) {
+		// 工艺站会暂停 RouteEngine，再由动作改变运输实体上的物料。
+		// 暂停期间允许按最新 payload/binding 重新解析后续分支，保持已走距离不变。
+		if (!this.pathLocked || !this.running || this.unresolvedJunctionPointId) {
 			const preservedDistance = this.distanceMeters;
 			this.curve = this.createCurve(this.route);
 			this.lengthMeters = this.curve.getLength();
@@ -314,6 +317,7 @@ export class RouteEngine {
 
 	getSnapshot(): TwinRouteEngineSnapshot {
 		const completed = !this.pathLoops && this.lengthMeters > 0 && this.distanceMeters >= this.lengthMeters;
+		const currentEdgeIndex = this.getEdgeIndexAtDistance(this.distanceMeters);
 		return {
 			state: completed ? 'completed' : this.waitingReason ? 'waiting' : this.running ? 'running' : 'paused',
 			distanceMeters: this.distanceMeters,
@@ -322,6 +326,7 @@ export class RouteEngine {
 			speed: this.speed,
 			activePointIds: [...this.activePointIds],
 			activeEdgeIds: [...this.activeEdgeIds],
+			currentEdgeId: currentEdgeIndex >= 0 ? this.activeEdgeIds[currentEdgeIndex] : undefined,
 			unavailableEdgeIds: [...this.unavailableEdgeIds],
 			waitingReason: this.waitingReason,
 			waitingEdgeId: this.waitingEdgeId,

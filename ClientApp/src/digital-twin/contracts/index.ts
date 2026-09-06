@@ -82,7 +82,7 @@ export type TwinProcessType = string;
 export interface TwinProcessDefinition {
 	type: TwinProcessType;
 	cycleSeconds?: number;
-	/** 工位一次必须到齐的运输单元数量；机器人 1×6 / 桁架 2×3 均为 6。 */
+	/** 工位一次必须到齐的运输单元数量。 */
 	batchSize?: number;
 	/** simulation 下只有这些 Behavior 完成组全部回写后，工位才允许放行。 */
 	behaviorCompletionGroups?: string[];
@@ -232,6 +232,10 @@ export interface TwinMaterialSlotDefinition {
 	runtimeOwnerSelection?: 'nearest' | 'station-batch';
 	/** 抓取的一组物料按 1:1 分发给当前工位批次内每个运行托盘。 */
 	distributePayloadAcrossRuntimeOwners?: boolean;
+	/** balanced 兼容旧的均匀多件分发；one-per-owner 保证一件物料最多进入一个运行载体。 */
+	runtimeOwnerDistributionMode?: 'balanced' | 'one-per-owner';
+	/** 允许当前物料数少于工位载体数，未分配到物料的载体保持空载。 */
+	allowPartialRuntimeOwnerDistribution?: boolean;
 	/** 同一运行载体接收多件物料时，每增加一件所使用的局部坐标偏移。 */
 	runtimeOwnerItemOffset?: TwinVector3;
 	/** 分层辅助物料引用的主码垛规则槽位。 */
@@ -347,6 +351,10 @@ export interface TwinBehaviorActionDefinition {
 	payloadType?: string;
 	payloadEntityId?: string;
 	payloadCount?: number;
+	/** 允许实际抓取数量少于 payloadCount；常用于满夹具后的尾批。 */
+	allowPartialPayload?: boolean;
+	/** allowPartialPayload=true 时仍必须满足的最少真实物料数量。 */
+	minimumPayloadCount?: number;
 	sourceSlotId?: string;
 	targetSlotId?: string;
 	toolFrameId?: string;

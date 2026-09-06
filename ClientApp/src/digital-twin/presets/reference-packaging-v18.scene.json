@@ -196,7 +196,7 @@
           "B": 3.141592653589793
         },
         "rotationNodePath": "RotatingDeck",
-        "minimumBatch": 12,
+        "minimumBatch": 1,
         "simulationReplenish": true,
         "simulationReplenishLimit": 2
       }
@@ -223,14 +223,14 @@
           "A": 3.141592653589793
         },
         "rotationNodePath": "RotatingDeck",
-        "minimumBatch": 12,
+        "minimumBatch": 1,
         "simulationReplenish": true,
         "simulationReplenishLimit": 2
       }
     },
     {
       "slotId": "reference-robot-small-pallet-target",
-      "name": "机器人上料位 6 个到位小托盘",
+      "name": "机器人上料位 2×6 共 12 个到位小托盘",
       "objectId": "reference-loading-robot",
       "role": "target",
       "localPosition": [
@@ -246,10 +246,12 @@
       "distributePayloadAcrossRuntimeOwners": true,
       "runtimeOwnerItemOffset": [
         0,
-        0.46,
+        0,
         0
       ],
-      "placedStage": "on-small-pallet"
+      "placedStage": "on-small-pallet",
+      "runtimeOwnerDistributionMode": "one-per-owner",
+      "allowPartialRuntimeOwnerDistribution": true
     },
     {
       "slotId": "reference-gantry-yarn-source-slot",
@@ -915,7 +917,9 @@
           "sourceSlotId": "reference-turntable-west-silk-source",
           "toolFrameId": "reference-robot-tcp",
           "payloadType": "silk-cake",
-          "payloadCount": 12
+          "payloadCount": 12,
+          "allowPartialPayload": true,
+          "minimumPayloadCount": 1
         },
         {
           "actionId": "west-place-pose",
@@ -975,7 +979,9 @@
           "sourceSlotId": "reference-turntable-east-silk-source",
           "toolFrameId": "reference-robot-tcp",
           "payloadType": "silk-cake",
-          "payloadCount": 12
+          "payloadCount": 12,
+          "allowPartialPayload": true,
+          "minimumPayloadCount": 1
         },
         {
           "actionId": "east-place-pose",
@@ -3509,6 +3515,100 @@
         "sectionId": "ref-turntable-east",
         "routeEdgeId": "component-edge-reference-turntable-east-deck-input-center"
       }
+    },
+    {
+      "objectId": "reference-conveyor-ref-empty-return-top",
+      "name": "小辊道 · 外检后空托直回流横接",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -12.05,
+          0,
+          6.8
+        ],
+        "rotation": [
+          0,
+          3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 2.5,
+          "width": 1.55,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 3,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "referenceDrawingLine": true,
+          "componentOwnedRoute": true
+        },
+        "sectionId": "ref-empty-return-top",
+        "routeEdgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through"
+      }
+    },
+    {
+      "objectId": "reference-conveyor-ref-empty-return-down",
+      "name": "小辊道 · 外检后空托直回流长段",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -13.3,
+          0,
+          -5.45
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 24.5,
+          "width": 1.55,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 14,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "referenceDrawingLine": true,
+          "componentOwnedRoute": true
+        },
+        "sectionId": "ref-empty-return-down",
+        "routeEdgeId": "component-edge-reference-conveyor-ref-empty-return-down-main-through"
+      }
     }
   ],
   "bindings": [],
@@ -3768,8 +3868,8 @@
               "separator"
             ],
             "behaviorCompletionRequirements": {
-              "yarn": 2,
-              "separator": 2
+              "yarn": 1,
+              "separator": 1
             }
           },
           "componentObjectId": "reference-stacking-gantry",
@@ -3919,7 +4019,7 @@
           "process": {
             "type": "robot-loading",
             "cycleSeconds": 2,
-            "batchSize": 6,
+            "batchSize": 12,
             "behaviorCompletionGroups": [
               "load"
             ],
@@ -4138,7 +4238,20 @@
             6.8
           ],
           "kind": "diverter",
-          "componentObjectId": "reference-inspection-diverter"
+          "componentObjectId": "reference-inspection-diverter",
+          "decisionMode": "simulation"
+        },
+        {
+          "pointId": "component-point-reference-empty-return-top",
+          "name": "外检后空托直回流 · 转接点",
+          "position": [
+            -13.3,
+            0.9,
+            6.8
+          ],
+          "kind": "buffer",
+          "componentObjectId": "reference-conveyor-ref-empty-return-top",
+          "componentPortId": "output"
         }
       ],
       "edges": [
@@ -4977,12 +5090,87 @@
           "conveyorObjectId": "reference-inspection-diverter",
           "componentObjectId": "reference-inspection-diverter",
           "sectionId": "ref-inspection-diverter"
+        },
+        {
+          "edgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through",
+          "fromPointId": "component-point-reference-inspection-diverter-diverter-junction",
+          "toPointId": "component-point-reference-empty-return-top",
+          "name": "外检后空托直回流 · 横向接出",
+          "bidirectional": false,
+          "enabled": true,
+          "priority": 0,
+          "capacity": 3,
+          "occupancyMode": "simulation",
+          "reservationTimeoutSeconds": 30,
+          "speedLimit": 1.2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "reference-conveyor-ref-empty-return-top",
+          "componentObjectId": "reference-conveyor-ref-empty-return-top",
+          "sectionId": "ref-empty-return-top"
+        },
+        {
+          "edgeId": "component-edge-reference-conveyor-ref-empty-return-down-main-through",
+          "fromPointId": "component-point-reference-empty-return-top",
+          "toPointId": "component-point-63a46013",
+          "name": "外检后空托直回流 · 直达桁架后汇流",
+          "bidirectional": false,
+          "enabled": true,
+          "priority": 0,
+          "capacity": 14,
+          "occupancyMode": "simulation",
+          "reservationTimeoutSeconds": 30,
+          "speedLimit": 1.2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "reference-conveyor-ref-empty-return-down",
+          "componentObjectId": "reference-conveyor-ref-empty-return-down",
+          "sectionId": "ref-empty-return-down"
         }
       ],
       "startPointId": "component-point-cddb2b64",
       "junctionDecisions": {},
       "routingMode": "automatic",
-      "decisionRules": [],
+      "decisionRules": [
+        {
+          "ruleId": "reference-empty-return-rule",
+          "name": "空托外检后直接回流",
+          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
+          "edgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through",
+          "source": "payload",
+          "payloadKey": "materialCount",
+          "operator": "equals",
+          "matchValue": 0,
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "reference-loaded-route-a-rule",
+          "name": "有料托盘进入 A 套袋线",
+          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
+          "edgeId": "component-edge-reference-inspection-diverter-diverter-junction-to-b",
+          "source": "payload",
+          "payloadKey": "routeCode",
+          "operator": "equals",
+          "matchValue": "A",
+          "priority": 50,
+          "enabled": true
+        },
+        {
+          "ruleId": "reference-loaded-route-b-rule",
+          "name": "有料托盘进入 B 套袋线",
+          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
+          "edgeId": "component-edge-reference-inspection-diverter-diverter-junction-to-a",
+          "source": "payload",
+          "payloadKey": "routeCode",
+          "operator": "equals",
+          "matchValue": "B",
+          "priority": 50,
+          "enabled": true
+        }
+      ],
       "generatedBy": "component-connections",
       "componentNetworkId": "component-network-ce25b0ad"
     },
@@ -6081,7 +6269,7 @@
       {
         "routeId": "component-route-ce25b0ad",
         "telemetryKey": "PalletSlots.component-route-ce25b0ad",
-        "simulationDefaultCount": 6,
+        "simulationDefaultCount": 12,
         "emptyValue": 0
       },
       {
