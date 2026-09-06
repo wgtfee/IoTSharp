@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createComponentResult, createMaterial, resolveNumber, setTransform } from './geometry';
 import { PACKAGING_WOOD_PALLET_LENGTH, PACKAGING_WOOD_PALLET_WIDTH } from './PackagingLineDimensions';
+import { attachComponentAnimations } from './ComponentVisualRuntime';
 import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
 
 const addBox = (parent: THREE.Object3D, name: string, size: [number, number, number], position: [number, number, number], material: THREE.Material) => {
@@ -417,6 +418,7 @@ export class WrapperMachineComponent implements TwinComponentGenerator {
 		const root = new THREE.Group();
 		root.name = context.definition.name;
 		root.userData.processType = 'wrapping';
+		root.userData.componentProcessKey = 'wrapping';
 		root.userData.wrapperType = 'rotary-arm';
 		root.userData.loadStationary = true;
 		root.userData.rotationAxis = 'y';
@@ -536,6 +538,14 @@ export class WrapperMachineComponent implements TwinComponentGenerator {
 
 		const hmi = addBox(root, 'Wrapper-HMI-Box', [0.34, 0.62, 0.52], [postX, 1.55, postZ], hmiMaterial);
 		hmi.userData.operatorPanel = true;
+		const carriageHomeY = carriage.position.y;
+		const minCarriageY = Number(carriage.userData.minLocalY ?? carriageHomeY);
+		const maxCarriageY = Number(carriage.userData.maxLocalY ?? carriageHomeY);
+		attachComponentAnimations(root, [
+			{ name: '悬臂公转', targetNodePath: 'Wrapper-Rotary-Arm', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: 1080, startProgress: 0, endProgress: 1, relative: true },
+			{ name: '膜车上行', targetNodePath: 'Wrapper-Film-Carriage', trigger: 'process', kind: 'translate', axis: 'y', from: minCarriageY - carriageHomeY, to: maxCarriageY - carriageHomeY, startProgress: 0, endProgress: 0.5, relative: true },
+			{ name: '膜车下行', targetNodePath: 'Wrapper-Film-Carriage', trigger: 'process', kind: 'translate', axis: 'y', from: 0, to: minCarriageY - maxCarriageY, startProgress: 0.5, endProgress: 1, relative: true },
+		]);
 
 		return finish(root, context, this.generator, this.componentType, { ...props, height, width, armRadius });
 	}
@@ -556,6 +566,7 @@ export class LabelingMachineComponent implements TwinComponentGenerator {
 		const root = new THREE.Group();
 		root.name = context.definition.name;
 		root.userData.processType = 'labeling';
+		root.userData.componentProcessKey = 'labeling';
 		root.userData.labelerType = 'pallet-print-apply';
 		root.userData.designReference = 'Domino-Mx350i-eP-inspired';
 		root.userData.loadStationary = true;
@@ -663,6 +674,18 @@ export class LabelingMachineComponent implements TwinComponentGenerator {
 		pad.userData.integratedCamera = true;
 		joint3.add(pad);
 		root.add(armBase);
+		// 固定设备的折叠 Home 姿态属于组件本身，场景只负责给出加工进度。
+		armBase.rotation.y = 0.70;
+		joint2.rotation.y = -1.20;
+		joint3.rotation.y = 0.72;
+		attachComponentAnimations(root, [
+			{ name: '贴标臂 J1 伸出', targetNodePath: 'Labeler-Arm-Joint-1', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: -THREE.MathUtils.radToDeg(0.70), startProgress: 0, endProgress: 0.5, relative: true },
+			{ name: '贴标臂 J2 伸出', targetNodePath: 'Labeler-Arm-Joint-2', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: THREE.MathUtils.radToDeg(1.20), startProgress: 0, endProgress: 0.5, relative: true },
+			{ name: '贴标臂 J3 伸出', targetNodePath: 'Labeler-Arm-Joint-3', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: -THREE.MathUtils.radToDeg(0.72), startProgress: 0, endProgress: 0.5, relative: true },
+			{ name: '贴标臂 J1 返回', targetNodePath: 'Labeler-Arm-Joint-1', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: THREE.MathUtils.radToDeg(0.70), startProgress: 0.5, endProgress: 1, relative: true },
+			{ name: '贴标臂 J2 返回', targetNodePath: 'Labeler-Arm-Joint-2', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: -THREE.MathUtils.radToDeg(1.20), startProgress: 0.5, endProgress: 1, relative: true },
+			{ name: '贴标臂 J3 返回', targetNodePath: 'Labeler-Arm-Joint-3', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: THREE.MathUtils.radToDeg(0.72), startProgress: 0.5, endProgress: 1, relative: true },
+		]);
 
 		// 明确保留贴标中心与输送线的关系，后续运行时可直接驱动三个关节去侧面/前后面贴标。
 		root.userData.labelCenterHeight = height - 0.46;

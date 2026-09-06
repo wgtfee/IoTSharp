@@ -17,6 +17,7 @@ import { ChainConveyorComponent, RgvComponent } from './RgvAndChainComponents';
 import { PalletComponent, SmallPalletComponent } from './PalletComponent';
 import { CartonComponent } from './CartonComponent';
 import { LabelingMachineComponent, SilkGantryComponent, TopCoverGantryComponent, WrapperMachineComponent } from './PackagingLineComponents';
+import { attachComponentAnimations, getPublishedComponentAnimationOverride } from './ComponentVisualRuntime';
 
 export class ComponentRegistry {
 	private readonly generators = new Map<string, TwinComponentGenerator>();
@@ -54,7 +55,10 @@ export class ComponentRegistry {
 			throw new Error(`组件类型与 Generator 不匹配: ${definition.componentType} != ${generator.componentType} (${generatorKey})`);
 		}
 		const context: TwinComponentBuildContext = { definition };
-		return generator.create(context);
+		const result = generator.create(context);
+		const publishedAnimations = getPublishedComponentAnimationOverride(definition.resourceKey);
+		if (publishedAnimations !== undefined) attachComponentAnimations(result.root, publishedAnimations);
+		return result;
 	}
 
 	listTypes() {

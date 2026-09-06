@@ -3,7 +3,8 @@ import type { TwinComponentPropertySchema, TwinComponentType } from '../componen
 export type ComponentStudioMode = 'design' | 'preview' | 'test';
 export type StudioPrimitiveKind = 'box' | 'cylinder' | 'sphere' | 'plane' | 'glb' | 'component';
 export type StudioCollisionKind = 'box' | 'sphere' | 'cylinder';
-export type StudioAnimationKind = 'rotate' | 'visibility' | 'color';
+export type StudioAnimationKind = 'rotate' | 'translate' | 'scale' | 'visibility' | 'color';
+export type StudioAnimationTrigger = 'run' | 'process';
 export type StudioAxis = 'x' | 'y' | 'z';
 export type StudioVector3 = [number, number, number];
 
@@ -113,9 +114,18 @@ export interface StudioAnimationDefinition {
 	id: string;
 	name: string;
 	targetPartId: string;
+	targetNodePath?: string;
+	trigger?: StudioAnimationTrigger;
 	kind: StudioAnimationKind;
 	axis: StudioAxis;
 	speed: number;
+	from?: number;
+	to?: number;
+	startProgress?: number;
+	endProgress?: number;
+	relative?: boolean;
+	fromColor?: string;
+	toColor?: string;
 }
 
 export interface ComponentStudioDefinition {
@@ -140,6 +150,7 @@ export interface ComponentStudioRuntimeState {
 	alarm: boolean;
 	visible: boolean;
 	speedMultiplier: number;
+	processProgress: number;
 }
 
 export interface ComponentStudioHelperState {
@@ -186,7 +197,7 @@ export const createBlankComponentStudioDefinition = (): ComponentStudioDefinitio
 			{ id: id('telemetry'), name: '运行状态', key: 'Run', target: 'run', description: '运行测试时驱动组件动画。' },
 			{ id: id('telemetry'), name: '报警状态', key: 'Alarm', target: 'alarm', description: '报警时以红色高亮组件。' },
 		],
-		animations: [{ id: id('animation'), name: '主体旋转测试', targetPartId: body.id, kind: 'rotate', axis: 'y', speed: 30 }],
+		animations: [{ id: id('animation'), name: '主体旋转测试', targetPartId: body.id, trigger: 'run', kind: 'rotate', axis: 'y', speed: 30 }],
 	};
 };
 

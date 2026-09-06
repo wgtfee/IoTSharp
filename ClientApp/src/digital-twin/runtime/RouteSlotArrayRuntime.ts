@@ -202,6 +202,7 @@ export class RouteSlotArrayRuntime {
 						routeEngine: engine,
 						getComponentRoot: (objectId) => this.getComponentRoot?.(objectId),
 						getRoutingContext: () => routingContext,
+						getBehaviorRequirements: (objectId) => this.getBehaviorRequirements(objectId),
 						entityId: slot.palletId,
 					});
 					process.setRunning(this.running);
@@ -296,6 +297,17 @@ export class RouteSlotArrayRuntime {
 		}
 		entity.root.userData.stationQueueIndex = queueIndex;
 		entity.root.userData.stationQueueVisual = true;
+	}
+
+	private getBehaviorRequirements(objectId: string) {
+		const requirements: Record<string, number> = {};
+		for (const behavior of this.manifest.behaviors || []) {
+			if (behavior.enabled === false || behavior.actorObjectId !== objectId) continue;
+			const group = behavior.stationCompletionGroup?.trim();
+			if (!group) continue;
+			requirements[group] = Math.max(requirements[group] || 0, Math.max(1, Math.floor(Number(behavior.stationRequiredCycles) || 1)));
+		}
+		return requirements;
 	}
 
 	setRunning(running: boolean) {

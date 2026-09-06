@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createCanvasLabel, createComponentResult, createMaterial, createStraightRollerGeometry, resolveBoolean, resolveNumber, setTransform } from './geometry';
+import { attachComponentAnimations } from './ComponentVisualRuntime';
 import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 const addBox = (
@@ -62,6 +63,7 @@ export class ExternalInspectionComponent implements TwinComponentGenerator {
 		const root = new THREE.Group();
 		root.name = definition.name;
 		root.userData.processType = 'external-inspection';
+		root.userData.componentProcessKey = 'external-inspection';
 		root.userData.inspectionType = 'chemical-fiber-appearance';
 		root.userData.inspectionFaces = ['top', 'bottom', 'circumference', 'tube'];
 		root.userData.cameraCount = 3;
@@ -242,6 +244,15 @@ export class ExternalInspectionComponent implements TwinComponentGenerator {
 		root.userData.generatorVersion = definition.generatorVersion;
 		root.userData.capabilities = ['material-flow', 'capacity', 'process-station', 'plc-binding', 'vision-inspection'];
 		root.userData.properties = { ...props, length, width, machineHeight, conveyorHeight, conveyorWidth, chamberLength, withRotaryInspection };
+		attachComponentAnimations(root, [
+			...(withRotaryInspection ? [
+				{ name: '检测夹具下降', targetNodePath: 'Inspection-Rotary-Gripper', trigger: 'process' as const, kind: 'translate' as const, axis: 'y' as const, from: 0, to: -0.48, startProgress: 0.12, endProgress: 0.28, relative: true },
+				{ name: '圆周旋转采集', targetNodePath: 'Inspection-Rotary-Gripper', trigger: 'process' as const, kind: 'rotate' as const, axis: 'y' as const, from: 0, to: 720, startProgress: 0.28, endProgress: 0.70, relative: true },
+				{ name: '检测夹具抬起', targetNodePath: 'Inspection-Rotary-Gripper', trigger: 'process' as const, kind: 'translate' as const, axis: 'y' as const, from: 0, to: 0.48, startProgress: 0.70, endProgress: 0.88, relative: true },
+			] : []),
+			{ name: '检测定位挡停升起', targetNodePath: 'Inspection-Positioning-Stopper', trigger: 'process', kind: 'translate', axis: 'y', from: 0, to: 0.10, startProgress: 0, endProgress: 0.12, relative: true },
+			{ name: '检测定位挡停释放', targetNodePath: 'Inspection-Positioning-Stopper', trigger: 'process', kind: 'translate', axis: 'y', from: 0, to: -0.10, startProgress: 0.88, endProgress: 1, relative: true },
+		]);
 		setTransform(root, definition.transform);
 		return createComponentResult(root, ports, internalFlows);
 	}

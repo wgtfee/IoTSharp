@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { defaultComponentRegistry } from '../components/ComponentRegistry';
-import { advanceComponentVisualRuntime } from '../components/ComponentVisualRuntime';
+import { advanceComponentVisualRuntime, type TwinComponentAnimationDefinition } from '../components/ComponentVisualRuntime';
 import { createStudioPart } from './types';
 import type {
 	ComponentStudioDefinition,
@@ -50,7 +50,7 @@ export class ComponentStudioViewport {
 	private readonly selectedPartIds = new Set<string>();
 	private selectedGeneratedNodeKey = '';
 	private helpers: ComponentStudioHelperState = { ports: true, collisions: true, origin: true, grid: true };
-	private runtimeState: ComponentStudioRuntimeState = { run: false, alarm: false, visible: true, speedMultiplier: 1 };
+	private runtimeState: ComponentStudioRuntimeState = { run: false, alarm: false, visible: true, speedMultiplier: 1, processProgress: 0 };
 	private disposed = false;
 	private readonly grid = new THREE.GridHelper(30, 30, 0x334155, 0x172033);
 	private selectionBox?: THREE.BoxHelper;
@@ -724,15 +724,35 @@ export class ComponentStudioViewport {
 		const now = performance.now();
 		const delta = Math.min(0.05, (now - this.lastFrame) / 1000);
 		this.lastFrame = now;
-		if (this.mode === 'test' && this.runtimeState.run && this.runtimeState.visible) {
-			advanceComponentVisualRuntime(this.componentGroup, delta, this.runtimeState.speedMultiplier);
-			for (const animation of this.definition.animations) {
-				if (animation.kind !== 'rotate') continue;
-				const object = this.partObjects.get(animation.targetPartId);
-				if (!object) continue;
-				const amount = deg(animation.speed * this.runtimeState.speedMultiplier) * delta;
-				object.rotation[animation.axis] += amount;
-			}
+		if (this.mode === 'test' && this.runtimeState.visible) {
+			const animations: TwinComponentAnimationDefinition[] = this.definition.animations.map((animation) => ({
+				id: animation.id,
+				name: animation.name,
+				targetNodePath: animation.targetNodePath,
+				trigger: animation.trigger || 'run',
+				kind: animation.kind,
+				axis: animation.axis,
+				speedDegPerSecond: animation.speed,
+				from: animation.from,
+				to: animation.to,
+				startProgress: animation.startProgress,
+				endProgress: animation.endProgress,
+				relative: animation.relative,
+				fromColor: animation.fromColor,
+				toColor: animation.toColor,
+			}));
+			advanceComponentVisualRuntime(this.componentGroup, delta, this.runtimeState.speedMultiplier, {
+				animations,
+				processActive: this.runtimeState.run,
+				processProgress: this.runtimeState.processProgress,
+				resolveTarget: (runtimeAnimation) => {
+					const source = this.definition.animations.find((item) => item.id === runtimeAnimation.id);
+					if (!source) return undefined;
+					const part = this.partObjects.get(source.targetPartId);
+					if (!part) return undefined;
+					return source.targetNodePath ? part.getObjectByName(source.targetNodePath) || undefined : part;
+				},
+			});
 		}
 		this.orbit.update();
 		this.updateSelectionHighlight();

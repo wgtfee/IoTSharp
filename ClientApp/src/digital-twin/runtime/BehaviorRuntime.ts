@@ -24,6 +24,7 @@ interface ChannelState {
 	phase: number;
 	waitElapsed: number;
 	waitRecordedFor?: string;
+	startedActionKey?: string;
 	status: ChannelStatus;
 	cycleCount: number;
 	completedActions: number;
@@ -179,6 +180,7 @@ export class BehaviorRuntime {
 			channel.phase = 0;
 			channel.waitElapsed = 0;
 			channel.waitRecordedFor = undefined;
+			channel.startedActionKey = undefined;
 			channel.status = this.running && (!this.actorFilter || channel.actorObjectId === this.actorFilter) ? 'acting' : 'paused';
 			channel.cycleCount = 0;
 			channel.completedActions = 0;
@@ -342,7 +344,12 @@ export class BehaviorRuntime {
 			return;
 		}
 		try {
-			if (this.executeAction(channel, behavior, action, actorRoot, deltaSeconds)) this.completeAction(channel);
+			const actionKey = `${behavior.behaviorId}:${action.actionId}`;
+			if (channel.startedActionKey !== actionKey) {
+				this.applyStateAssignments(action.onStartState);
+				channel.startedActionKey = actionKey;
+			}
+			if (this.executeAction(channel, behavior, action, actorRoot, deltaSeconds)) this.completeAction(channel, action);
 		} catch (error) {
 			channel.status = 'error';
 			this.reportError?.(`动作 ${action.actionId} 执行失败：${error instanceof Error ? error.message : String(error)}`);
@@ -355,13 +362,7 @@ export class BehaviorRuntime {
 			case 'movePose': {
 				channel.status = 'moving';
 				const pose = this.requirePose(action);
-				if (pose.workPointId && !this.prepareWorkPointSource(pose.workPointId, deltaSeconds)) {
-					channel.status = 'waiting-material';
-					return false;
-				}
-				const done = this.movePose(actorRoot, pose, deltaSeconds, speedRatio);
-				if (done) this.markZoneExitIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, pose.poseId);
-				return done;
+				return this.movePose(actorRoot, pose, deltaSeconds, speedRatio);
 			}
 			case 'jointMove': {
 				channel.status = 'moving';
@@ -370,9 +371,7 @@ export class BehaviorRuntime {
 			case 'moveTo': {
 				const workPoint = this.requireWorkPoint(action);
 				channel.status = 'moving';
-				const done = this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio);
-				if (done) this.markZoneExitIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, workPoint.workPointId);
-				return done;
+				return this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio);
 			}
 			case 'home': {
 				channel.status = 'moving';
@@ -426,7 +425,6 @@ export class BehaviorRuntime {
 			}
 			case 'place': {
 				const workPoint = this.requireWorkPoint(action);
-				this.markZoneEntryIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, workPoint.workPointId);
 				channel.status = channel.phase === 2 ? 'acting' : 'moving';
 				if (channel.phase === 0) {
 					if (!this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio)) return false;
@@ -461,23 +459,30 @@ export class BehaviorRuntime {
 				channel.waitElapsed += deltaSeconds;
 				return channel.waitElapsed >= Math.max(0, Number(action.waitSeconds ?? 0));
 			}
+			case 'prepareSlot': {
+				const slot = action.sourceSlotId ? this.materialSlots.get(action.sourceSlotId) : undefined;
+				if (!slot) throw new Error(`动作 ${action.actionId} 未引用有效来源 MaterialSlot`);
+				channel.status = this.prepareMaterialSlot(slot, deltaSeconds) ? 'acting' : 'waiting-material';
+				return channel.status !== 'waiting-material';
+			}
 			case 'attach':
 				return this.attachPayload(channel, actorRoot, action, behavior.actorObjectId);
 			case 'detach':
 				channel.status = 'acting';
-				if (action.workPointId) this.markZoneEntryIfApplicable(behavior.actorObjectId, action.actorNodePath || channel.actorNodePath, action.workPointId);
 				return this.detachPayload(channel, action.workPointId ? this.workPoints.get(action.workPointId) : undefined, action);
 			default:
 				return true;
 		}
 	}
 
-	private completeAction(channel: ChannelState) {
+	private completeAction(channel: ChannelState, action: TwinBehaviorActionDefinition) {
+		this.applyStateAssignments(action.onCompleteState);
 		channel.completedActions += 1;
 		channel.actionIndex += 1;
 		channel.phase = 0;
 		channel.waitElapsed = 0;
 		channel.waitRecordedFor = undefined;
+		channel.startedActionKey = undefined;
 		channel.status = 'acting';
 	}
 
@@ -561,11 +566,9 @@ export class BehaviorRuntime {
 		if (timeout > 0 && channel.waitElapsed >= timeout) throw new Error(`等待信号 ${bindingId} 超时`);
 	}
 
-	private prepareWorkPointSource(workPointId: string, deltaSeconds: number) {
-		const workPoint = this.workPoints.get(workPointId);
-		const slot = workPoint?.materialSlotId ? this.materialSlots.get(workPoint.materialSlotId) : undefined;
+	private prepareMaterialSlot(slot: TwinMaterialSlotDefinition, deltaSeconds: number) {
 		const groups = Array.isArray(slot?.metadata?.entityGroups) ? slot!.metadata!.entityGroups!.map((item) => String(item)).filter(Boolean) : [];
-		if (!slot || !groups.length) return true;
+		if (!groups.length) return true;
 		const owner = this.getObjectRoot(slot.objectId);
 		if (!owner) return false;
 
@@ -648,10 +651,8 @@ export class BehaviorRuntime {
 
 	private moveActorToWorkPoint(actorRoot: THREE.Object3D, actorNodePath: string | undefined, workPoint: TwinWorkPointDefinition, offset: TwinVector3 | undefined, deltaSeconds: number, speedRatio: number) {
 		const targetWorld = this.resolveWorkPointWorld(workPoint, offset);
+		// 六轴机械臂 IK 是内置组件运动学能力，不包含任何具体产线工艺；正式工程优先使用设计器示教 Pose。
 		if (actorRoot.getObjectByName('Robot-Axis-1') && !actorNodePath) return this.moveRobotToWorld(actorRoot, targetWorld, deltaSeconds, speedRatio);
-		if (actorNodePath === 'YarnFixture' || actorNodePath === 'SeparatorFixture' || actorRoot.getObjectByName(this.resolveGantryCarriageName(actorNodePath))) {
-			return this.moveGantryFixture(actorRoot, actorNodePath, targetWorld, deltaSeconds, speedRatio);
-		}
 		const node = actorNodePath ? this.findNode(actorRoot, actorNodePath) : actorRoot;
 		if (!node || node === actorRoot) return true;
 		actorRoot.updateMatrixWorld(true);
@@ -698,33 +699,21 @@ export class BehaviorRuntime {
 	}
 
 	private moveActorHome(actorObjectId: string, actorRoot: THREE.Object3D, deltaSeconds: number, speedRatio: number) {
+		const configured = [...this.actuators.values()].filter((actuator) => actuator.objectId === actorObjectId && actuator.homeValue !== undefined && actuator.kind !== 'gripper');
+		if (configured.length) {
+			let done = true;
+			for (const actuator of configured) if (!this.setActuatorValue(actorRoot, actuator, Number(actuator.homeValue), deltaSeconds, speedRatio)) done = false;
+			return done;
+		}
 		const poses = this.basePoses.get(actorObjectId) || [];
-		const robotPoses = poses.filter((pose) => pose.object.name.startsWith('Robot-Axis-'));
-		if (!robotPoses.length) return true;
+		if (!poses.length) return true;
 		const maxStep = deltaSeconds * 1.8 * speedRatio;
 		let done = true;
-		for (const pose of robotPoses) {
+		for (const pose of poses) {
 			for (const axis of ['x', 'y', 'z'] as const) if (!this.moveAngle(pose.object.rotation, axis, pose.rotation[axis], maxStep)) done = false;
+			if (!this.moveVector(pose.object.position, pose.position, maxStep)) done = false;
 		}
 		actorRoot.updateMatrixWorld(true);
-		return done;
-	}
-
-	private moveGantryFixture(actorRoot: THREE.Object3D, actorNodePath: string | undefined, targetWorld: THREE.Vector3, deltaSeconds: number, speedRatio: number) {
-		const carriageName = this.resolveGantryCarriageName(actorNodePath);
-		const carriage = actorRoot.getObjectByName(carriageName);
-		if (!carriage) return true;
-		const separator = carriageName.includes('Separator');
-		const slide = actorRoot.getObjectByName(separator ? 'Gantry-Separator-Z-Slide' : 'Gantry-Z-Slide');
-		const gripper = actorRoot.getObjectByName(separator ? 'Gantry-Separator-Gripper' : 'GantryGripper-2x3');
-		actorRoot.updateMatrixWorld(true);
-		const target = actorRoot.worldToLocal(targetWorld.clone());
-		const linearStep = deltaSeconds * 3.0 * speedRatio;
-		let done = this.moveScalar(carriage.position, 'z', target.z, linearStep);
-		if (slide && gripper) {
-			const desiredSlideY = THREE.MathUtils.clamp(target.y - carriage.position.y - gripper.position.y, -8, 3);
-			if (!this.moveScalar(slide.position, 'y', desiredSlideY, linearStep)) done = false;
-		}
 		return done;
 	}
 
@@ -808,10 +797,10 @@ export class BehaviorRuntime {
 			channel.status = 'waiting-material';
 			return false;
 		} else {
-			payload = this.createPayload(payloadType, actorRoot, action.actorNodePath || channel.actorNodePath);
+			payload = this.createPayload(payloadType, requestedCount);
 			payload.userData.legacySyntheticPayload = true;
 			attachNode.add(payload);
-			payload.position.set(0, payloadType === 'separator' ? -0.22 : 0.34, 0);
+			payload.position.set(0, 0, 0);
 			payload.rotation.set(0, 0, 0);
 		}
 		payload.userData.payloadType = payloadType;
@@ -822,7 +811,6 @@ export class BehaviorRuntime {
 		}
 		channel.attachedPayload = payload;
 		channel.status = 'acting';
-		this.setMaterialState(actorObjectId, action.actorNodePath || channel.actorNodePath, true);
 		return true;
 	}
 
@@ -835,8 +823,8 @@ export class BehaviorRuntime {
 			if (!this.distributePayloadAcrossStationPallets(channel, payload, targetSlot)) return false;
 		} else if (targetSlot?.stackPattern) {
 			this.placeStackPayload(payload, targetSlot);
-		} else if (targetSlot && String(targetSlot.metadata?.stackPatternSlotId || '')) {
-			if (!this.placeSeparatorPayload(payload, targetSlot)) return false;
+		} else if (targetSlot && (targetSlot.stackPatternSlotId || String(targetSlot.metadata?.stackPatternSlotId || ''))) {
+			if (!this.placeLayerMaterialPayload(payload, targetSlot)) return false;
 		} else if (targetSlot) {
 			const resolved = this.resolveMaterialSlotAnchor(targetSlot);
 			resolved.anchor.add(payload);
@@ -856,10 +844,6 @@ export class BehaviorRuntime {
 		payload.userData.placedByBehavior = true;
 		channel.placedPayload = payload;
 		channel.attachedPayload = undefined;
-		this.setMaterialState(channel.actorObjectId, action.actorNodePath || channel.actorNodePath, false);
-		const fixture = action.actorNodePath || channel.actorNodePath;
-		if (fixture === 'YarnFixture' && workPoint?.role === 'stack') this.semanticState.set(`${channel.actorObjectId}.yarnFixture.readyForSeparator`, true);
-		if (fixture === 'SeparatorFixture' && workPoint?.role === 'stack') this.semanticState.set(`${channel.actorObjectId}.yarnFixture.readyForSeparator`, false);
 		return true;
 	}
 
@@ -871,19 +855,20 @@ export class BehaviorRuntime {
 			return false;
 		}
 		const levels = materials.length / palletIds.length;
+		const itemOffset = vector(slot.runtimeOwnerItemOffset);
 		for (let index = 0; index < materials.length; index += 1) {
 			const palletIndex = index % palletIds.length;
 			const level = Math.floor(index / palletIds.length);
 			const resolved = this.resolveMaterialSlotAnchor(slot, palletIds[palletIndex]);
 			const material = materials[index];
 			resolved.anchor.attach(material);
-			material.position.set(0, level * 0.46, 0);
+			material.position.copy(itemOffset.clone().multiplyScalar(level));
 			material.rotation.set(0, 0, 0);
 			delete material.userData.materialAttachedBy;
 			material.userData.runtimeOwnerEntityId = palletIds[palletIndex];
-			material.userData.smallPalletLevel = level + 1;
-			material.userData.smallPalletLevelCount = levels;
-			material.userData.materialStage = 'on-small-pallet';
+			material.userData.runtimeOwnerItemIndex = level + 1;
+			material.userData.runtimeOwnerItemCount = levels;
+			if (slot.placedStage) material.userData.materialStage = slot.placedStage;
 		}
 		payload.removeFromParent();
 		return true;
@@ -896,7 +881,7 @@ export class BehaviorRuntime {
 		const perLayer = Math.max(1, pattern.columns * pattern.rows);
 		const capacity = perLayer * pattern.layers;
 		const current = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackItemCount || 0)));
-		if (!materials.length) throw new Error(`码垛槽位 ${slot.slotId} 没有可放置的真实丝饼`);
+		if (!materials.length) throw new Error(`码垛槽位 ${slot.slotId} 没有可放置的真实物料`);
 		if (current + materials.length > capacity) throw new Error(`码垛槽位 ${slot.slotId} 已满：${current}/${capacity}`);
 
 		for (let offset = 0; offset < materials.length; offset += 1) {
@@ -914,7 +899,7 @@ export class BehaviorRuntime {
 			);
 			material.rotation.set(0, 0, 0);
 			delete material.userData.materialAttachedBy;
-			material.userData.materialStage = 'on-wood-pallet';
+			if (slot.placedStage) material.userData.materialStage = slot.placedStage;
 			material.userData.stackLayer = layer + 1;
 			material.userData.stackRow = row + 1;
 			material.userData.stackColumn = column + 1;
@@ -923,14 +908,15 @@ export class BehaviorRuntime {
 
 		const nextCount = current + materials.length;
 		resolved.anchor.userData.stackItemCount = nextCount;
-		resolved.owner.userData.stackedSilkCakeCount = nextCount;
+		resolved.owner.userData.stackedItemCount = nextCount;
 		resolved.owner.userData.stackLayerCount = Math.floor(nextCount / perLayer);
 		this.syncStackCompletion(resolved.owner, resolved.anchor, pattern);
 		payload.removeFromParent();
 	}
 
-	private placeSeparatorPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
-		const patternSlot = this.materialSlots.get(String(slot.metadata?.stackPatternSlotId || ''));
+	private placeLayerMaterialPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
+		const patternSlotId = slot.stackPatternSlotId || String(slot.metadata?.stackPatternSlotId || '');
+		const patternSlot = this.materialSlots.get(patternSlotId);
 		if (!patternSlot?.stackPattern) return false;
 		const pattern = patternSlot.stackPattern;
 		const resolved = this.resolveMaterialSlotAnchor(patternSlot);
@@ -938,18 +924,18 @@ export class BehaviorRuntime {
 		if (!material) return false;
 		const perLayer = Math.max(1, pattern.columns * pattern.rows);
 		const itemCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackItemCount || 0)));
-		const separatorCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackSeparatorCount || 0)));
-		if (separatorCount >= pattern.layers) throw new Error(`隔板槽位 ${slot.slotId} 已满`);
-		if (itemCount < (separatorCount + 1) * perLayer) return false;
+		const layerMaterialCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackLayerMaterialCount || 0)));
+		if (layerMaterialCount >= pattern.layers) throw new Error(`层间物料槽位 ${slot.slotId} 已满`);
+		if (itemCount < (layerMaterialCount + 1) * perLayer) return false;
 
 		resolved.anchor.attach(material);
-		material.position.set(0, pattern.firstLayerY + separatorCount * pattern.layerPitch + 0.21 + Number(pattern.separatorThickness || 0.05) / 2, 0);
+		material.position.set(0, pattern.firstLayerY + layerMaterialCount * pattern.layerPitch + Number(pattern.layerMaterialOffsetY ?? 0.21) + Number(pattern.separatorThickness || 0.05) / 2, 0);
 		material.rotation.set(0, 0, 0);
 		delete material.userData.materialAttachedBy;
-		material.userData.materialStage = 'on-wood-pallet';
-		material.userData.separatorLayer = separatorCount + 1;
-		resolved.anchor.userData.stackSeparatorCount = separatorCount + 1;
-		resolved.owner.userData.stackedSeparatorCount = separatorCount + 1;
+		if (slot.placedStage) material.userData.materialStage = slot.placedStage;
+		material.userData.stackLayerMaterialIndex = layerMaterialCount + 1;
+		resolved.anchor.userData.stackLayerMaterialCount = layerMaterialCount + 1;
+		resolved.owner.userData.stackedLayerMaterialCount = layerMaterialCount + 1;
 		this.syncStackCompletion(resolved.owner, resolved.anchor, pattern);
 		payload.removeFromParent();
 		return true;
@@ -958,35 +944,24 @@ export class BehaviorRuntime {
 	private syncStackCompletion(owner: THREE.Object3D, anchor: THREE.Object3D, pattern: NonNullable<TwinMaterialSlotDefinition['stackPattern']>) {
 		const capacity = pattern.columns * pattern.rows * pattern.layers;
 		const itemCount = Number(anchor.userData.stackItemCount || 0);
-		const separatorCount = Number(anchor.userData.stackSeparatorCount || 0);
-		const complete = itemCount >= capacity && separatorCount >= pattern.layers;
+		const layerMaterialCount = Number(anchor.userData.stackLayerMaterialCount || 0);
+		const complete = itemCount >= capacity && (!pattern.layerMaterialRequired || layerMaterialCount >= pattern.layers);
 		owner.userData.stackComplete = complete;
 		owner.userData.readyForPostProcess = complete;
 		owner.userData.stackCapacity = capacity;
 	}
 
-	private createPayload(payloadType: string, actorRoot: THREE.Object3D, actorNodePath?: string) {
+	private createPayload(payloadType: string, count = 1) {
 		const group = new THREE.Group();
 		group.name = `BehaviorPayload-${payloadType}`;
-		if (payloadType === 'separator') {
-			const material = new THREE.MeshStandardMaterial({ color: 0xc7a66b, roughness: 0.82, metalness: 0.02 });
-			const board = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.05, 3.4), material);
-			board.name = 'Behavior-Separator-Board';
-			group.add(board);
-			return group;
-		}
-		const material = new THREE.MeshStandardMaterial({ color: 0xf4f1e8, roughness: 0.78, metalness: 0.02 });
-		const robotGrid = Boolean(actorRoot.getObjectByName('RobotGridGripper-2x6')) && !actorNodePath;
-		const countX = robotGrid ? 6 : 3;
-		const countZ = 2;
-		const span = robotGrid ? Number(actorRoot.userData?.properties?.gripperSpan || 6.2) : 4.0;
-		const spacingZ = robotGrid ? Number(actorRoot.userData?.properties?.gripperRowSpacing || 1.15) : 2.3;
-		for (let row = 0; row < countZ; row += 1) for (let column = 0; column < countX; column += 1) {
-			const cake = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.14, 12, 24), material);
-			cake.name = `Behavior-SilkCake-${row + 1}-${column + 1}`;
-			cake.rotation.x = Math.PI / 2;
-			cake.position.set(-span / 2 + span / countX * (column + 0.5), 0, countZ === 1 ? 0 : (row === 0 ? -spacingZ / 2 : spacingZ / 2));
-			group.add(cake);
+		const material = new THREE.MeshStandardMaterial({ roughness: 0.72, metalness: 0.04 });
+		for (let index = 0; index < Math.max(1, count); index += 1) {
+			const preview = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), material);
+			preview.name = `Behavior-Payload-Preview-${index + 1}`;
+			preview.position.x = (index - (Math.max(1, count) - 1) / 2) * 0.34;
+			preview.userData.materialEntity = true;
+			preview.userData.payloadType = payloadType;
+			group.add(preview);
 		}
 		return group;
 	}
@@ -1035,15 +1010,7 @@ export class BehaviorRuntime {
 				if (node) return node;
 			}
 		}
-		if (actorNodePath === 'YarnFixture') return actorRoot.getObjectByName('GantryGripper-2x3') || actorRoot;
-		if (actorNodePath === 'SeparatorFixture') return actorRoot.getObjectByName('Gantry-Separator-Gripper') || actorRoot;
-		return actorRoot.getObjectByName('Robot-Tool-Flange') || (actorNodePath ? this.findNode(actorRoot, actorNodePath) : undefined) || actorRoot;
-	}
-
-	private resolveGantryCarriageName(actorNodePath?: string) {
-		return actorNodePath === 'SeparatorFixture' || actorNodePath?.includes('Separator')
-			? 'Gantry-Separator-Rail-Carriage'
-			: 'Gantry-Silk-Rail-Carriage';
+		return (actorNodePath ? this.findNode(actorRoot, actorNodePath) : undefined) || actorRoot;
 	}
 
 	private getStationPalletIds(actorRoot?: THREE.Object3D) {
@@ -1059,26 +1026,10 @@ export class BehaviorRuntime {
 		return Object.fromEntries(Object.entries(source).map(([key, count]) => [key, Math.max(0, Number(count) || 0)]));
 	}
 
-	private markZoneEntryIfApplicable(actorObjectId: string, actorNodePath: string | undefined, workPointId: string) {
-		if (actorNodePath === 'YarnFixture' && /pallet-stack/i.test(workPointId)) this.semanticState.set(`${actorObjectId}.yarnFixture.inPalletZone`, true);
-	}
-
-	private markZoneExitIfApplicable(actorObjectId: string, actorNodePath: string | undefined, workPointId: string) {
-		if (actorNodePath === 'YarnFixture' && !/pallet-stack/i.test(workPointId)) this.semanticState.set(`${actorObjectId}.yarnFixture.inPalletZone`, false);
-	}
-
-	private setMaterialState(actorObjectId: string, actorNodePath: string | undefined, hasMaterial: boolean) {
-		if (actorNodePath === 'YarnFixture') {
-			this.semanticState.set(`${actorObjectId}.yarnFixture.hasMaterial`, hasMaterial);
-			if (hasMaterial) this.semanticState.set(`${actorObjectId}.yarnFixture.readyForSeparator`, false);
-		}
-		if (actorNodePath === 'SeparatorFixture') this.semanticState.set(`${actorObjectId}.separatorFixture.hasMaterial`, hasMaterial);
-	}
-
 	private isInterlockSatisfied(interlockId: string) {
 		const interlock = this.interlocks.get(interlockId);
 		if (!interlock) return false;
-		return interlock.conditions.every((condition) => {
+		const evaluate = (condition: TwinInterlockDefinition['conditions'][number]) => {
 			const current = this.semanticState.get(condition.source);
 			switch (condition.operator) {
 				case 'truthy': return Boolean(current);
@@ -1087,19 +1038,20 @@ export class BehaviorRuntime {
 				case 'notEquals': return current !== condition.value;
 				default: return false;
 			}
-		});
+		};
+		return interlock.mode === 'any' ? interlock.conditions.some(evaluate) : interlock.conditions.every(evaluate);
+	}
+
+	private applyStateAssignments(assignments?: TwinBehaviorActionDefinition['onStartState']) {
+		for (const assignment of assignments || []) {
+			const source = assignment.source?.trim();
+			if (source) this.semanticState.set(source, assignment.value);
+		}
 	}
 
 	private initializeSemanticState() {
 		for (const behavior of this.manifest.behaviors || []) {
-			for (const action of behavior.actions || []) {
-				if (action.actorNodePath === 'YarnFixture') {
-					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.inPalletZone`, false);
-					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.hasMaterial`, false);
-					this.semanticState.set(`${behavior.actorObjectId}.yarnFixture.readyForSeparator`, false);
-				}
-				if (action.actorNodePath === 'SeparatorFixture') this.semanticState.set(`${behavior.actorObjectId}.separatorFixture.hasMaterial`, false);
-			}
+			this.applyStateAssignments(behavior.initialState);
 		}
 	}
 
@@ -1108,17 +1060,19 @@ export class BehaviorRuntime {
 		const root = this.getObjectRoot(actorObjectId);
 		if (!root) return;
 		const poses: BasePose[] = [];
-		root.traverse((object) => {
-			if (!object.userData?.actuator && !object.userData?.actuatorId && !object.name.startsWith('Robot-Axis-') && !object.name.startsWith('Gantry-Silk-Rail-Carriage') && !object.name.startsWith('Gantry-Separator-Rail-Carriage') && object.name !== 'Gantry-Z-Slide' && object.name !== 'Gantry-Separator-Z-Slide') return;
+		const seen = new Set<THREE.Object3D>();
+		for (const actuator of this.actuators.values()) {
+			if (actuator.objectId !== actorObjectId) continue;
+			const object = this.findNode(root, actuator.nodePath);
+			if (!object || seen.has(object)) continue;
+			seen.add(object);
 			poses.push({ object, position: object.position.clone(), rotation: object.rotation.clone() });
-		});
+		}
 		this.basePoses.set(actorObjectId, poses);
 	}
 
 	private findNode(root: THREE.Object3D, path: string) {
 		if (!path) return root;
-		if (path === 'YarnFixture') return root.getObjectByName('Gantry-Silk-Rail-Carriage');
-		if (path === 'SeparatorFixture') return root.getObjectByName('Gantry-Separator-Rail-Carriage');
 		const exact = root.getObjectByName(path);
 		if (exact) return exact;
 		const parts = path.split('/').map((item) => item.trim()).filter(Boolean);

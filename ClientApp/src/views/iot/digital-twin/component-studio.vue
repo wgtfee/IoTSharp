@@ -162,12 +162,29 @@
 
 				<div v-else-if="activeTab === 'telemetry'" class="inspector-scroll"><div class="section-actions"><span>Telemetry Capability</span><el-button size="small" type="primary" @click="addTelemetry">新增能力</el-button></div><div v-for="item in definition.telemetry" :key="item.id" class="form-card"><div class="form-card__title"><el-input v-model="item.name"/><el-button text type="danger" @click="removeTelemetry(item.id)">删除</el-button></div><label>Telemetry Key<el-input v-model="item.key" /></label><label>驱动目标<el-select v-model="item.target"><el-option label="运行" value="run"/><el-option label="报警" value="alarm"/><el-option label="可见性" value="visible"/><el-option label="速度" value="speed"/><el-option label="颜色" value="color"/></el-select></label><label>说明<el-input v-model="item.description" type="textarea" :rows="2" /></label></div></div>
 
-				<div v-else class="inspector-scroll"><div class="section-actions"><span>动画定义</span><el-button size="small" type="primary" @click="addAnimation">新增动画</el-button></div><div v-for="item in definition.animations" :key="item.id" class="form-card"><div class="form-card__title"><el-input v-model="item.name"/><el-button text type="danger" @click="removeAnimation(item.id)">删除</el-button></div><label>目标零件<el-select v-model="item.targetPartId"><el-option v-for="part in definition.parts" :key="part.id" :label="part.name" :value="part.id" /></el-select></label><label>动画类型<el-select v-model="item.kind"><el-option label="旋转" value="rotate"/><el-option label="显示/隐藏" value="visibility"/><el-option label="颜色" value="color"/></el-select></label><label v-if="item.kind === 'rotate'">轴<el-select v-model="item.axis"><el-option label="X" value="x"/><el-option label="Y" value="y"/><el-option label="Z" value="z"/></el-select></label><label v-if="item.kind === 'rotate'">速度 °/s<el-input-number v-model="item.speed" :step="10" /></label></div></div>
+				<div v-else class="inspector-scroll">
+					<div class="section-actions"><span>组件内部动画</span><el-button size="small" type="primary" @click="addAnimation">新增轨道</el-button></div>
+					<el-alert type="info" :closable="false" show-icon title="固定设备动画在这里完成"><template #default><small>外检、套袋、贴标、缠膜等固定动作使用 Process 0~100% 时间轴；机器人、桁架等跨设备交互请在场景设计器编排。</small></template></el-alert>
+					<div v-for="item in definition.animations" :key="item.id" class="form-card">
+						<div class="form-card__title"><el-input v-model="item.name"/><el-button text type="danger" @click="removeAnimation(item.id)">删除</el-button></div>
+						<label>目标零件<el-select v-model="item.targetPartId" @change="item.targetNodePath = ''"><el-option v-for="part in definition.parts" :key="part.id" :label="part.name" :value="part.id" /></el-select></label>
+						<label>内部节点<el-select v-model="item.targetNodePath" clearable filterable placeholder="整个零件"><el-option v-for="node in animationNodeOptions(item.targetPartId)" :key="node.value" :label="node.label" :value="node.value" /></el-select></label>
+						<label>触发方式<el-select v-model="item.trigger"><el-option label="工艺时间轴 Process" value="process"/><el-option label="持续运行 Run" value="run"/></el-select></label>
+						<label>动画类型<el-select v-model="item.kind"><el-option label="平移" value="translate"/><el-option label="旋转" value="rotate"/><el-option label="缩放" value="scale"/><el-option label="显示/隐藏" value="visibility"/><el-option label="颜色" value="color"/></el-select></label>
+						<label v-if="['translate','rotate','scale'].includes(item.kind)">轴<el-select v-model="item.axis"><el-option label="X" value="x"/><el-option label="Y" value="y"/><el-option label="Z" value="z"/></el-select></label>
+						<label v-if="(item.trigger || 'run') === 'run' && item.kind === 'rotate'">速度 °/s<el-input-number v-model="item.speed" :step="10" /></label>
+						<template v-if="(item.trigger || 'run') === 'process'">
+							<div class="triple"><label>开始 %<el-input-number :model-value="Math.round((item.startProgress ?? 0) * 100)" :min="0" :max="100" @change="setAnimationProgress(item, 'startProgress', $event)" /></label><label>结束 %<el-input-number :model-value="Math.round((item.endProgress ?? 1) * 100)" :min="0" :max="100" @change="setAnimationProgress(item, 'endProgress', $event)" /></label><label>相对原位<el-switch v-model="item.relative" /></label></div>
+							<div v-if="item.kind !== 'color'" class="triple"><label>From<el-input-number v-model="item.from" :step="item.kind === 'rotate' ? 15 : 0.05" /></label><label>To<el-input-number v-model="item.to" :step="item.kind === 'rotate' ? 15 : 0.05" /></label></div>
+							<div v-else class="triple"><label>From<el-color-picker v-model="item.fromColor" /></label><label>To<el-color-picker v-model="item.toColor" /></label></div>
+						</template>
+					</div>
+				</div>
 			</aside>
 
 			<aside v-else-if="mode === 'test'" class="studio-panel studio-test-panel">
 				<div class="panel-heading"><div><span>RUNTIME TEST</span><strong>运行测试</strong></div></div>
-				<div class="test-state"><div><span>Run</span><el-switch v-model="runtime.run" /></div><div><span>Alarm</span><el-switch v-model="runtime.alarm" /></div><div><span>Visible</span><el-switch v-model="runtime.visible" /></div><label>Speed × {{ runtime.speedMultiplier.toFixed(1) }}<el-slider v-model="runtime.speedMultiplier" :min="0.1" :max="4" :step="0.1" /></label></div>
+				<div class="test-state"><div><span>Run / Process Active</span><el-switch v-model="runtime.run" /></div><div><span>Alarm</span><el-switch v-model="runtime.alarm" /></div><div><span>Visible</span><el-switch v-model="runtime.visible" /></div><label>Process {{ Math.round(runtime.processProgress * 100) }}%<el-slider v-model="runtime.processProgress" :min="0" :max="1" :step="0.01" /></label><label>Speed × {{ runtime.speedMultiplier.toFixed(1) }}<el-slider v-model="runtime.speedMultiplier" :min="0.1" :max="4" :step="0.1" /></label></div>
 				<div class="test-block"><span>模拟遥测</span><div v-for="item in definition.telemetry" :key="item.id"><strong>{{ item.key }}</strong><small>→ {{ item.target }}</small></div></div>
 				<div class="test-block"><span>动画</span><div v-for="item in definition.animations" :key="item.id"><strong>{{ item.name }}</strong><small>{{ item.kind }} · {{ partName(item.targetPartId) }}</small></div><el-empty v-if="!definition.animations.length" description="尚未定义动画" :image-size="50" /></div>
 				<el-alert type="success" :closable="false" show-icon title="运行测试只模拟组件能力，不会发送任何 Device 控制命令。" />
@@ -185,6 +202,7 @@ import { ComponentStudioViewport } from '/@/digital-twin/component-studio/Compon
 import {
 	builtInComponentTemplates,
 	defaultComponentRegistry,
+	setPublishedComponentAnimationOverride,
 	type TwinComponentBindingSlot,
 	type TwinComponentPropertySchema,
 	type TwinComponentType,
@@ -223,7 +241,7 @@ const partClipboard = ref<StudioPartDefinition[]>([]);
 const canStudioUndo = computed(() => studioHistoryIndex.value > 0);
 const canStudioRedo = computed(() => studioHistoryIndex.value >= 0 && studioHistoryIndex.value < studioHistory.value.length - 1);
 const helpers = reactive({ ports: true, collisions: true, origin: true, grid: true });
-const runtime = reactive({ run: false, alarm: false, visible: true, speedMultiplier: 1 });
+const runtime = reactive({ run: false, alarm: false, visible: true, speedMultiplier: 1, processProgress: 0 });
 const hasLocalDraft = ref(Boolean(localStorage.getItem('iotsharp.component-studio.draft')));
 const catalogSearch = ref('');
 const catalogLoading = ref(false);
@@ -409,6 +427,9 @@ const stageHint = computed(() => mode.value === 'design' ? '点击零件或画�
 
 const partKindText = (kind: StudioPrimitiveKind) => kind === 'box' ? 'Box' : kind === 'cylinder' ? 'Cylinder' : kind === 'sphere' ? 'Sphere' : kind === 'plane' ? 'Plane' : kind === 'component' ? 'V7 组件' : 'GLB';
 const partName = (partId: string) => definition.parts.find((item) => item.id === partId)?.name || '未选择';
+const animationNodeOptions = (partId: string) => (viewport.value?.getGeneratedStructure(partId) || [])
+	.filter((node) => node.type !== 'Instance')
+	.map((node) => ({ value: node.name, label: `${'　'.repeat(Math.min(4, node.depth))}${node.name}` }));
 const componentPropertyValue = (key: string) => selectedPart.value?.source?.component?.properties[key];
 const componentNumberValue = (key: string) => {
 	const value = Number(componentPropertyValue(key));
@@ -459,6 +480,7 @@ const loadCatalogComponent = (item: StudioCatalogComponent) => {
 		direction: [...port.localDirection] as [number, number, number],
 		color: port.type === 'material-input' ? '#22c55e' : port.type === 'material-output' ? '#38bdf8' : '#f59e0b',
 	}));
+	const componentAnimations = (Array.isArray(built.root.userData?.componentAnimations) ? built.root.userData.componentAnimations : []) as Array<Record<string, any>>;
 	built.dispose();
 	const next = createBlankComponentStudioDefinition();
 	next.componentId = createComponentStudioId('component');
@@ -476,7 +498,23 @@ const loadCatalogComponent = (item: StudioCatalogComponent) => {
 		target: slot.semantic === 'fault' ? 'alarm' : 'run',
 		description: `${slot.direction} · ${slot.dataType} · ${slot.semantic}${slot.description ? ` · ${slot.description}` : ''}`,
 	}));
-	next.animations = [];
+	next.animations = componentAnimations.map((animation, index) => ({
+		id: createComponentStudioId('animation'),
+		name: String(animation.name || `内部动画 ${index + 1}`),
+		targetPartId: part.id,
+		targetNodePath: String(animation.targetNodePath || ''),
+		trigger: animation.trigger === 'process' ? 'process' : 'run',
+		kind: animation.kind || 'rotate',
+		axis: animation.axis || 'y',
+		speed: Number(animation.speedDegPerSecond ?? 30),
+		from: Number(animation.from ?? 0),
+		to: Number(animation.to ?? 0),
+		startProgress: Number(animation.startProgress ?? 0),
+		endProgress: Number(animation.endProgress ?? 1),
+		relative: animation.relative !== false,
+		fromColor: typeof animation.fromColor === 'string' ? animation.fromColor : '#ffffff',
+		toColor: typeof animation.toColor === 'string' ? animation.toColor : '#ffffff',
+	}));
 	replaceDefinition(next);
 	mode.value = 'design';
 	leftTab.value = 'structure';
@@ -726,8 +764,19 @@ const addCollision = () => definition.collisions.push({ id: createComponentStudi
 const removeCollision = (id: string) => { definition.collisions = definition.collisions.filter((item) => item.id !== id); };
 const addTelemetry = () => definition.telemetry.push({ id: createComponentStudioId('telemetry'), name: `能力 ${definition.telemetry.length + 1}`, key: `TelemetryKey${definition.telemetry.length + 1}`, target: 'run', description: '' });
 const removeTelemetry = (id: string) => { definition.telemetry = definition.telemetry.filter((item) => item.id !== id); };
-const addAnimation = () => definition.animations.push({ id: createComponentStudioId('animation'), name: `动画 ${definition.animations.length + 1}`, targetPartId: selectedPartId.value || definition.parts[0]?.id || '', kind: 'rotate', axis: 'y', speed: 30 });
+const addAnimation = () => definition.animations.push({
+	id: createComponentStudioId('animation'),
+	name: `内部轨道 ${definition.animations.length + 1}`,
+	targetPartId: selectedPartId.value || definition.parts[0]?.id || '',
+	targetNodePath: selectedGeneratedNode.value?.name || '',
+	trigger: 'process', kind: 'translate', axis: 'y', speed: 30,
+	from: 0, to: 0.2, startProgress: 0, endProgress: 1, relative: true,
+	fromColor: '#ffffff', toColor: '#ffffff',
+});
 const removeAnimation = (id: string) => { definition.animations = definition.animations.filter((item) => item.id !== id); };
+const setAnimationProgress = (item: ComponentStudioDefinition['animations'][number], key: 'startProgress' | 'endProgress', value: unknown) => {
+	item[key] = Math.min(1, Math.max(0, Number(value) / 100 || 0));
+};
 
 const persistDraft = (notify: boolean) => {
 	definition.revision += 1;
@@ -748,7 +797,33 @@ const publishLocal = () => {
 	definition.status = 'Published';
 	localStorage.setItem('iotsharp.component-studio.published', JSON.stringify(cloneComponentStudioDefinition(definition)));
 	localStorage.setItem('iotsharp.component-studio.draft', JSON.stringify(cloneComponentStudioDefinition(definition)));
-	ElMessage.success(`本地预览版本 v${definition.publishedVersion} 已发布；后续接数据库后这里会改为不可变组件版本`);
+	const componentPartIds = new Set(definition.parts
+		.filter((part) => part.kind === 'component' && part.source?.component?.resourceKey === definition.resourceKey)
+		.map((part) => part.id));
+	const publishedAnimations = definition.animations
+		.filter((animation) => componentPartIds.has(animation.targetPartId))
+		.map((animation) => ({
+			id: animation.id,
+			name: animation.name,
+			targetNodePath: animation.targetNodePath || undefined,
+			trigger: animation.trigger || 'run',
+			kind: animation.kind,
+			axis: animation.axis,
+			speedDegPerSecond: animation.speed,
+			from: animation.from,
+			to: animation.to,
+			startProgress: animation.startProgress,
+			endProgress: animation.endProgress,
+			relative: animation.relative,
+			fromColor: animation.fromColor,
+			toColor: animation.toColor,
+		}));
+	const runtimePublished = componentPartIds.size > 0
+		? setPublishedComponentAnimationOverride(definition.resourceKey, publishedAnimations)
+		: false;
+	ElMessage.success(runtimePublished
+		? `本地预览版本 v${definition.publishedVersion} 已发布；重新载入/放入该组件后场景将使用新动画时间轴`
+		: `本地预览版本 v${definition.publishedVersion} 已发布；当前自定义几何组件尚未接入场景组件版本库`);
 	mode.value = 'preview';
 	nextTick(() => { suppressDirty = false; });
 };

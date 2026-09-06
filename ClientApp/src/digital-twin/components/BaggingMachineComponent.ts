@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createCanvasLabel, createComponentResult, createMaterial, createStraightRollerGeometry, resolveBoolean, resolveNumber, setTransform } from './geometry';
+import { attachComponentAnimations } from './ComponentVisualRuntime';
 import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentInternalFlowDefinition, TwinComponentPortDefinition } from './types';
 
 const addBox = (parent: THREE.Object3D, name: string, size: [number, number, number], position: [number, number, number], material: THREE.Material) => {
@@ -39,6 +40,7 @@ export class BaggingMachineComponent implements TwinComponentGenerator {
 		const root = new THREE.Group();
 		root.name = definition.name;
 		root.userData.processType = 'bagging';
+		root.userData.componentProcessKey = 'bagging';
 		root.userData.baggingType = 'chemical-fiber-side-seal-film';
 		root.userData.loadStationary = true;
 		root.userData.filmFeed = 'continuous-roll';
@@ -137,6 +139,24 @@ export class BaggingMachineComponent implements TwinComponentGenerator {
 		root.userData.resourceKey = definition.resourceKey; root.userData.generator = this.generator; root.userData.generatorVersion = definition.generatorVersion;
 		root.userData.capabilities = ['material-flow','capacity','process-station','plc-binding','continuous-film-feed','side-seal','film-cut'];
 		root.userData.properties = { ...props, length, width, machineHeight, conveyorHeight, conveyorWidth, filmWrapWidth, filmWrapDepth, filmRollDiameter, showBagFilm, transportUnitType: 'plastic-pallet' };
+		attachComponentAnimations(root, [
+			{ name: '定位推板 Z-', targetNodePath: 'Bagging-Centering-Pad-ZN', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: 0.14, startProgress: 0, endProgress: 0.15, relative: true },
+			{ name: '定位推板 Z+', targetNodePath: 'Bagging-Centering-Pad-ZP', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: -0.14, startProgress: 0, endProgress: 0.15, relative: true },
+			{ name: '定位推板 Z- 释放', targetNodePath: 'Bagging-Centering-Pad-ZN', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: -0.14, startProgress: 0.90, endProgress: 1, relative: true },
+			{ name: '定位推板 Z+ 释放', targetNodePath: 'Bagging-Centering-Pad-ZP', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: 0.14, startProgress: 0.90, endProgress: 1, relative: true },
+			{ name: '送膜辊 1', targetNodePath: 'Bagging-Film-Guide-Roller-1', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: 1440, startProgress: 0.15, endProgress: 0.60, relative: true },
+			{ name: '送膜辊 2', targetNodePath: 'Bagging-Film-Guide-Roller-2', trigger: 'process', kind: 'rotate', axis: 'y', from: 0, to: 1440, startProgress: 0.15, endProgress: 0.60, relative: true },
+			...(showBagFilm ? [
+				{ name: '包覆膜 X 收紧', targetNodePath: 'Bagging-Film-Sleeve-Preview', trigger: 'process' as const, kind: 'scale' as const, axis: 'x' as const, from: -0.18, to: 0, startProgress: 0.35, endProgress: 0.60, relative: true },
+				{ name: '包覆膜 Z 收紧', targetNodePath: 'Bagging-Film-Sleeve-Preview', trigger: 'process' as const, kind: 'scale' as const, axis: 'z' as const, from: -0.18, to: 0, startProgress: 0.35, endProgress: 0.60, relative: true },
+			] : []),
+			{ name: '侧封夹爪 1 闭合', targetNodePath: 'Bagging-Side-Seal-Jaw-1', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: 0.072, startProgress: 0.60, endProgress: 0.70, relative: true },
+			{ name: '侧封夹爪 2 闭合', targetNodePath: 'Bagging-Side-Seal-Jaw-2', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: -0.072, startProgress: 0.60, endProgress: 0.70, relative: true },
+			{ name: '侧封夹爪 1 打开', targetNodePath: 'Bagging-Side-Seal-Jaw-1', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: -0.072, startProgress: 0.78, endProgress: 0.86, relative: true },
+			{ name: '侧封夹爪 2 打开', targetNodePath: 'Bagging-Side-Seal-Jaw-2', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: 0.072, startProgress: 0.78, endProgress: 0.86, relative: true },
+			{ name: '切膜刀进刀', targetNodePath: 'Bagging-Cut-Knife', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: -0.26, startProgress: 0.78, endProgress: 0.84, relative: true },
+			{ name: '切膜刀回位', targetNodePath: 'Bagging-Cut-Knife', trigger: 'process', kind: 'translate', axis: 'z', from: 0, to: 0.26, startProgress: 0.84, endProgress: 0.90, relative: true },
+		]);
 		setTransform(root, definition.transform);
 		return createComponentResult(root, ports, internalFlows);
 	}

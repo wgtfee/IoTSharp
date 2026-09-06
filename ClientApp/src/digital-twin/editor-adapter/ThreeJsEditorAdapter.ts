@@ -82,6 +82,10 @@ export class ThreeJsEditorAdapter {
 		return this.runtime.getMaterialFlowSnapshot();
 	}
 
+	captureActuatorPose(objectId: string) {
+		return this.runtime.captureActuatorPose(objectId);
+	}
+
 	loadLocalGlb(file: File) {
 		return this.runtime.loadLocalGlb(file);
 	}

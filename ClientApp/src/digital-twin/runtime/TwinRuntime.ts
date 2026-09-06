@@ -150,7 +150,6 @@ export class TwinRuntime {
 	private readonly objectIndex = new Map<string, any>();
 	private readonly loadedModels = new Map<string, any>();
 	private readonly componentModels = new Map<string, { root: THREE.Group; dispose: () => void }>();
-	private readonly proceduralComponentAnimationBases = new Map<string, Map<THREE.Object3D, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>>();
 	private readonly routeDistanceCurves = new Map<string, TwinRouteDistanceCurveInfo>();
 	private readonly bindingEngine: BindingEngine;
 	private route: TwinRouteDefinition;
@@ -464,6 +463,37 @@ export class TwinRuntime {
 		};
 	}
 
+	/**
+	 * 从当前 3D 模型读取已声明执行机构的真实值，用于设计器“示教/记录 Pose”。
+	 * 这里只读取 ActuatorDefinition，不推断机器人、桁架或任何具体工艺语义。
+	 */
+	captureActuatorPose(objectId: string) {
+		const root = this.objectIndex.get(objectId);
+		if (!root) return [];
+		const findNode = (path: string): THREE.Object3D | undefined => {
+			if (!path) return root;
+			const exact = root.getObjectByName(path);
+			if (exact) return exact;
+			let current: THREE.Object3D | undefined = root;
+			for (const part of path.split('/').map((item) => item.trim()).filter(Boolean)) {
+				current = current?.children.find((child) => child.name === part) || current?.getObjectByName(part);
+				if (!current) break;
+			}
+			return current;
+		};
+		return (this.manifest.actuators || [])
+			.filter((actuator) => actuator.objectId === objectId)
+			.flatMap((actuator) => {
+				const node = findNode(actuator.nodePath);
+				if (!node) return [];
+				if (actuator.kind === 'gripper') return [{ actuatorId: actuator.actuatorId, value: Boolean(node.userData?.gripClosed) }];
+				const axis = actuator.motionAxis || 'y';
+				const raw = actuator.kind === 'rotary-joint' ? node.rotation[axis] : node.position[axis];
+				const value = actuator.kind === 'rotary-joint' && actuator.unit === 'degree' ? THREE.MathUtils.radToDeg(raw) : raw;
+				return [{ actuatorId: actuator.actuatorId, value }];
+			});
+	}
+
 	async loadLocalGlb(file: File): Promise<TwinModelSummary> {
 		if (!file.name.toLowerCase().endsWith('.glb')) throw new Error('Phase 0 仅支持单文件 GLB。');
 		const localObjectId = this.manifest.objects.find((item) => item.kind === 'model')?.objectId ?? `local-${file.name}`;
@@ -772,7 +802,6 @@ export class TwinRuntime {
 			this.objectIndex.delete(objectId);
 		}
 		this.componentModels.clear();
-		this.proceduralComponentAnimationBases.clear();
 		for (const objectDefinition of this.manifest.objects as any[]) {
 			if (objectDefinition.kind !== 'component') continue;
 			const component = objectDefinition.component;
@@ -963,59 +992,32 @@ export class TwinRuntime {
 			routeEngine: this.routeEngine,
 			getComponentRoot: (objectId) => this.componentModels.get(objectId)?.root,
 			getRoutingContext: () => this.routingContext,
+			getBehaviorRequirements: (objectId) => this.getBehaviorRequirements(objectId),
 		});
 	}
 
-	private captureProceduralComponentBase(objectId: string, root: THREE.Group) {
-		let bases = this.proceduralComponentAnimationBases.get(objectId);
-		if (bases) return bases;
-		bases = new Map();
-		root.traverse((node) => bases!.set(node, { position: node.position.clone(), rotation: node.rotation.clone(), scale: node.scale.clone() }));
-		this.proceduralComponentAnimationBases.set(objectId, bases);
-		return bases;
-	}
-
-	private restoreProceduralComponent(objectId: string) {
-		for (const [node, base] of this.proceduralComponentAnimationBases.get(objectId) || []) {
-			node.position.copy(base.position);
-			node.rotation.copy(base.rotation);
-			node.scale.copy(base.scale);
+	private getBehaviorRequirements(objectId: string) {
+		const requirements: Record<string, number> = {};
+		for (const behavior of this.manifest.behaviors || []) {
+			if (behavior.enabled === false || behavior.actorObjectId !== objectId) continue;
+			const group = behavior.stationCompletionGroup?.trim();
+			if (!group) continue;
+			requirements[group] = Math.max(requirements[group] || 0, Math.max(1, Math.floor(Number(behavior.stationRequiredCycles) || 1)));
 		}
+		return requirements;
 	}
 
-	/** 完整丝饼场景保留多托盘专用停车/背压逻辑，只把真实工艺进度同步给 V7 设备机械节点。 */
+	/** 完整丝饼场景保留多托盘专用停车/背压逻辑，只把标准工艺进度转交给固定组件内部时间轴。 */
 	private syncProceduralProcessComponentAnimations() {
 		if (!this.packagingLine) return;
-		const snapshot = this.packagingLine.getSnapshot();
-		for (const [objectId, component] of this.componentModels) {
+		const processStates = this.packagingLine.getComponentProcessStates();
+		for (const component of this.componentModels.values()) {
 			const root = component.root;
-			const resourceKey = String(root.userData?.componentResourceKey || root.userData?.resourceKey || '');
-			const processType = String(root.userData?.processType || '');
-			const isInspection = processType === 'external-inspection';
-			const isPrimaryBagging = processType === 'bagging' && resourceKey === 'builtin-bagging-machine';
-			if (!isInspection && !isPrimaryBagging) continue;
-			const process = isInspection ? snapshot.preProcess.inspection : snapshot.preProcess.bagging;
-			const active = process.state === 'processing' || process.state === 'waiting';
-			if (!active) {
-				this.restoreProceduralComponent(objectId);
-				continue;
-			}
-			const bases = this.captureProceduralComponentBase(objectId, root);
-			const progress = THREE.MathUtils.clamp(Number(process.progress) || 0, 0, 1);
-			const wave = Math.sin(Math.PI * progress);
-			if (isInspection) {
-				root.traverse((node) => {
-					if (node.userData?.rotaryInspectionGripper !== true) return;
-					const base = bases.get(node); if (!base) return;
-					node.rotation.y = base.rotation.y + progress * Math.PI * 6;
-					node.position.y = base.position.y - wave * 0.16;
-				});
-			} else {
-				const pickup = root.getObjectByName('Bagging-Vacuum-Pickup');
-				if (pickup) { const base = bases.get(pickup); if (base) pickup.position.z = base.position.z - wave * Math.abs(base.position.z) * 0.72; }
-				const lift = root.getObjectByName('Bagging-Z-Lift');
-				if (lift) { const base = bases.get(lift); if (base) lift.position.y = base.position.y - wave * 0.82; }
-			}
+			const processKey = String(root.userData?.componentProcessKey || '');
+			const state = processKey ? processStates[processKey] : undefined;
+			if (!state) continue;
+			root.userData.processActive = state.active;
+			root.userData.processProgress = THREE.MathUtils.clamp(Number(state.progress) || 0, 0, 1);
 		}
 	}
 

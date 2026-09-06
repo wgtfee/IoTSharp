@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
 import { createDefaultTwinSceneManifest, createSilkCakeLineTwinSceneManifest, type TwinSceneManifest } from '../src/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '../src/digital-twin/contracts/v7-components';
 import { ComponentProcessStateMachine } from '../src/digital-twin/runtime/ComponentProcessStateMachine';
@@ -40,6 +41,16 @@ import { BehaviorRuntime } from '../src/digital-twin/runtime/BehaviorRuntime';
 const assert = (condition: unknown, message: string) => {
 	if (!condition) throw new Error(message);
 };
+
+// 架构边界回归：固定设备内部节点只允许出现在组件定义/组件设计器，跨对象业务别名不得进入通用 BehaviorRuntime。
+const componentProcessRuntimeSource = readFileSync('src/digital-twin/runtime/ComponentProcessRuntime.ts', 'utf8');
+for (const forbidden of ['Inspection-Rotary-Gripper', 'Bagging-', 'VacuumTuck-', 'Wrapper-Rotary-Arm', 'Labeler-Arm-Joint']) {
+	assert(!componentProcessRuntimeSource.includes(forbidden), `ComponentProcessRuntime 重新硬编码了固定设备内部节点: ${forbidden}`);
+}
+const behaviorRuntimeSource = readFileSync('src/digital-twin/runtime/BehaviorRuntime.ts', 'utf8');
+for (const forbidden of ['YarnFixture', 'SeparatorFixture', 'readyForSeparator', 'inPalletZone']) {
+	assert(!behaviorRuntimeSource.includes(forbidden), `BehaviorRuntime 重新引入了参考包装线业务别名: ${forbidden}`);
+}
 
 const resourceId = '11111111-1111-4111-8111-111111111111';
 const smallTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-small-roller-conveyor')!;
@@ -573,7 +584,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			if (loadingIds.length === 6) sawLoadingBatch = true;
 			if (Math.abs(robotAxis1.rotation.y - robotStartYaw) > 0.02) sawRobotMotion = true;
 			if (gantryIds.length === 6) sawGantryBatch = true;
-			const yarnChannel = v15IntegratedBehavior.getSnapshot().channels.find((item) => item.actorNodePath === 'YarnFixture');
+			const yarnChannel = v15IntegratedBehavior.getSnapshot().channels.find((item) => item.actorNodePath === 'Gantry-Silk-Rail-Carriage');
 			if (yarnChannel && (yarnChannel.completedActions > 0 || yarnChannel.status === 'moving' || yarnChannel.status === 'acting')) sawGantryMotion = true;
 			const runtimePallets: THREE.Object3D[] = [];
 			v15IntegratedScene.traverse((node) => {
@@ -591,7 +602,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				}
 				if (minimumDistance > 0.5) sawLoadingBatchSeparated = true;
 			}
-			if (Number(stackRoot.userData.stackedSilkCakeCount || 0) >= 6) sawFirstStackLayer = true;
+			if (Number(stackRoot.userData.stackedItemCount || 0) >= 6) sawFirstStackLayer = true;
 			if (sawLoadingBatch && sawLoadingBatchSeparated && sawRobotMotion && sawSixPalletsWithTwoCakes && sawGantryBatch && sawGantryMotion && sawFirstStackLayer) break;
 		}
 		const integratedPalletSnapshot = v15IntegratedSlots.getSimulationSnapshot();
@@ -602,7 +613,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(sawSixPalletsWithTwoCakes, `V15 integrated runtime did not distribute 12 cakes to 6 pallets: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawGantryBatch, `V15 integrated runtime did not form gantry batch: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawGantryMotion, `V15 integrated runtime gantry did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}`);
-		assert(sawFirstStackLayer, `V15 integrated runtime did not stack first layer: stack=${Number(stackRoot.userData.stackedSilkCakeCount || 0)}`);
+		assert(sawFirstStackLayer, `V15 integrated runtime did not stack first layer: stack=${Number(stackRoot.userData.stackedItemCount || 0)}`);
 	} finally {
 		v15IntegratedBehavior.dispose();
 		v15IntegratedSlots.dispose();
@@ -704,7 +715,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 					if (node.userData?.legacySyntheticPayload === true && node.userData?.payloadType === 'silk-cake') sawLegacySyntheticSilk = true;
 					if (node.userData?.legacySyntheticPayload === true && node.userData?.payloadType === 'separator') sawLegacySyntheticSeparator = true;
 				});
-				const separator = behaviorRuntimeV12.getSnapshot().channels.find((item) => item.actorNodePath === 'SeparatorFixture');
+				const separator = behaviorRuntimeV12.getSnapshot().channels.find((item) => item.actorNodePath === 'Gantry-Separator-Rail-Carriage');
 				if (separator?.status === 'waiting-interlock') sawSeparatorWaiting = true;
 				if (sawSeparatorWaiting && separator && separator.status !== 'waiting-interlock' && separator.completedActions >= 3) sawSeparatorReleased = true;
 			}
@@ -721,8 +732,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const robotChannel = behaviorSnapshot.channels.find((item) => item.actorObjectId === 'reference-loading-robot');
 		assert(Boolean(robotChannel) && robotChannel!.completedActions >= 4, 'V12 机器人没有真正执行工作点动作');
 		assert(Math.abs(robotAxis1.rotation.y - robotStartYaw) > 0.02 || robotChannel!.cycleCount > 0, 'V12 机器人 J1 没有被 BehaviorRuntime 驱动');
-		const yarnChannel = behaviorSnapshot.channels.find((item) => item.actorNodePath === 'YarnFixture');
-		const separatorChannel = behaviorSnapshot.channels.find((item) => item.actorNodePath === 'SeparatorFixture');
+		const yarnChannel = behaviorSnapshot.channels.find((item) => item.actorNodePath === 'Gantry-Silk-Rail-Carriage');
+		const separatorChannel = behaviorSnapshot.channels.find((item) => item.actorNodePath === 'Gantry-Separator-Rail-Carriage');
 		assert(Boolean(yarnChannel) && yarnChannel!.completedActions >= 3, 'V12 丝锭夹具没有独立执行动作通道');
 		assert(Boolean(separatorChannel) && separatorChannel!.interlockWaitCount > 0 && sawSeparatorWaiting, 'V12 隔板夹具没有真实等待木托共享区联锁');
 		assert(sawSeparatorReleased, 'V12 丝锭夹具离开共享区后，隔板联锁没有释放');
@@ -735,8 +746,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(gantryDetail?.behaviorRuntime?.channels?.length === 2, '桁架运行状态没有暴露丝锭/隔板两个动作通道');
 
 		const stackPalletRoot = behaviorRootsV12.get('reference-stacking-pallet')!;
-		assert(Number(stackPalletRoot.userData.stackedSilkCakeCount || 0) === 12, `V15 第一批 2×6 没有码出两层共 12 个真实丝锭：stack=${Number(stackPalletRoot.userData.stackedSilkCakeCount || 0)}, yarn=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
-		assert(Number(stackPalletRoot.userData.stackedSeparatorCount || 0) === 2, `V15 第一批 2×6 没有完成两层隔板：separator=${Number(stackPalletRoot.userData.stackedSeparatorCount || 0)}, groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
+		assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === 12, `V15 第一批 2×6 没有码出两层共 12 个真实丝锭：stack=${Number(stackPalletRoot.userData.stackedItemCount || 0)}, yarn=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
+		assert(Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === 2, `V15 第一批 2×6 没有完成两层隔板：separator=${Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0)}, groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
 		const clearV15StationBatch = () => {
 			loadingStationRoot.userData.stationPalletIds = [];
 			gantryStationRoot.userData.stationPalletIds = [];
@@ -756,8 +767,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				}
 			}
 			assert(batchCompleted, `V15 第 ${batch} 个 2×6 批次没有完成机器人上料 + 两轮 2×3 桁架码垛`);
-			assert(Number(stackPalletRoot.userData.stackedSilkCakeCount || 0) === batch * 12, `V15 第 ${batch} 批后木托真实丝锭数量不等于 ${batch * 12}`);
-			assert(Number(stackPalletRoot.userData.stackedSeparatorCount || 0) === batch * 2, `V15 第 ${batch} 批后隔板数量不等于 ${batch * 2}`);
+			assert(Number(stackPalletRoot.userData.stackedItemCount || 0) === batch * 12, `V15 第 ${batch} 批后木托真实丝锭数量不等于 ${batch * 12}`);
+			assert(Number(stackPalletRoot.userData.stackedLayerMaterialCount || 0) === batch * 2, `V15 第 ${batch} 批后隔板数量不等于 ${batch * 2}`);
 		}
 		const stackAnchorV15 = stackPalletRoot.getObjectByName('StackAnchor')!;
 		const stackedSilkV15: THREE.Object3D[] = [];
@@ -775,7 +786,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(new Set(stackedSilkV15.map((node) => `${node.position.x.toFixed(3)},${node.position.y.toFixed(3)},${node.position.z.toFixed(3)}`)).size === 48, 'V15 48 个丝锭实际落点没有形成 48 个唯一坐标');
 		for (let layer = 1; layer <= 8; layer += 1) {
 			assert(stackedSilkV15.filter((node) => Number(node.userData.stackLayer) === layer).length === 6, `V15 第 ${layer} 层不是 2×3 共 6 锭`);
-			assert(stackedSeparatorsV15.filter((node) => Number(node.userData.separatorLayer) === layer).length === 1, `V15 第 ${layer} 层没有唯一隔板`);
+			assert(stackedSeparatorsV15.filter((node) => Number(node.userData.stackLayerMaterialIndex) === layer).length === 1, `V15 第 ${layer} 层没有唯一隔板`);
 		}
 		assert(stackPalletRoot.userData.stackComplete === true && stackPalletRoot.userData.readyForPostProcess === true, 'V15 48 锭 + 8 隔板完成后木托没有进入满托/后包装就绪状态');
 		assert(behaviorStationPalletRoots.every((root) => {
@@ -1335,23 +1346,28 @@ for (const routeCode of ['A', 'B'] as const) {
 	const runtime = new ComponentProcessRuntime({ route: processRoute, routeEngine: engine, getComponentRoot: (objectId) => roots.get(objectId)?.root, getRoutingContext: () => ({ payload: { routeCode }, bindingValues: {}, staleBindingIds: [] }) });
 	runtime.setRunning(true);
 	const activeStations = new Set<string>();
-	const inspectionPhases = new Set<string>();
-	const baggingPhases = new Set<string>();
+	let sawInspectionTimeline = false;
+	let sawBaggingTimeline = false;
+	const inspectionRoot = roots.get('reference-external-inspection')!.root;
+	const inspectionGripper = inspectionRoot.getObjectByName('Inspection-Rotary-Gripper')!;
+	const inspectionBaseRotation = inspectionGripper.rotation.y;
+	const bagRoot = roots.get(routeCode === 'A' ? 'reference-bagging-a' : 'reference-bagging-b')!.root;
+	const bagFeedRoller = bagRoot.getObjectByName('Bagging-Film-Guide-Roller-1')!;
+	const bagFeedBaseRotation = bagFeedRoller.rotation.y;
 	for (let index = 0; index < 1200; index += 1) {
 		const allow = runtime.updateFixed(1 / 30);
 		if (allow) engine.updateFixed(1 / 30);
+		for (const built of roots.values()) advanceComponentVisualRuntime(built.root, 1 / 30, 1);
 		const snapshot = runtime.getSnapshot();
 		if (snapshot.activeStationId) activeStations.add(snapshot.activeStationId);
-		const inspectionRoot = roots.get('reference-external-inspection')!.root;
-		if (inspectionRoot.userData.processActive) inspectionPhases.add(String(inspectionRoot.userData.processPhase));
-		const bagRoot = roots.get(routeCode === 'A' ? 'reference-bagging-a' : 'reference-bagging-b')!.root;
-		if (bagRoot.userData.processActive) baggingPhases.add(String(bagRoot.userData.processPhase));
+		if (inspectionRoot.userData.processActive && Math.abs(inspectionGripper.rotation.y - inspectionBaseRotation) > 0.05) sawInspectionTimeline = true;
+		if (bagRoot.userData.processActive && Math.abs(bagFeedRoller.rotation.y - bagFeedBaseRotation) > 0.05) sawBaggingTimeline = true;
 		if (snapshot.processedStationIds.includes('reference-external-inspection') && snapshot.processedStationIds.includes(routeCode === 'A' ? 'reference-bagging-a' : 'reference-bagging-b')) break;
 	}
 	assert(activeStations.has('reference-external-inspection'), '参考图 ' + routeCode + ' 前行线没有在外检机内部停车');
 	assert(activeStations.has(routeCode === 'A' ? 'reference-bagging-a' : 'reference-bagging-b'), '参考图 ' + routeCode + ' 前行线没有进入对应侧封膜机');
-	assert(inspectionPhases.has('positioning') && inspectionPhases.has('rotate-scan') && inspectionPhases.has('release'), '外检机内部流程阶段不完整');
-	assert(baggingPhases.has('positioning') && baggingPhases.has('film-feed') && baggingPhases.has('side-seal') && baggingPhases.has('cut'), '侧封膜机内部流程阶段不完整');
+	assert(Array.isArray(inspectionRoot.userData.componentAnimations) && inspectionRoot.userData.componentAnimations.length >= 5 && sawInspectionTimeline, '外检机没有通过组件内部 Process 时间轴执行固定动画');
+	assert(Array.isArray(bagRoot.userData.componentAnimations) && bagRoot.userData.componentAnimations.length >= 10 && sawBaggingTimeline, '侧封膜机没有通过组件内部 Process 时间轴执行固定动画');
 	runtime.dispose(); for (const built of roots.values()) built.dispose();
 }
 
@@ -1989,6 +2005,7 @@ const genericGripperBaseRotation = genericGripper.rotation.y;
 for (let index = 0; index < 240; index += 1) {
 	const allowRoute = genericProcessRuntime.updateFixed(1 / 30);
 	if (allowRoute) genericRouteEngine.updateFixed(1 / 30);
+	advanceComponentVisualRuntime(genericInspection.root, 1 / 30, 1);
 	const processSnapshot = genericProcessRuntime.getSnapshot();
 	if (processSnapshot.activeStationId === 'InspectionAuto01') {
 		observedAutoStop = true;
@@ -1998,7 +2015,7 @@ for (let index = 0; index < 240; index += 1) {
 }
 assert(observedAutoStop, '普通 V7 组件场景没有在外检工艺组件中自动停车');
 assert(Math.abs(stoppedDistance - 5) < 0.15, '工艺停车位置必须位于外检组件内部中点，实际 ' + stoppedDistance.toFixed(2) + 'm');
-assert(observedInspectionMotion, '外检工艺运行时没有驱动旋转检测夹具动画');
+assert(observedInspectionMotion, '外检工位没有通过组件内部时间轴驱动旋转检测夹具动画');
 assert(genericProcessRuntime.getSnapshot().processedStationIds.includes('InspectionAuto01'), 'cycleSeconds 完成后没有记录工艺完成');
 assert(genericRouteEngine.getSnapshot().distanceMeters > 5.2, '工艺完成后路线没有自动恢复放行');
 genericProcessRuntime.dispose();

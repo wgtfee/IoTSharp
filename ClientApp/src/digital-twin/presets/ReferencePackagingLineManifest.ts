@@ -8,136 +8,21 @@ import {
 import type { TwinV7SceneObjectDefinition } from '../contracts/v7-components';
 import { getBuiltInComponentTemplate } from '../components/BuiltInComponentCatalog';
 import { areComponentPortsCompatible, resolveComponentPorts, upsertGeneratedComponentRoutes } from '../components/ComponentConnectionEngine';
+import referencePackagingActionsV17 from './reference-packaging-actions-v17.json';
 
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
-export const REFERENCE_PACKAGING_LAYOUT_VERSION = 16;
+export const REFERENCE_PACKAGING_LAYOUT_VERSION = 17;
 
-const applyReferenceV12BehaviorAndPalletInitialization = (manifest: TwinSceneManifest) => {
-	manifest.materialSlots = [
-		{ slotId: 'reference-turntable-west-silk-source', name: '西侧双面丝车机器人抓取面', objectId: 'reference-turntable-west', role: 'source', localPosition: [0, 2.15, 1.26], payloadType: 'silk-cake', capacity: 36, metadata: { entityGroups: ['A', 'B'], presentationAngles: { A: 0, B: Math.PI }, rotationNodePath: 'RotatingDeck', minimumBatch: 12 } },
-		{ slotId: 'reference-turntable-east-silk-source', name: '东侧双面丝车机器人抓取面', objectId: 'reference-turntable-east', role: 'source', localPosition: [0, 2.15, -1.26], payloadType: 'silk-cake', capacity: 36, metadata: { entityGroups: ['B', 'A'], presentationAngles: { B: 0, A: Math.PI }, rotationNodePath: 'RotatingDeck', minimumBatch: 12 } },
-		{ slotId: 'reference-robot-small-pallet-target', name: '机器人上料位 6 个到位小托盘', objectId: 'reference-loading-robot', role: 'target', localPosition: [0, 1.35, -6.2], payloadType: 'silk-cake', capacity: 12, runtimeOwnerType: 'plastic-pallet', runtimeOwnerNodePath: 'SilkCakeAnchor', runtimeOwnerSelection: 'station-batch', distributePayloadAcrossRuntimeOwners: true },
-		{ slotId: 'reference-gantry-yarn-source-slot', name: '桁架取丝位 6 个到位小托盘', objectId: 'reference-stacking-gantry', role: 'source', localPosition: [0, 1.15, 6.0], payloadType: 'silk-cake', capacity: 1, runtimeOwnerType: 'plastic-pallet', runtimeOwnerNodePath: 'SilkCakeAnchor', runtimeOwnerSelection: 'station-batch' },
-		{ slotId: 'reference-gantry-wood-stack-slot', name: '桁架木托 2×3×8 码垛槽位', objectId: 'reference-stacking-pallet', role: 'stack', nodePath: 'StackAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 48, stackPattern: { columns: 3, rows: 2, layers: 8, spacingX: 1.55, spacingZ: 1.36, firstLayerY: 0.36, layerPitch: 0.46, originX: -1.55, originZ: -0.68, separatorThickness: 0.05 } },
-		{ slotId: 'reference-gantry-separator-source-slot', name: '隔板真实取料槽位', objectId: 'reference-stacking-gantry', role: 'source', nodePath: 'SeparatorFeeder-A', localPosition: [0, 1.18, 0], payloadType: 'separator', capacity: 10 },
-		{ slotId: 'reference-gantry-separator-stack-slot', name: '木托每层隔板槽位', objectId: 'reference-stacking-pallet', role: 'stack', nodePath: 'StackAnchor', localPosition: [0, 0, 0], payloadType: 'separator', capacity: 8, metadata: { stackPatternSlotId: 'reference-gantry-wood-stack-slot' } },
-	];
-	manifest.toolFrames = [
-		{ toolFrameId: 'reference-robot-tcp', name: '上料机器人 2×6 TCP', objectId: 'reference-loading-robot', nodePath: 'RobotGridGripper-2x6', localPosition: [0, 0, 0], payloadTypes: ['silk-cake'] },
-		{ toolFrameId: 'reference-gantry-yarn-tcp', name: '桁架丝锭夹具 TCP', objectId: 'reference-stacking-gantry', nodePath: 'GantryGripper-2x3', localPosition: [0, -0.28, 0], payloadTypes: ['silk-cake'] },
-		{ toolFrameId: 'reference-gantry-separator-tcp', name: '桁架隔板夹具 TCP', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Separator-Gripper', localPosition: [0, -0.34, 0], payloadTypes: ['separator'] },
-	];
-	manifest.workPoints = [
-		{ workPointId: 'reference-v12-turntable-west-pick', name: '西侧旋转台丝锭抓取点', objectId: 'reference-turntable-west', role: 'pick', materialSlotId: 'reference-turntable-west-silk-source', toolFrameId: 'reference-robot-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-turntable-east-pick', name: '东侧旋转台丝锭抓取点', objectId: 'reference-turntable-east', role: 'pick', materialSlotId: 'reference-turntable-east-silk-source', toolFrameId: 'reference-robot-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-loading-robot-home', name: '上料机器人安全原点', objectId: 'reference-loading-robot', role: 'home', localPosition: [0, 4.6, 0] },
-		{ workPointId: 'reference-v12-loading-robot-place', name: '上料机器人小托盘放置点', objectId: 'reference-loading-robot', role: 'place', materialSlotId: 'reference-robot-small-pallet-target', toolFrameId: 'reference-robot-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-gantry-yarn-source', name: '丝锭夹具取料点', objectId: 'reference-stacking-gantry', role: 'pick', materialSlotId: 'reference-gantry-yarn-source-slot', toolFrameId: 'reference-gantry-yarn-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-gantry-pallet-stack', name: '木托码垛工作点', objectId: 'reference-stacking-pallet', role: 'stack', materialSlotId: 'reference-gantry-wood-stack-slot', toolFrameId: 'reference-gantry-yarn-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-gantry-separator-buffer', name: '隔板缓存取料点', objectId: 'reference-stacking-gantry', role: 'buffer', materialSlotId: 'reference-gantry-separator-source-slot', toolFrameId: 'reference-gantry-separator-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v14-gantry-separator-stack', name: '隔板木托放置点', objectId: 'reference-stacking-pallet', role: 'stack', materialSlotId: 'reference-gantry-separator-stack-slot', toolFrameId: 'reference-gantry-separator-tcp', localPosition: [0, 0, 0] },
-		{ workPointId: 'reference-v12-gantry-yarn-safe', name: '丝锭夹具安全等待点', objectId: 'reference-stacking-gantry', role: 'safe', localPosition: [-1.5, 5.6, 5.8] },
-		{ workPointId: 'reference-v12-gantry-separator-safe', name: '隔板夹具安全等待点', objectId: 'reference-stacking-gantry', role: 'safe', localPosition: [1.5, 5.6, -5.4] },
-	];
-	manifest.actuators = [
-		{ actuatorId: 'reference-robot-j1', name: '上料机器人 J1', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-1', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI, maxValue: Math.PI, homeValue: 0, speed: 1.8 },
-		{ actuatorId: 'reference-robot-j2', name: '上料机器人 J2', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-2', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.6, maxValue: 1.4, homeValue: -0.48, speed: 1.6 },
-		{ actuatorId: 'reference-robot-j3', name: '上料机器人 J3', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-3', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.8, maxValue: 2.8, homeValue: Math.PI / 2 + 0.48, speed: 1.8 },
-		{ actuatorId: 'reference-robot-j4', name: '上料机器人 J4', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-4', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI, maxValue: Math.PI, homeValue: 0, speed: 2.2 },
-		{ actuatorId: 'reference-robot-j5', name: '上料机器人 J5', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-5', kind: 'rotary-joint', motionAxis: 'z', unit: 'rad', minValue: -2.2, maxValue: 2.2, homeValue: 0, speed: 2.2 },
-		{ actuatorId: 'reference-robot-j6', name: '上料机器人 J6', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-6', kind: 'rotary-joint', motionAxis: 'y', unit: 'rad', minValue: -Math.PI * 2, maxValue: Math.PI * 2, homeValue: 0, speed: 2.6 },
-		{ actuatorId: 'reference-robot-gripper', name: '上料机器人 2×6 丝锭夹具', objectId: 'reference-loading-robot', nodePath: 'RobotGridGripper-2x6', kind: 'gripper', unit: 'boolean' },
-		{ actuatorId: 'reference-gantry-yarn-z', name: '丝锭夹具水平轴', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Silk-Rail-Carriage', kind: 'linear-axis', motionAxis: 'z', unit: 'meter', minValue: -6.7, maxValue: 6.7, homeValue: 1.8, speed: 3 },
-		{ actuatorId: 'reference-gantry-yarn-y', name: '丝锭夹具升降轴', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Z-Slide', kind: 'linear-axis', motionAxis: 'y', unit: 'meter', minValue: -8, maxValue: 3, homeValue: 0, speed: 2.2 },
-		{ actuatorId: 'reference-gantry-yarn-gripper', name: '丝锭 2×3 夹具', objectId: 'reference-stacking-gantry', nodePath: 'GantryGripper-2x3', kind: 'gripper', unit: 'boolean' },
-		{ actuatorId: 'reference-gantry-separator-z', name: '隔板夹具水平轴', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Separator-Rail-Carriage', kind: 'linear-axis', motionAxis: 'z', unit: 'meter', minValue: -6.7, maxValue: 6.7, homeValue: -1.8, speed: 3 },
-		{ actuatorId: 'reference-gantry-separator-y', name: '隔板夹具升降轴', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Separator-Z-Slide', kind: 'linear-axis', motionAxis: 'y', unit: 'meter', minValue: -8, maxValue: 3, homeValue: 0, speed: 2.2 },
-		{ actuatorId: 'reference-gantry-separator-gripper', name: '隔板真空夹具', objectId: 'reference-stacking-gantry', nodePath: 'Gantry-Separator-Gripper', kind: 'gripper', unit: 'boolean' },
-	];
-	manifest.poses = [
-		{ poseId: 'reference-robot-home', name: '机器人 Home', objectId: 'reference-loading-robot', targets: [
-			{ actuatorId: 'reference-robot-j1', value: 0 }, { actuatorId: 'reference-robot-j2', value: -0.48 }, { actuatorId: 'reference-robot-j3', value: Math.PI / 2 + 0.48 },
-			{ actuatorId: 'reference-robot-j4', value: 0 }, { actuatorId: 'reference-robot-j5', value: 0 }, { actuatorId: 'reference-robot-j6', value: 0 }, { actuatorId: 'reference-robot-gripper', value: false },
-		] },
-		{ poseId: 'reference-robot-pick-west', name: '机器人西旋转台取丝姿态', objectId: 'reference-loading-robot', workPointId: 'reference-v12-turntable-west-pick', toolFrameId: 'reference-robot-tcp', targets: [
-			{ actuatorId: 'reference-robot-j1', value: 2.65 }, { actuatorId: 'reference-robot-j2', value: -0.95 }, { actuatorId: 'reference-robot-j3', value: 1.72 }, { actuatorId: 'reference-robot-j5', value: -0.72 },
-		] },
-		{ poseId: 'reference-robot-pick-east', name: '机器人东旋转台取丝姿态', objectId: 'reference-loading-robot', workPointId: 'reference-v12-turntable-east-pick', toolFrameId: 'reference-robot-tcp', targets: [
-			{ actuatorId: 'reference-robot-j1', value: 0.05 }, { actuatorId: 'reference-robot-j2', value: -0.95 }, { actuatorId: 'reference-robot-j3', value: 1.72 }, { actuatorId: 'reference-robot-j5', value: -0.72 },
-		] },
-		{ poseId: 'reference-robot-place-small-pallet', name: '机器人小托盘放丝姿态', objectId: 'reference-loading-robot', workPointId: 'reference-v12-loading-robot-place', toolFrameId: 'reference-robot-tcp', targets: [
-			{ actuatorId: 'reference-robot-j1', value: Math.PI / 2 }, { actuatorId: 'reference-robot-j2', value: -0.82 }, { actuatorId: 'reference-robot-j3', value: 1.62 }, { actuatorId: 'reference-robot-j5', value: -0.8 },
-		] },
-		{ poseId: 'reference-gantry-yarn-safe', name: '丝锭夹具安全位', objectId: 'reference-stacking-gantry', targets: [{ actuatorId: 'reference-gantry-yarn-z', value: 5.8 }, { actuatorId: 'reference-gantry-yarn-y', value: -1.2 }] },
-		{ poseId: 'reference-gantry-yarn-pick', name: '丝锭夹具取料位', objectId: 'reference-stacking-gantry', workPointId: 'reference-v12-gantry-yarn-source', toolFrameId: 'reference-gantry-yarn-tcp', targets: [{ actuatorId: 'reference-gantry-yarn-z', value: 6.0 }, { actuatorId: 'reference-gantry-yarn-y', value: -4.8 }] },
-		{ poseId: 'reference-gantry-yarn-stack', name: '丝锭夹具码垛位', objectId: 'reference-stacking-gantry', workPointId: 'reference-v12-gantry-pallet-stack', toolFrameId: 'reference-gantry-yarn-tcp', targets: [{ actuatorId: 'reference-gantry-yarn-z', value: 0 }, { actuatorId: 'reference-gantry-yarn-y', value: -5.2 }] },
-		{ poseId: 'reference-gantry-separator-safe', name: '隔板夹具安全位', objectId: 'reference-stacking-gantry', targets: [{ actuatorId: 'reference-gantry-separator-z', value: -5.4 }, { actuatorId: 'reference-gantry-separator-y', value: -1.2 }] },
-		{ poseId: 'reference-gantry-separator-pick', name: '隔板夹具缓存取料位', objectId: 'reference-stacking-gantry', workPointId: 'reference-v12-gantry-separator-buffer', toolFrameId: 'reference-gantry-separator-tcp', targets: [{ actuatorId: 'reference-gantry-separator-z', value: -5.6 }, { actuatorId: 'reference-gantry-separator-y', value: -5.0 }] },
-		{ poseId: 'reference-gantry-separator-stack', name: '隔板夹具码垛位', objectId: 'reference-stacking-gantry', workPointId: 'reference-v14-gantry-separator-stack', toolFrameId: 'reference-gantry-separator-tcp', targets: [{ actuatorId: 'reference-gantry-separator-z', value: 0 }, { actuatorId: 'reference-gantry-separator-y', value: -5.0 }] },
-	];
-	manifest.interlocks = [{
-		interlockId: 'reference-v12-gantry-pallet-zone-exclusive',
-		name: '桁架木托共享区互斥',
-		description: '隔板夹具只有在丝锭夹具离开木托共享区后才能进入，避免双夹具在码垛位冲突。',
-		conditions: [
-			{ source: 'reference-stacking-gantry.yarnFixture.readyForSeparator', operator: 'truthy' },
-			{ source: 'reference-stacking-gantry.yarnFixture.inPalletZone', operator: 'falsy' },
-			{ source: 'reference-stacking-gantry.separatorFixture.hasMaterial', operator: 'truthy' },
-		],
-	}, {
-		interlockId: 'reference-v15-next-layer-after-separator', name: '上一层隔板完成后才允许下一层取丝', mode: 'all', conditions: [
-			{ source: 'reference-stacking-gantry.yarnFixture.readyForSeparator', operator: 'falsy' },
-		],
-	}];
-	manifest.behaviors = [
-		{
-			behaviorId: 'reference-v12-robot-pick-west', name: '机器人抓取西侧旋转台丝锭', actorObjectId: 'reference-loading-robot', enabled: true, loop: true, stationCompletionGroup: 'load', actions: [
-				{ actionId: 'west-pick-pose', kind: 'movePose', poseId: 'reference-robot-pick-west', speedRatio: 0.7 },
-				{ actionId: 'west-grip-close', kind: 'gripClose', actuatorId: 'reference-robot-gripper' },
-				{ actionId: 'west-attach', kind: 'attach', workPointId: 'reference-v12-turntable-west-pick', sourceSlotId: 'reference-turntable-west-silk-source', toolFrameId: 'reference-robot-tcp', payloadType: 'silk-cake', payloadCount: 12 },
-				{ actionId: 'west-place-pose', kind: 'movePose', poseId: 'reference-robot-place-small-pallet', speedRatio: 0.7 },
-				{ actionId: 'west-detach', kind: 'detach', workPointId: 'reference-v12-loading-robot-place', targetSlotId: 'reference-robot-small-pallet-target', toolFrameId: 'reference-robot-tcp', payloadType: 'silk-cake' },
-				{ actionId: 'west-grip-open', kind: 'gripOpen', actuatorId: 'reference-robot-gripper' },
-				{ actionId: 'west-home', kind: 'home', poseId: 'reference-robot-home', workPointId: 'reference-v12-loading-robot-home' },
-			],
-		},
-		{
-			behaviorId: 'reference-v12-robot-pick-east', name: '机器人抓取东侧旋转台丝锭', actorObjectId: 'reference-loading-robot', enabled: true, loop: true, stationCompletionGroup: 'load', actions: [
-				{ actionId: 'east-pick-pose', kind: 'movePose', poseId: 'reference-robot-pick-east', speedRatio: 0.7 },
-				{ actionId: 'east-grip-close', kind: 'gripClose', actuatorId: 'reference-robot-gripper' },
-				{ actionId: 'east-attach', kind: 'attach', workPointId: 'reference-v12-turntable-east-pick', sourceSlotId: 'reference-turntable-east-silk-source', toolFrameId: 'reference-robot-tcp', payloadType: 'silk-cake', payloadCount: 12 },
-				{ actionId: 'east-place-pose', kind: 'movePose', poseId: 'reference-robot-place-small-pallet', speedRatio: 0.7 },
-				{ actionId: 'east-detach', kind: 'detach', workPointId: 'reference-v12-loading-robot-place', targetSlotId: 'reference-robot-small-pallet-target', toolFrameId: 'reference-robot-tcp', payloadType: 'silk-cake' },
-				{ actionId: 'east-grip-open', kind: 'gripOpen', actuatorId: 'reference-robot-gripper' },
-				{ actionId: 'east-home', kind: 'home', poseId: 'reference-robot-home', workPointId: 'reference-v12-loading-robot-home' },
-			],
-		},
-		{
-			behaviorId: 'reference-v12-gantry-yarn-stack', name: '丝锭夹具抓取并码垛', actorObjectId: 'reference-stacking-gantry', enabled: true, loop: true, stationCompletionGroup: 'yarn', actions: [
-				{ actionId: 'yarn-wait-previous-separator', kind: 'wait', waitForInterlockId: 'reference-v15-next-layer-after-separator' },
-				{ actionId: 'yarn-source', kind: 'movePose', poseId: 'reference-gantry-yarn-pick', actorNodePath: 'YarnFixture', speedRatio: 0.75 },
-				{ actionId: 'yarn-grip-close', kind: 'gripClose', actuatorId: 'reference-gantry-yarn-gripper', actorNodePath: 'YarnFixture' },
-				{ actionId: 'yarn-attach', kind: 'attach', workPointId: 'reference-v12-gantry-yarn-source', sourceSlotId: 'reference-gantry-yarn-source-slot', toolFrameId: 'reference-gantry-yarn-tcp', actorNodePath: 'YarnFixture', payloadType: 'silk-cake', payloadCount: 6 },
-				{ actionId: 'yarn-stack-pose', kind: 'movePose', poseId: 'reference-gantry-yarn-stack', actorNodePath: 'YarnFixture' },
-				{ actionId: 'yarn-detach', kind: 'detach', workPointId: 'reference-v12-gantry-pallet-stack', targetSlotId: 'reference-gantry-wood-stack-slot', toolFrameId: 'reference-gantry-yarn-tcp', actorNodePath: 'YarnFixture', payloadType: 'silk-cake' },
-				{ actionId: 'yarn-grip-open', kind: 'gripOpen', actuatorId: 'reference-gantry-yarn-gripper', actorNodePath: 'YarnFixture' },
-				{ actionId: 'yarn-safe', kind: 'movePose', poseId: 'reference-gantry-yarn-safe', actorNodePath: 'YarnFixture' },
-			],
-		},
-		{
-			behaviorId: 'reference-v12-gantry-separator-stack', name: '隔板夹具抓取并放置隔板', actorObjectId: 'reference-stacking-gantry', enabled: true, loop: true, stationCompletionGroup: 'separator', interlockIds: ['reference-v12-gantry-pallet-zone-exclusive'], actions: [
-				{ actionId: 'separator-buffer', kind: 'movePose', poseId: 'reference-gantry-separator-pick', actorNodePath: 'SeparatorFixture' },
-				{ actionId: 'separator-grip-close', kind: 'gripClose', actuatorId: 'reference-gantry-separator-gripper', actorNodePath: 'SeparatorFixture' },
-				{ actionId: 'separator-attach', kind: 'attach', workPointId: 'reference-v12-gantry-separator-buffer', sourceSlotId: 'reference-gantry-separator-source-slot', toolFrameId: 'reference-gantry-separator-tcp', actorNodePath: 'SeparatorFixture', payloadType: 'separator', payloadCount: 1 },
-				{ actionId: 'separator-wait', kind: 'wait', waitForInterlockId: 'reference-v12-gantry-pallet-zone-exclusive' },
-				{ actionId: 'separator-stack-pose', kind: 'movePose', poseId: 'reference-gantry-separator-stack', actorNodePath: 'SeparatorFixture' },
-				{ actionId: 'separator-detach', kind: 'detach', workPointId: 'reference-v14-gantry-separator-stack', targetSlotId: 'reference-gantry-separator-stack-slot', toolFrameId: 'reference-gantry-separator-tcp', actorNodePath: 'SeparatorFixture', payloadType: 'separator' },
-				{ actionId: 'separator-grip-open', kind: 'gripOpen', actuatorId: 'reference-gantry-separator-gripper', actorNodePath: 'SeparatorFixture' },
-				{ actionId: 'separator-safe', kind: 'movePose', poseId: 'reference-gantry-separator-safe', actorNodePath: 'SeparatorFixture' },
-			],
-		},
-	];
+const applyReferenceActionPreset = (manifest: TwinSceneManifest) => {
+	const preset = referencePackagingActionsV17 as unknown as Pick<TwinSceneManifest, 'materialSlots' | 'toolFrames' | 'workPoints' | 'actuators' | 'poses' | 'interlocks' | 'behaviors'>;
+	manifest.materialSlots = structuredClone(preset.materialSlots || []);
+	manifest.toolFrames = structuredClone(preset.toolFrames || []);
+	manifest.workPoints = structuredClone(preset.workPoints || []);
+	manifest.actuators = structuredClone(preset.actuators || []);
+	manifest.poses = structuredClone(preset.poses || []);
+	manifest.interlocks = structuredClone(preset.interlocks || []);
+	manifest.behaviors = structuredClone(preset.behaviors || []);
 	const primarySmallRouteId = manifest.runtime.primarySmallPalletRouteId;
 	manifest.runtime.routePalletInitializers = primarySmallRouteId
 		? [{ routeId: primarySmallRouteId, telemetryKey: `PalletSlots.${primarySmallRouteId}`, simulationDefaultCount: 6, emptyValue: 0 }]
@@ -593,7 +478,7 @@ const createUpperFrameRoute = (): TwinRouteDefinition => ({
 export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	const manifest = createBlankTwinSceneManifest();
 	manifest.name = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
-	manifest.description = 'V16 修复真实运行集成：小托盘从机器人前回流段排队进入批次工位，RouteSlot 到位状态自动唤醒 2×6 机器人和 2×3 桁架，并保持批次托盘可视间距；Live 仍由 PLC routeSlotArray 权威接管。';
+	manifest.description = 'V17 标准引擎版：动作、Pose、TCP、MaterialSlot、码垛规则和联锁全部来自声明式场景数据；Runtime 只提供通用执行能力，Live 仍由 PLC / Telemetry 权威接管。';
 	manifest.world.background = '#08111f';
 	const smallRoute = createSmallMainRoute();
 	const largeRoute = createLargeRoute();
@@ -730,7 +615,7 @@ export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManife
 		referencePackagingLayoutVersion: REFERENCE_PACKAGING_LAYOUT_VERSION,
 		primarySmallPalletRouteId: smallProcessRoute?.routeId,
 	};
-	applyReferenceV12BehaviorAndPalletInitialization(manifest);
+	applyReferenceActionPreset(manifest);
 	return manifest;
 };
 

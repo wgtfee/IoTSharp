@@ -9,6 +9,7 @@ import { silkLineLayout } from './SilkLineLayout';
 import { TwinSectionGeometryResolver } from './TwinSectionGeometryResolver';
 import { LabelingMachineComponent, SilkGantryComponent, TopCoverGantryComponent, WrapperMachineComponent } from '../components/PackagingLineComponents';
 import { PACKAGING_WOOD_PALLET_LENGTH, PACKAGING_WOOD_PALLET_WIDTH } from '../components/PackagingLineDimensions';
+import { advanceComponentVisualRuntime } from '../components/ComponentVisualRuntime';
 
 type SilkSide = 'A' | 'B';
 type PalletStage = 'source-queue' | 'loading' | 'to-load-check' | 'to-external-inspection' | 'external-inspection' | 'to-bagging' | 'bagging' | 'to-diverter' | 'to-gantry-a' | 'to-gantry-b' | 'gantry-a' | 'gantry-b' | 'empty-return-drop' | 'empty-return-main' | 'empty-return-rise' | 'returning';
@@ -452,14 +453,9 @@ export class ProceduralPackagingLine {
 	private activeCoverBlank?: THREE.Mesh;
 	private coverTargetWood?: WoodenPalletRuntime;
 	private readonly labelStationRoot = new THREE.Group();
-	private labelArmJoint1 = new THREE.Group();
-	private labelArmJoint2 = new THREE.Group();
-	private labelArmJoint3 = new THREE.Group();
-	private labelTampPad = new THREE.Group();
+	private labelerModelRoot = new THREE.Group();
 	private readonly wrapperStationRoot = new THREE.Group();
-	private wrapperRotaryArm = new THREE.Group();
-	private wrapperFilmCarriage = new THREE.Group();
-	private wrapperFilmCarriageHomeY = 0;
+	private wrapperModelRoot = new THREE.Group();
 	private readonly wrapperFilm = new THREE.Group();
 	private readonly inboundLiftRoot = new THREE.Group();
 	private readonly inboundLiftPlatform = new THREE.Group();
@@ -600,8 +596,12 @@ export class ProceduralPackagingLine {
 		this.coverGantryState = 'waiting';
 		this.coverGantryProgress = 0;
 		this.wrapperFilm.visible = false;
-		this.wrapperRotaryArm.rotation.y = 0;
-		this.wrapperFilmCarriage.position.y = this.wrapperFilmCarriageHomeY;
+		this.wrapperModelRoot.userData.processActive = false;
+		this.wrapperModelRoot.userData.processProgress = 0;
+		advanceComponentVisualRuntime(this.wrapperModelRoot, 1 / 60, 1);
+		this.labelerModelRoot.userData.processActive = false;
+		this.labelerModelRoot.userData.processProgress = 0;
+		advanceComponentVisualRuntime(this.labelerModelRoot, 1 / 60, 1);
 		this.wrapperStationRoot.userData.wrapperState = 'idle';
 		this.ensureCoverLoaded();
 		this.loadingSlots.fill(undefined);
@@ -750,6 +750,25 @@ export class ProceduralPackagingLine {
 			},
 			sections: this.flowRuntime.sections.getSnapshots(),
 			entities: this.flowRuntime.entities.getAll(),
+		};
+	}
+
+	/**
+	 * 向通用组件视觉层暴露固定工艺的 active/progress。
+	 * key 与组件自身 componentProcessKey 对齐；具体机械动作仍完全由组件内部时间轴定义。
+	 */
+	getComponentProcessStates(): Record<string, { active: boolean; progress: number }> {
+		const snapshot = this.getSnapshot();
+		const isActive = (state: string) => state === 'processing' || state === 'waiting';
+		return {
+			'external-inspection': {
+				active: isActive(snapshot.preProcess.inspection.state),
+				progress: THREE.MathUtils.clamp(Number(snapshot.preProcess.inspection.progress) || 0, 0, 1),
+			},
+			bagging: {
+				active: isActive(snapshot.preProcess.bagging.state),
+				progress: THREE.MathUtils.clamp(Number(snapshot.preProcess.bagging.progress) || 0, 0, 1),
+			},
 		};
 	}
 
@@ -1457,22 +1476,12 @@ export class ProceduralPackagingLine {
 			},
 		});
 		const labelerModel = builtLabeler.root;
+		this.labelerModelRoot = labelerModel;
 		labelerModel.userData.runtimeModelSource = 'builtin-labeling-machine';
 		this.labelStationRoot.add(labelerModel);
 		this.labelStationRoot.userData.runtimeModelSource = 'builtin-labeling-machine';
 		this.labelStationRoot.userData.labelerType = 'pallet-print-apply';
 		this.labelStationRoot.userData.loadStationary = true;
-		const getLabelGroup = (name: string) => {
-			const object = labelerModel.getObjectByName(name);
-			if (!(object instanceof THREE.Group)) throw new Error(`Runtime labeler missing group: ${name}`);
-			return object;
-		};
-		this.labelArmJoint1 = getLabelGroup('Labeler-Arm-Joint-1');
-		this.labelArmJoint2 = getLabelGroup('Labeler-Arm-Joint-2');
-		this.labelArmJoint3 = getLabelGroup('Labeler-Arm-Joint-3');
-		this.labelTampPad = getLabelGroup('Labeler-Tamp-Pad');
-		this.applyLabelerArmPose(0);
-
 		this.wrapperStationRoot.name = '缠膜机';
 		this.wrapperStationRoot.userData.twinEntityType = 'wrapper';
 		this.wrapperStationRoot.userData.twinEntityId = 'Wrapper-01';
@@ -1493,6 +1502,7 @@ export class ProceduralPackagingLine {
 			},
 		});
 		const wrapperModel = builtWrapper.root;
+		this.wrapperModelRoot = wrapperModel;
 		wrapperModel.userData.runtimeModelSource = 'builtin-wrapper-machine';
 		wrapperModel.userData.originalStationPosition = [WRAP_POSITION.x, 0, WRAP_POSITION.z];
 		this.wrapperStationRoot.add(wrapperModel);
@@ -1501,15 +1511,6 @@ export class ProceduralPackagingLine {
 		this.wrapperStationRoot.userData.loadStationary = true;
 		this.wrapperStationRoot.userData.wrapperState = 'idle';
 		this.wrapperStationRoot.userData.portalClearanceMeters = wrapperHeight - 0.25 - WOOD_COVERED_PACKAGE_TOP_Y;
-
-		const getWrapperGroup = (name: string) => {
-			const object = wrapperModel.getObjectByName(name);
-			if (!(object instanceof THREE.Group)) throw new Error(`Runtime rotary-arm wrapper missing group: ${name}`);
-			return object;
-		};
-		this.wrapperRotaryArm = getWrapperGroup('Wrapper-Rotary-Arm');
-		this.wrapperFilmCarriage = getWrapperGroup('Wrapper-Film-Carriage');
-		this.wrapperFilmCarriageHomeY = this.wrapperFilmCarriage.position.y;
 
 		// 透明包膜层只表示已经缠到货物上的薄膜，不再充当设备本体或旋转圆环。
 		const film = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.55, 5.20, 32, 1, true), this.wrapMaterial);
@@ -2657,7 +2658,9 @@ export class ProceduralPackagingLine {
 				this.wrapperStationRoot.userData.palletPresent = travelProgress >= 1;
 				if (travelProgress < 1) {
 					this.wrapperFilm.visible = false;
-					this.wrapperFilmCarriage.position.y = this.wrapperFilmCarriageHomeY;
+					this.wrapperModelRoot.userData.processActive = false;
+					this.wrapperModelRoot.userData.processProgress = 0;
+					advanceComponentVisualRuntime(this.wrapperModelRoot, deltaSeconds, 1);
 					this.wrapperStationRoot.userData.wrapperState = 'waiting-pallet';
 					this.wrapperStationRoot.userData.processActive = false;
 					continue;
@@ -2666,20 +2669,17 @@ export class ProceduralPackagingLine {
 				this.wrapperFilm.visible = true;
 				this.wrapperStationRoot.userData.wrapperState = 'wrapping';
 				this.wrapperStationRoot.userData.processActive = true;
-				// 悬臂绕静止满托 360° 连续公转；膜车沿立杆上下往复形成螺旋缠膜。
-				this.wrapperRotaryArm.rotation.y += deltaSeconds * 2.5;
-				const minCarriageY = Number(this.wrapperFilmCarriage.userData.minLocalY ?? this.wrapperFilmCarriageHomeY);
-				const maxCarriageY = Number(this.wrapperFilmCarriage.userData.maxLocalY ?? this.wrapperFilmCarriageHomeY);
-				const liftTriangle = 1 - Math.abs(wrapProgress * 2 - 1);
-				this.wrapperFilmCarriage.position.y = THREE.MathUtils.lerp(minCarriageY, maxCarriageY, liftTriangle);
-				this.wrapperStationRoot.userData.rotaryArmAngle = this.wrapperRotaryArm.rotation.y;
-				this.wrapperStationRoot.userData.filmCarriageLocalY = this.wrapperFilmCarriage.position.y;
+				this.wrapperModelRoot.userData.processActive = true;
+				this.wrapperModelRoot.userData.processProgress = wrapProgress;
+				advanceComponentVisualRuntime(this.wrapperModelRoot, deltaSeconds, 1);
 				if (wood.progress >= 1) {
 					wood.wrapped = true;
 					wood.stage = 'labeling';
 					wood.progress = 0;
 					this.wrapperFilm.visible = false;
-					this.wrapperFilmCarriage.position.y = this.wrapperFilmCarriageHomeY;
+					this.wrapperModelRoot.userData.processActive = false;
+					this.wrapperModelRoot.userData.processProgress = 0;
+					advanceComponentVisualRuntime(this.wrapperModelRoot, deltaSeconds, 1);
 					this.wrapperStationRoot.userData.wrapperState = 'idle';
 					this.wrapperStationRoot.userData.processActive = false;
 					this.wrapperStationRoot.userData.palletPresent = false;
@@ -2692,14 +2692,19 @@ export class ProceduralPackagingLine {
 				this.applyWoodSectionPose(wood.root, 'silk-wood-edge-wrap', travelProgress, WRAP_POSITION, LABEL_POSITION);
 				const armPhase = THREE.MathUtils.clamp((wood.progress - 0.50) / 0.50, 0, 1);
 				const applyFactor = 1 - Math.abs(armPhase * 2 - 1);
-				this.applyLabelerArmPose(applyFactor);
+				this.labelerModelRoot.userData.processActive = armPhase > 0;
+				this.labelerModelRoot.userData.processProgress = armPhase;
+				advanceComponentVisualRuntime(this.labelerModelRoot, deltaSeconds, 1);
+				this.labelStationRoot.userData.armApplyFactor = applyFactor;
 				this.labelStationRoot.userData.labelerState = armPhase <= 0 ? 'waiting-pallet' : armPhase < 0.5 ? 'applying' : 'returning';
 				if (armPhase >= 0.45 && !wood.labelApplied) {
 					this.attachLabel(wood);
 					wood.labelApplied = true;
 				}
 				if (wood.progress >= 1) {
-					this.applyLabelerArmPose(0);
+					this.labelerModelRoot.userData.processActive = false;
+					this.labelerModelRoot.userData.processProgress = 0;
+					advanceComponentVisualRuntime(this.labelerModelRoot, deltaSeconds, 1);
 					this.labelStationRoot.userData.labelerState = 'idle';
 					wood.stage = 'inbound';
 					wood.progress = 0;
@@ -2851,16 +2856,6 @@ export class ProceduralPackagingLine {
 		}
 		root.position.copy(pose.position);
 		if (pose.tangent.lengthSq() > 0.000001) root.rotation.y = -Math.atan2(pose.tangent.z, pose.tangent.x);
-	}
-
-	private applyLabelerArmPose(applyFactor: number) {
-		const t = THREE.MathUtils.clamp(applyFactor, 0, 1);
-		// 0=折叠待机，1=三段臂基本伸直并让 Tamp 板到达满托侧面。
-		this.labelArmJoint1.rotation.y = THREE.MathUtils.lerp(0.70, 0, t);
-		this.labelArmJoint2.rotation.y = THREE.MathUtils.lerp(-1.20, 0, t);
-		this.labelArmJoint3.rotation.y = THREE.MathUtils.lerp(0.72, 0, t);
-		this.labelStationRoot.userData.armApplyFactor = t;
-		this.labelStationRoot.updateMatrixWorld(true);
 	}
 
 	private attachCover(wood: WoodenPalletRuntime) {

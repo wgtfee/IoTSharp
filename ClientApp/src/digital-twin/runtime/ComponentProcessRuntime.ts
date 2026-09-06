@@ -39,20 +39,14 @@ export interface ComponentProcessRuntimeOptions {
 	routeEngine: RouteEngine;
 	getComponentRoot: (objectId: string) => THREE.Group | undefined;
 	getRoutingContext: () => TwinRouteRoutingContext;
+	/** 从场景 Behavior 自动发现工位需要完成的动作组，避免 Route 重复维护动作编排信息。 */
+	getBehaviorRequirements?: (objectId: string) => Record<string, number>;
 	entityId?: string;
 }
 
 const hasLiveBindings = (process: TwinProcessDefinition) => Boolean(
 	process.readyBindingId || process.busyBindingId || process.completeBindingId || process.resultBindingId || process.faultBindingId,
 );
-
-const processStationType = (process: TwinProcessDefinition): TwinProcessStationType => {
-	if (process.type === 'external-inspection') return 'external-inspection';
-	if (process.type === 'bagging') return 'bagging';
-	if (process.type === 'gantry-stacking') return 'gantry-stacking';
-	if (process.type === 'robot-loading') return 'robot-loading';
-	return 'scan';
-};
 
 /**
  * 普通 V7 Component Network 的即插即用工艺运行时。
@@ -70,7 +64,6 @@ export class ComponentProcessRuntime {
 	private requestedRunning = false;
 	private previousDistance = 0;
 	private readonly entityId: string;
-	private readonly baseTransforms = new Map<string, Map<THREE.Object3D, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>>();
 	private pendingStopperReset?: { objectId: string; elapsedSeconds: number };
 
 	constructor(private readonly options: ComponentProcessRuntimeOptions) {
@@ -80,7 +73,7 @@ export class ComponentProcessRuntime {
 	}
 
 	setRoute(route: TwinRouteDefinition) {
-		this.restoreAllModels();
+		this.resetProcessMetadata();
 		this.route = structuredClone(route);
 		this.active = undefined;
 		this.processed.clear();
@@ -99,12 +92,11 @@ export class ComponentProcessRuntime {
 		this.processed.clear();
 		this.previousDistance = 0;
 		this.stationManager.reset();
-		this.restoreAllModels();
+		this.resetProcessMetadata();
 	}
 
 	dispose() {
 		this.reset();
-		this.baseTransforms.clear();
 	}
 
 	/** 返回 true 时 TwinRuntime 可继续执行 RouteEngine.updateFixed。 */
@@ -133,8 +125,7 @@ export class ComponentProcessRuntime {
 		if (!this.stationManager.canAccept(nextStation.sectionId, this.entityId)) return false;
 		this.stationManager.arrive(nextStation.sectionId, this.entityId);
 		this.active = { station: nextStation, entityId: this.entityId, elapsedSeconds: 0 };
-		this.captureModel(nextStation.componentObjectId);
-		this.applyModelAnimation(nextStation, 0, true);
+		this.applyProcessMetadata(nextStation, 0, true);
 		return false;
 	}
 
@@ -162,13 +153,13 @@ export class ComponentProcessRuntime {
 		const progress = active.station.dataMode === 'simulation'
 			? THREE.MathUtils.clamp(active.elapsedSeconds / cycle, 0, 1)
 			: (active.elapsedSeconds % cycle) / cycle;
-		this.applyModelAnimation(active.station, progress, entity?.state !== 'fault');
+		this.applyProcessMetadata(active.station, progress, entity?.state !== 'fault');
 
 		if (!this.stationManager.canRelease(active.station.sectionId, active.entityId).canRelease) return;
 		if (active.station.behaviorCompletionGroups.length && !this.authorizeBehaviorBatchRelease(active.station, active.entityId)) return;
 		this.stationManager.release(active.station.sectionId, active.entityId);
 		this.processed.add(active.station.stationId);
-		this.restoreModel(active.station.componentObjectId);
+		this.clearProcessMetadata(active.station.componentObjectId);
 		this.active = undefined;
 		this.options.routeEngine.setRunning(this.requestedRunning);
 		if (active.station.behaviorCompletionGroups.length) this.finishBehaviorBatchRelease(active.station, active.entityId);
@@ -210,6 +201,13 @@ export class ComponentProcessRuntime {
 				: this.pointDistance(pointIndex, segmentLengths, straightLength, routeSnapshot.lengthMeters);
 			const sectionId = componentEdge?.sectionId || componentEdge?.edgeId || 'process-' + componentObjectId;
 			const process = structuredClone(point.process);
+			const behaviorRequirements = this.options.getBehaviorRequirements?.(componentObjectId) || {};
+			const processRequirements = Object.fromEntries(Object.entries(process.behaviorCompletionRequirements || {}).map(([group, count]) => [group, Math.max(1, Math.floor(Number(count) || 1))]));
+			const mergedRequirements = { ...behaviorRequirements, ...processRequirements };
+			const completionGroups = [...new Set([
+				...(process.behaviorCompletionGroups || []).map((item) => String(item).trim()).filter(Boolean),
+				...Object.keys(behaviorRequirements),
+			])];
 			const incomingEdgeIndex = pointIndex > 0 ? pointIndex - 1 : resolved.closed ? resolved.edgeIds.length - 1 : -1;
 			const incomingEdge = incomingEdgeIndex >= 0 ? routeEdges.get(resolved.edgeIds[incomingEdgeIndex]) : undefined;
 			nextStations.push({
@@ -222,8 +220,8 @@ export class ComponentProcessRuntime {
 				process,
 				capacity: Math.max(1, Math.floor(Number(componentEdge?.capacity) || 1)),
 				batchSize: Math.max(1, Math.floor(Number(process.batchSize) || 1)),
-				behaviorCompletionGroups: [...new Set((process.behaviorCompletionGroups || []).map((item) => String(item).trim()).filter(Boolean))],
-				behaviorCompletionRequirements: Object.fromEntries(Object.entries(process.behaviorCompletionRequirements || {}).map(([group, count]) => [group, Math.max(1, Math.floor(Number(count) || 1))])),
+				behaviorCompletionGroups: completionGroups,
+				behaviorCompletionRequirements: mergedRequirements,
 				stopperComponentObjectId: incomingEdge?.componentObjectId,
 				dataMode: hasLiveBindings(process) ? 'live' : 'simulation',
 			});
@@ -232,7 +230,7 @@ export class ComponentProcessRuntime {
 		this.stationManager = new ProcessStationManager(this.stations.map((station) => ({
 			stationId: station.stationId,
 			sectionId: station.sectionId,
-			type: processStationType(station.process),
+			type: station.process.type || 'process',
 			process: station.process,
 			dataMode: station.dataMode,
 			capacity: station.capacity,
@@ -378,157 +376,26 @@ export class ComponentProcessRuntime {
 		return before / straightLength * routeLength;
 	}
 
-	private captureModel(objectId: string) {
-		if (this.baseTransforms.has(objectId)) return;
-		const root = this.options.getComponentRoot(objectId);
-		if (!root) return;
-		const map = new Map<THREE.Object3D, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>();
-		root.traverse((node) => map.set(node, { position: node.position.clone(), rotation: node.rotation.clone(), scale: node.scale.clone() }));
-		this.baseTransforms.set(objectId, map);
-	}
-
-	private restoreModel(objectId: string) {
-		for (const [node, base] of this.baseTransforms.get(objectId) || []) {
-			node.position.copy(base.position);
-			node.rotation.copy(base.rotation);
-			node.scale.copy(base.scale);
-		}
-		const root = this.options.getComponentRoot(objectId);
-		if (root) {
-			root.userData.processActive = false;
-			root.userData.processPhase = 'idle';
-			root.userData.processProgress = 0;
-		}
-	}
-
-	private restoreAllModels() {
-		for (const objectId of this.baseTransforms.keys()) this.restoreModel(objectId);
-	}
-
-	private setProcessPhase(root: THREE.Group, phase: string, progress: number) {
-		root.userData.processActive = true;
-		root.userData.processPhase = phase;
-		root.userData.processProgress = THREE.MathUtils.clamp(progress, 0, 1);
-	}
-
-	private range(value: number, start: number, end: number) {
-		if (end <= start) return value >= end ? 1 : 0;
-		return THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
-	}
-
-	private applyModelAnimation(station: ComponentProcessStationInfo, progress: number, healthy: boolean) {
+	private applyProcessMetadata(station: ComponentProcessStationInfo, progress: number, healthy: boolean) {
 		const root = this.options.getComponentRoot(station.componentObjectId);
 		if (!root) return;
-		const bases = this.baseTransforms.get(station.componentObjectId);
-		if (!bases) return;
-		const phase = THREE.MathUtils.clamp(progress, 0, 1);
-		if (!healthy) { this.restoreModel(station.componentObjectId); root.userData.processPhase = 'fault'; return; }
+		root.userData.processActive = healthy;
+		root.userData.processPhase = healthy ? 'processing' : 'fault';
+		root.userData.processProgress = THREE.MathUtils.clamp(progress, 0, 1);
+		root.userData.processType = station.process.type || 'process';
+	}
 
-		if (station.process.type === 'external-inspection') {
-			const processPhase = phase < 0.12 ? 'positioning'
-				: phase < 0.28 ? 'gripper-down'
-					: phase < 0.70 ? 'rotate-scan'
-						: phase < 0.88 ? 'gripper-up' : 'release';
-			this.setProcessPhase(root, processPhase, phase);
-			const rotary = root.getObjectByName('Inspection-Rotary-Gripper');
-			if (rotary) {
-				const base = bases.get(rotary);
-				if (base) {
-					const down = phase < 0.28 ? this.range(phase, 0.12, 0.28)
-						: phase < 0.70 ? 1
-							: 1 - this.range(phase, 0.70, 0.88);
-					rotary.position.y = base.position.y - down * 0.48;
-					const scan = this.range(phase, 0.28, 0.70);
-					rotary.rotation.y = base.rotation.y + scan * Math.PI * 4;
-				}
-			}
-			const stopper = root.getObjectByName('Inspection-Positioning-Stopper');
-			if (stopper) {
-				const base = bases.get(stopper);
-				if (base) stopper.position.y = base.position.y + (phase < 0.88 ? 0.10 : 0);
-			}
-			root.userData.inspectionCaptureActive = phase >= 0.28 && phase < 0.70;
-			return;
-		}
+	private clearProcessMetadata(objectId: string) {
+		const root = this.options.getComponentRoot(objectId);
+		if (!root) return;
+		root.userData.processActive = false;
+		root.userData.processPhase = 'idle';
+		root.userData.processProgress = 0;
+		delete root.userData.processType;
+	}
 
-		if (station.process.type !== 'bagging') return;
-		if (root.userData?.stationType === 'vacuum-film-tuck') {
-			const processPhase = phase < 0.16 ? 'positioning'
-				: phase < 0.34 ? 'lift-cake'
-					: phase < 0.72 ? 'vacuum-tuck'
-						: phase < 0.90 ? 'return-cake' : 'release';
-			this.setProcessPhase(root, processPhase, phase);
-			const lift = root.getObjectByName('VacuumTuck-Cake-Lift');
-			if (lift) {
-				const base = bases.get(lift);
-				if (base) {
-					const stroke = Math.max(0.2, Number(root.userData?.properties?.liftStroke) || 0.95);
-					const raised = phase < 0.34 ? this.range(phase, 0.16, 0.34) : phase < 0.72 ? 1 : 1 - this.range(phase, 0.72, 0.90);
-					lift.position.y = base.position.y + raised * stroke * 0.72;
-				}
-			}
-			const film = root.getObjectByName('VacuumTuck-Film-Inward-Preview');
-			if (film) {
-				const base = bases.get(film);
-				if (base) {
-					const suction = phase >= 0.34 && phase < 0.72 ? Math.sin(this.range(phase, 0.34, 0.72) * Math.PI) : 0;
-					film.scale.set(base.scale.x * (1 - 0.28 * suction), base.scale.y * (1 + 0.35 * suction), base.scale.z * (1 - 0.28 * suction));
-				}
-			}
-			root.userData.vacuumActive = phase >= 0.34 && phase < 0.72;
-			return;
-		}
-
-		// 连续膜侧封机内部流程：定位 -> 送膜 -> 包覆 -> 侧封 -> 切膜 -> 放行。
-		const processPhase = phase < 0.15 ? 'positioning'
-			: phase < 0.35 ? 'film-feed'
-				: phase < 0.60 ? 'wrap'
-					: phase < 0.78 ? 'side-seal'
-						: phase < 0.90 ? 'cut' : 'release';
-		this.setProcessPhase(root, processPhase, phase);
-
-		const centering = root.getObjectByName('Bagging-Centering-Pusher');
-		if (centering) {
-			centering.traverse((node) => {
-				if (node.userData?.centeringPad !== true) return;
-				const base = bases.get(node); if (!base) return;
-				const center = phase < 0.15 ? this.range(phase, 0, 0.15) : phase < 0.90 ? 1 : 1 - this.range(phase, 0.90, 1);
-				node.position.z = base.position.z - Math.sign(base.position.z) * 0.14 * center;
-			});
-		}
-		const feed = root.getObjectByName('Bagging-Film-Feed-Assembly');
-		feed?.traverse((node) => {
-			if (node.userData?.filmGuideRoller !== true) return;
-			const base = bases.get(node); if (!base) return;
-			const feedProgress = this.range(phase, 0.15, 0.60);
-			node.rotation.y = base.rotation.y + feedProgress * Math.PI * 8;
-		});
-		const film = root.getObjectByName('Bagging-Film-Sleeve-Preview');
-		if (film) {
-			const base = bases.get(film);
-			if (base) {
-				const wrapProgress = this.range(phase, 0.35, 0.60);
-				film.scale.set(base.scale.x * (0.82 + 0.18 * wrapProgress), base.scale.y, base.scale.z * (0.82 + 0.18 * wrapProgress));
-			}
-		}
-		const seal = root.getObjectByName('Bagging-Side-Seal-Unit');
-		seal?.traverse((node) => {
-			if (node.userData?.sideSealJaw !== true) return;
-			const base = bases.get(node); if (!base) return;
-			const closed = phase < 0.78 ? this.range(phase, 0.60, 0.70) : 1 - this.range(phase, 0.78, 0.86);
-			node.position.z = base.position.z * (1 - 0.72 * closed);
-		});
-		const cutter = root.getObjectByName('Bagging-Cut-Knife');
-		if (cutter) {
-			const base = bases.get(cutter);
-			if (base) {
-				const cut = phase < 0.84 ? this.range(phase, 0.78, 0.84) : 1 - this.range(phase, 0.84, 0.90);
-				cutter.position.z = base.position.z - cut * 0.26;
-			}
-		}
-		root.userData.filmFeedActive = phase >= 0.15 && phase < 0.60;
-		root.userData.sideSealActive = phase >= 0.60 && phase < 0.78;
-		root.userData.filmCutActive = phase >= 0.78 && phase < 0.90;
+	private resetProcessMetadata() {
+		for (const station of this.stations) this.clearProcessMetadata(station.componentObjectId);
 	}
 
 }

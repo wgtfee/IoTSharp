@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applyComponentIdentity, createCanvasLabel, createComponentResult, createMaterial, createStraightRollerGeometry, resolveNumber, setTransform } from './geometry';
+import { attachComponentAnimations } from './ComponentVisualRuntime';
 import type { TwinComponentBuildContext, TwinComponentGenerator, TwinComponentPortDefinition } from './types';
 
 const addBox = (parent: THREE.Object3D, name: string, size: [number, number, number], position: [number, number, number], material: THREE.Material) => {
@@ -29,6 +30,7 @@ export class VacuumFilmTuckComponent implements TwinComponentGenerator {
 		const root = new THREE.Group();
 		root.name = definition.name;
 		root.userData.processType = 'bagging';
+		root.userData.componentProcessKey = 'vacuum-film-tuck';
 		root.userData.stationType = 'vacuum-film-tuck';
 		root.userData.chemicalFiberProcess = true;
 		root.userData.palletRemainsOnConveyor = true;
@@ -188,6 +190,17 @@ export class VacuumFilmTuckComponent implements TwinComponentGenerator {
 		root.userData.generatorVersion = definition.generatorVersion;
 		root.userData.capabilities = ['material-flow', 'capacity', 'process-station', 'plc-binding', 'vacuum-film-tuck'];
 		root.userData.properties = { ...props, length, width, machineHeight, conveyorHeight, conveyorWidth, liftStroke, coreDiameter, capacity: 1 };
+		const liftAmount = liftStroke * 0.72;
+		attachComponentAnimations(root, [
+			{ name: '丝饼提升', targetNodePath: 'VacuumTuck-Cake-Lift', trigger: 'process', kind: 'translate', axis: 'y', from: 0, to: liftAmount, startProgress: 0.16, endProgress: 0.34, relative: true },
+			{ name: '丝饼回托', targetNodePath: 'VacuumTuck-Cake-Lift', trigger: 'process', kind: 'translate', axis: 'y', from: 0, to: -liftAmount, startProgress: 0.72, endProgress: 0.90, relative: true },
+			{ name: '吸膜 X 收紧', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'x', from: 0, to: -0.28, startProgress: 0.34, endProgress: 0.53, relative: true },
+			{ name: '吸膜 X 复位', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'x', from: 0, to: 0.28, startProgress: 0.53, endProgress: 0.72, relative: true },
+			{ name: '吸膜 Z 收紧', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'z', from: 0, to: -0.28, startProgress: 0.34, endProgress: 0.53, relative: true },
+			{ name: '吸膜 Z 复位', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'z', from: 0, to: 0.28, startProgress: 0.53, endProgress: 0.72, relative: true },
+			{ name: '吸膜 Y 拉伸', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'y', from: 0, to: 0.35, startProgress: 0.34, endProgress: 0.53, relative: true },
+			{ name: '吸膜 Y 复位', targetNodePath: 'VacuumTuck-Film-Inward-Preview', trigger: 'process', kind: 'scale', axis: 'y', from: 0, to: -0.35, startProgress: 0.53, endProgress: 0.72, relative: true },
+		]);
 		setTransform(root, definition.transform);
 		return createComponentResult(root, ports);
 	}

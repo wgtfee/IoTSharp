@@ -76,7 +76,8 @@ export type TwinSectionOccupancyMode = 'calculated' | 'simulation' | 'live';
 export type TwinJunctionDecisionMode = 'plc' | 'simulation' | 'manual';
 export type TwinConveyorSizeClass = 'small' | 'large';
 export type TwinTransportUnitType = 'plastic-pallet' | 'wooden-pallet' | 'carton';
-export type TwinProcessType = 'robot-loading' | 'external-inspection' | 'bagging' | 'gantry-stacking' | 'scan';
+/** 工位分类仅用于显示、诊断和模板复用；运行时不得按具体业务类型分支。 */
+export type TwinProcessType = string;
 
 export interface TwinProcessDefinition {
 	type: TwinProcessType;
@@ -208,6 +209,10 @@ export interface TwinStackPatternDefinition {
 	originX?: number;
 	originZ?: number;
 	separatorThickness?: number;
+	/** 是否要求每层主物料完成后再放置一层辅助物料（隔板、垫片等）。 */
+	layerMaterialRequired?: boolean;
+	/** 层间辅助物料相对当前层主物料基准的 Y 偏移。 */
+	layerMaterialOffsetY?: number;
 }
 
 export interface TwinMaterialSlotDefinition {
@@ -226,6 +231,12 @@ export interface TwinMaterialSlotDefinition {
 	runtimeOwnerSelection?: 'nearest' | 'station-batch';
 	/** 抓取的一组物料按 1:1 分发给当前工位批次内每个运行托盘。 */
 	distributePayloadAcrossRuntimeOwners?: boolean;
+	/** 同一运行载体接收多件物料时，每增加一件所使用的局部坐标偏移。 */
+	runtimeOwnerItemOffset?: TwinVector3;
+	/** 分层辅助物料引用的主码垛规则槽位。 */
+	stackPatternSlotId?: string;
+	/** 物料放入该槽位后写入实体的通用阶段名称，仅用于显示/诊断。 */
+	placedStage?: string;
 	/** 通用规则化码垛槽位；运行时按 layer/row/column 计算真实落点。 */
 	stackPattern?: TwinStackPatternDefinition;
 	metadata?: Record<string, unknown>;
@@ -302,6 +313,12 @@ export interface TwinPoseDefinition {
 
 export type TwinSignalOperator = 'equals' | 'notEquals' | 'truthy' | 'falsy';
 
+/** 动作编排使用的结构化状态赋值。状态只存在于运行时语义状态表，不执行脚本。 */
+export interface TwinStateAssignmentDefinition {
+	source: string;
+	value: string | number | boolean | null;
+}
+
 export type TwinBehaviorActionKind =
 	| 'moveTo'
 	| 'movePose'
@@ -313,6 +330,7 @@ export type TwinBehaviorActionKind =
 	| 'gripClose'
 	| 'waitSignal'
 	| 'wait'
+	| 'prepareSlot'
 	| 'home'
 	| 'attach'
 	| 'detach';
@@ -344,6 +362,10 @@ export interface TwinBehaviorActionDefinition {
 	/** 纯结构化等待/动作时间，不允许脚本表达式。 */
 	waitSeconds?: number;
 	durationSeconds?: number;
+	/** 动作第一次进入时写入语义状态，用于互锁、并行动作协调和 UI 状态。 */
+	onStartState?: TwinStateAssignmentDefinition[];
+	/** 动作完成时写入语义状态。 */
+	onCompleteState?: TwinStateAssignmentDefinition[];
 }
 
 export interface TwinBehaviorDefinition {
@@ -352,8 +374,12 @@ export interface TwinBehaviorDefinition {
 	actorObjectId: string;
 	actions: TwinBehaviorActionDefinition[];
 	interlockIds?: string[];
+	/** BehaviorRuntime 初始化/复位时写入的状态，不允许由运行时代码猜测具体设备语义。 */
+	initialState?: TwinStateAssignmentDefinition[];
 	/** 存在时 Behavior 只在 actor 对应 ProcessStation 有到位托盘时执行；完成后回写该组。 */
 	stationCompletionGroup?: string;
+	/** 当前工位批次需要该 Behavior 完整执行的次数；默认 1。 */
+	stationRequiredCycles?: number;
 	enabled?: boolean;
 	/** false 表示执行一次后停在 completed；默认循环用于离线仿真。 */
 	loop?: boolean;
@@ -369,6 +395,7 @@ export interface TwinInterlockDefinition {
 	interlockId: string;
 	name: string;
 	description?: string;
+	mode?: 'all' | 'any';
 	conditions: TwinInterlockConditionDefinition[];
 }
 
@@ -1026,7 +1053,11 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (action.timeoutSeconds !== undefined && (!Number.isFinite(action.timeoutSeconds) || action.timeoutSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.timeout.invalid', message: '动作超时秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].timeoutSeconds` });
 			if (action.waitForInterlockId && !interlockIds.has(action.waitForInterlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.interlock.invalid', message: '等待动作引用的联锁不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitForInterlockId` });
 			if (action.waitSeconds !== undefined && (!Number.isFinite(action.waitSeconds) || action.waitSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.wait.invalid', message: '等待秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitSeconds` });
+			if (action.kind === 'prepareSlot' && (!action.sourceSlotId || !materialSlotIds.has(action.sourceSlotId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.prepare-slot.invalid', message: 'prepareSlot 必须引用有效来源 MaterialSlot。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].sourceSlotId` });
+			for (const [stateIndex, state] of (action.onStartState || []).entries()) if (!state.source?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.state-source.required', message: '动作开始状态必须配置状态源。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].onStartState[${stateIndex}].source` });
+			for (const [stateIndex, state] of (action.onCompleteState || []).entries()) if (!state.source?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.state-source.required', message: '动作完成状态必须配置状态源。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].onCompleteState[${stateIndex}].source` });
 		}
+		for (const [stateIndex, state] of (behavior.initialState || []).entries()) if (!state.source?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.initial-state-source.required', message: '动作编排初始状态必须配置状态源。', path: `behaviors[${behaviorIndex}].initialState[${stateIndex}].source` });
 		for (const interlockId of behavior.interlockIds || []) if (!interlockIds.has(interlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.interlock.reference.invalid', message: '动作编排引用的联锁不存在。', path: `behaviors[${behaviorIndex}].interlockIds` });
 	}
 

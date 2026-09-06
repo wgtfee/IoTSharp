@@ -1,7 +1,8 @@
 import type { SilkProcessWaitingReason, TwinProcessDefinition } from '../contracts';
 import { ComponentProcessStateMachine, type TwinComponentProcessSignalContext, type TwinComponentProcessSnapshot } from './ComponentProcessStateMachine';
 
-export type TwinProcessStationType = 'robot-loading' | 'gantry-stacking' | 'scan' | 'inspection' | 'external-inspection' | 'bagging';
+/** 工位类型是设计器/Manifest 的分类标签，运行时不得按业务名称实现专用分支。 */
+export type TwinProcessStationType = string;
 export type TwinProcessStationState = 'idle' | 'waiting' | 'processing' | 'completed' | 'fault';
 
 export interface TwinProcessStationEntityRuntime {
