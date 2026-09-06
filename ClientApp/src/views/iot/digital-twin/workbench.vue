@@ -542,7 +542,7 @@ const createSceneTemplate = ref<'blank' | 'silk-v6' | 'reference-packaging-v1'>(
 const createSceneTemplateHelp = computed(() => createSceneTemplate.value === 'silk-v6'
 	? '将创建完整工艺 V6：丝车、旋转台、上料机器人、分流、桁架、回流及托盘闭环。'
 	: createSceneTemplate.value === 'reference-packaging-v1'
-		? '将按当前参考图 V17 创建组件化产线；动作、Pose、TCP、物料槽位、码垛规则和联锁均可在设计器中编辑。'
+		? '将按当前参考图 V18 创建组件化产线；动作、Pose、TCP、物料槽位、码垛规则和联锁均可在设计器中编辑。'
 		: '将创建空白 3D 场景：不预置模型、设备或工艺路线。');
 const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packaging-v1' = 'blank') => {
 	createSceneTemplate.value = template;
@@ -550,8 +550,8 @@ const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packag
 		createForm.name = '丝饼完整工艺数字孪生 V6';
 		createForm.description = '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
 	} else if (template === 'reference-packaging-v1') {
-		createForm.name = '参考图双套袋环形包装产线 V17';
-		createForm.description = '参考图 V17 标准引擎版：组件路线、多托盘工位、2×6 上料机器人、码垛桁架及全部动作编排均由场景 Manifest 数据驱动。';
+		createForm.name = '参考图双套袋环形包装产线 V18';
+		createForm.description = '参考图 V18 标准引擎完整闭环：组件路线、多托盘工位、2×6 上料机器人、码垛桁架、天盖、缠膜、贴标及全部动作编排均由场景 Manifest 数据驱动。';
 	} else {
 		createForm.name = '新建 3D 数字孪生场景';
 		createForm.description = '';

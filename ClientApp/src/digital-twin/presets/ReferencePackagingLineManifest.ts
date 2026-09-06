@@ -730,7 +730,29 @@ const mergeReferenceObject = (
  */
 export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest): boolean => {
 	const currentLayoutVersion = Number(manifest.runtime?.referencePackagingLayoutVersion || 0);
-	if (currentLayoutVersion >= REFERENCE_PACKAGING_LAYOUT_VERSION) {
+	const canonicalForHealthCheck = currentLayoutVersion >= REFERENCE_PACKAGING_LAYOUT_VERSION
+		? createReferencePackagingLineTwinSceneManifest()
+		: undefined;
+	const canonicalSmallRouteId = canonicalForHealthCheck?.runtime.primarySmallPalletRouteId;
+	const canonicalWoodRouteId = canonicalForHealthCheck?.runtime.primaryWoodenPalletRouteId;
+	const currentInitializers = manifest.runtime?.routePalletInitializers || [];
+	const currentBehaviorIds = new Set((manifest.behaviors || []).map((item) => item.behaviorId));
+	const currentMaterialSlotIds = new Set((manifest.materialSlots || []).map((item) => item.slotId));
+	const currentInterlockIds = new Set((manifest.interlocks || []).map((item) => item.interlockId));
+	const currentWoodRoute = canonicalWoodRouteId ? (manifest.routes || []).find((item) => item.routeId === canonicalWoodRouteId) : undefined;
+	const currentWoodProcessTypes = currentWoodRoute?.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type) || [];
+	const hasCurrentV18Structure = Boolean(canonicalForHealthCheck
+		&& canonicalSmallRouteId
+		&& canonicalWoodRouteId
+		&& manifest.runtime.primarySmallPalletRouteId === canonicalSmallRouteId
+		&& manifest.runtime.primaryWoodenPalletRouteId === canonicalWoodRouteId
+		&& currentInitializers.some((item) => item.routeId === canonicalSmallRouteId && item.simulationDefaultCount === 6)
+		&& currentInitializers.some((item) => item.routeId === canonicalWoodRouteId && item.simulationDefaultCount === 3)
+		&& ['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => currentWoodProcessTypes.includes(type))
+		&& (canonicalForHealthCheck.behaviors || []).every((item) => currentBehaviorIds.has(item.behaviorId))
+		&& (canonicalForHealthCheck.materialSlots || []).every((item) => currentMaterialSlotIds.has(item.slotId))
+		&& (canonicalForHealthCheck.interlocks || []).every((item) => currentInterlockIds.has(item.interlockId)));
+	if (currentLayoutVersion >= REFERENCE_PACKAGING_LAYOUT_VERSION && hasCurrentV18Structure) {
 		const canonicalName = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
 		if (/^参考图双套袋环形包装产线\s*V\d+$/i.test(manifest.name || '') && manifest.name !== canonicalName) {
 			manifest.name = canonicalName;
@@ -781,6 +803,49 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	});
 	upsertGeneratedComponentRoutes(manifest);
 
+	// V11+ 保存场景已经只剩 generated component routes。重建以后需要把当前 V18
+	// 主工艺路线上的 processStation 语义重新覆盖回来，否则物理拓扑虽然连通，
+	// 机器人/桁架/天盖/缠膜/贴标工位会退化成普通输送点。
+	for (const routeId of [canonical.runtime.primarySmallPalletRouteId, canonical.runtime.primaryWoodenPalletRouteId].filter(Boolean) as string[]) {
+		const canonicalRoute = canonical.routes.find((item) => item.routeId === routeId);
+		const migratedRoute = manifest.routes.find((item) => item.routeId === routeId);
+		if (!canonicalRoute || !migratedRoute) continue;
+		migratedRoute.name = canonicalRoute.name;
+		migratedRoute.loop = canonicalRoute.loop;
+		migratedRoute.startPointId = canonicalRoute.startPointId;
+		migratedRoute.routingMode = canonicalRoute.routingMode;
+		migratedRoute.junctionDecisions = structuredClone(canonicalRoute.junctionDecisions || {});
+		migratedRoute.decisionRules = structuredClone(canonicalRoute.decisionRules || []);
+		const previousRoute = previousRouteMap.get(routeId);
+		for (const canonicalPoint of canonicalRoute.points) {
+			const migratedPoint = migratedRoute.points.find((item) => item.pointId === canonicalPoint.pointId);
+			if (!migratedPoint || canonicalPoint.kind !== 'processStation' || !canonicalPoint.process) continue;
+			const previousPoint = previousRoute?.points.find((item) => item.pointId === canonicalPoint.pointId);
+			migratedPoint.kind = canonicalPoint.kind;
+			migratedPoint.componentObjectId = canonicalPoint.componentObjectId;
+			migratedPoint.componentPortId = canonicalPoint.componentPortId;
+			migratedPoint.process = structuredClone(canonicalPoint.process);
+			if (previousPoint?.actuatorBindingId) migratedPoint.actuatorBindingId = previousPoint.actuatorBindingId;
+			if (previousPoint?.sensorBindingId) migratedPoint.sensorBindingId = previousPoint.sensorBindingId;
+			if (previousPoint?.process) {
+				for (const field of ['readyBindingId', 'busyBindingId', 'completeBindingId', 'resultBindingId', 'faultBindingId'] as const) {
+					if (previousPoint.process[field]) migratedPoint.process[field] = previousPoint.process[field];
+				}
+			}
+		}
+	}
+
+	// V11+ 的 generated route 本身也可能已经绑定 PLC/占用信号；按稳定 routeId/edgeId 继承。
+	for (const generatedRoute of manifest.routes.filter((item) => item.generatedBy === 'component-connections')) {
+		const previousRoute = previousRouteMap.get(generatedRoute.routeId);
+		if (!previousRoute) continue;
+		for (const generatedEdge of generatedRoute.edges) {
+			const previousEdge = previousRoute.edges.find((item) => item.edgeId === generatedEdge.edgeId);
+			if (!previousEdge) continue;
+			for (const field of edgeBindingFields) if (previousEdge[field] !== undefined) (generatedEdge as any)[field] = previousEdge[field];
+		}
+	}
+
 	// Preserve route-side PLC/occupancy bindings from V1-V11 by matching legacy edgeId to component sectionId.
 	const generatedEdges = manifest.routes.filter((item) => item.generatedBy === 'component-connections').flatMap((item) => item.edges);
 	for (const legacyRoute of previousReferenceRoutes) {
@@ -806,17 +871,26 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 			}
 		}
 	}
-	manifest.workPoints = structuredClone(canonical.workPoints || []);
-	manifest.materialSlots = structuredClone(canonical.materialSlots || []);
-	manifest.toolFrames = structuredClone(canonical.toolFrames || []);
-	manifest.actuators = structuredClone(canonical.actuators || []);
+	const mergeCanonicalDefinitions = <T>(previous: T[] | undefined, canonicalItems: T[], idOf: (item: T) => string) => {
+		const canonicalIds = new Set(canonicalItems.map(idOf));
+		const customItems = (previous || []).filter((item) => !canonicalIds.has(idOf(item)));
+		return [...customItems.map((item) => structuredClone(item)), ...canonicalItems.map((item) => structuredClone(item))];
+	};
+	manifest.workPoints = mergeCanonicalDefinitions(manifest.workPoints, canonical.workPoints || [], (item) => item.workPointId);
+	manifest.materialSlots = mergeCanonicalDefinitions(manifest.materialSlots, canonical.materialSlots || [], (item) => item.slotId);
+	manifest.toolFrames = mergeCanonicalDefinitions(manifest.toolFrames, canonical.toolFrames || [], (item) => item.toolFrameId);
+	manifest.actuators = mergeCanonicalDefinitions(manifest.actuators, canonical.actuators || [], (item) => item.actuatorId);
 	const previousPoseMap = new Map((manifest.poses || []).map((pose) => [pose.poseId, pose]));
-	manifest.poses = (canonical.poses || []).map((pose) => {
+	const canonicalPoseIds = new Set((canonical.poses || []).map((pose) => pose.poseId));
+	const customPoses = (manifest.poses || []).filter((pose) => !canonicalPoseIds.has(pose.poseId)).map((pose) => structuredClone(pose));
+	manifest.poses = [...customPoses, ...(canonical.poses || []).map((pose) => {
 		const previousPose = previousPoseMap.get(pose.poseId);
 		return previousPose ? { ...structuredClone(pose), targets: structuredClone(previousPose.targets) } : structuredClone(pose);
-	});
-	manifest.behaviors = structuredClone(canonical.behaviors || []);
-	manifest.interlocks = structuredClone(canonical.interlocks || []);
+	})];
+	manifest.behaviors = mergeCanonicalDefinitions(manifest.behaviors, canonical.behaviors || [], (item) => item.behaviorId);
+	manifest.interlocks = mergeCanonicalDefinitions(manifest.interlocks, canonical.interlocks || [], (item) => item.interlockId);
+	manifest.runtime.primarySmallPalletRouteId = canonical.runtime.primarySmallPalletRouteId;
+	manifest.runtime.primaryWoodenPalletRouteId = canonical.runtime.primaryWoodenPalletRouteId;
 	manifest.runtime.routePalletInitializers = structuredClone(canonical.runtime.routePalletInitializers || []);
 	manifest.runtime.referencePackagingLayoutVersion = REFERENCE_PACKAGING_LAYOUT_VERSION;
 	if (/参考图双套袋环形包装产线\s*V\d+/i.test(manifest.name || '')) manifest.name = canonical.name;

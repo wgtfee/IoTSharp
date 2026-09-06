@@ -1156,14 +1156,59 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(upgradeReferencePackagingLineLayout(savedComponentizedV11) === true, '已组件化 V11 参考场景没有继续执行 V12 迁移');
 	assert(savedComponentizedV11.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, 'V11->V12 迁移没有写入当前布局版本');
 	assert(savedComponentizedV11.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, 'V11->V12 迁移没有同步参考图名称');
-	const savedV15BeforeRuntimeIntegration = structuredClone(referenceLineV11);
-	savedV15BeforeRuntimeIntegration.runtime.referencePackagingLayoutVersion = 15;
-	savedV15BeforeRuntimeIntegration.name = '参考图双套袋环形包装产线 V15';
-	if (savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers?.[0]) savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers[0].simulationDefaultCount = 1;
-	assert(upgradeReferencePackagingLineLayout(savedV15BeforeRuntimeIntegration) === true, '已保存 V15 没有强制迁移到 V16 真实运行集成版本');
-	assert(savedV15BeforeRuntimeIntegration.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, 'V15->V16 没有刷新布局版本');
-	assert(savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers?.[0]?.simulationDefaultCount === 6, 'V15->V16 没有刷新主小托盘仿真批次初始化');
-	assert(savedV15BeforeRuntimeIntegration.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, 'V15->V16 没有同步场景名称');
+	const assertReferenceV18Migration = (sourceVersion: 15 | 16 | 17) => {
+		const saved = structuredClone(referenceLineV11);
+		saved.runtime.referencePackagingLayoutVersion = sourceVersion;
+		saved.name = `参考图双套袋环形包装产线 V${sourceVersion}`;
+		(saved.runtime as any).userCustomRuntimeFlag = `keep-v${sourceVersion}`;
+		saved.runtime.primaryWoodenPalletRouteId = undefined;
+		saved.runtime.routePalletInitializers = saved.runtime.routePalletInitializers?.filter((item) => item.routeId === saved.runtime.primarySmallPalletRouteId) || [];
+		if (saved.runtime.routePalletInitializers[0]) saved.runtime.routePalletInitializers[0].simulationDefaultCount = 1;
+		saved.workPoints = [...(saved.workPoints || []), { workPointId: `custom-work-${sourceVersion}`, name: '用户工作点', objectId: 'reference-loading-robot', role: 'home', localPosition: [0, 0, 0] }];
+		saved.materialSlots = [...(saved.materialSlots || []), { slotId: `custom-slot-${sourceVersion}`, name: '用户物料槽', objectId: 'reference-loading-robot', role: 'source', localPosition: [0, 0, 0], payloadType: 'custom', capacity: 1 }];
+		saved.toolFrames = [...(saved.toolFrames || []), { toolFrameId: `custom-tcp-${sourceVersion}`, name: '用户 TCP', objectId: 'reference-loading-robot', nodePath: 'RobotGridGripper-2x6', localPosition: [0, 0, 0] }];
+		saved.actuators = [...(saved.actuators || []), { actuatorId: `custom-axis-${sourceVersion}`, name: '用户轴', objectId: 'reference-loading-robot', nodePath: 'Robot-Axis-1', kind: 'rotary-joint', motionAxis: 'y', unit: 'radian', homeValue: 0 }];
+		saved.poses = [...(saved.poses || []), { poseId: `custom-pose-${sourceVersion}`, name: '用户姿态', objectId: 'reference-loading-robot', targets: [{ actuatorId: `custom-axis-${sourceVersion}`, value: 0.25 }] }];
+		saved.behaviors = [...(saved.behaviors || []), { behaviorId: `custom-behavior-${sourceVersion}`, name: '用户动作', actorObjectId: 'reference-loading-robot', enabled: false, actions: [{ actionId: `custom-action-${sourceVersion}`, kind: 'wait', durationSeconds: 0.1 }] }];
+		saved.interlocks = [...(saved.interlocks || []), { interlockId: `custom-interlock-${sourceVersion}`, name: '用户互锁', mode: 'all', conditions: [{ source: 'custom.ready', operator: 'truthy' }] }];
+		assert(upgradeReferencePackagingLineLayout(saved) === true, `已保存 V${sourceVersion} 没有迁移到 V18`);
+		assert(saved.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, `V${sourceVersion}->V18 没有刷新布局版本`);
+		assert(saved.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, `V${sourceVersion}->V18 没有同步场景名称`);
+		assert(saved.runtime.primarySmallPalletRouteId === referenceLineV11.runtime.primarySmallPalletRouteId, `V${sourceVersion}->V18 主小托盘路线 ID 未刷新`);
+		assert(saved.runtime.primaryWoodenPalletRouteId === referenceLineV11.runtime.primaryWoodenPalletRouteId, `V${sourceVersion}->V18 主木托路线 ID 未刷新`);
+		const smallInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primarySmallPalletRouteId);
+		const woodInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId);
+		assert(smallInit?.simulationDefaultCount === 6 && woodInit?.simulationDefaultCount === 3, `V${sourceVersion}->V18 没有迁移 6 小托 + 3 木托初始化`);
+		const woodRoute = saved.routes.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId)!;
+		const woodProcesses = woodRoute.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type);
+		assert(['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => woodProcesses.includes(type)), `V${sourceVersion}->V18 后包装路线不完整`);
+		assert(saved.behaviors?.some((item) => item.behaviorId === 'reference-top-cover-place-behavior'), `V${sourceVersion}->V18 缺天盖 Behavior`);
+		assert(saved.materialSlots?.some((item) => item.slotId === 'reference-top-cover-target-slot'), `V${sourceVersion}->V18 缺天盖 MaterialSlot`);
+		assert(saved.interlocks?.some((item) => item.interlockId === 'reference-wood-stack-complete'), `V${sourceVersion}->V18 缺满托 Interlock`);
+		assert(saved.workPoints?.some((item) => item.workPointId === `custom-work-${sourceVersion}`)
+			&& saved.materialSlots?.some((item) => item.slotId === `custom-slot-${sourceVersion}`)
+			&& saved.toolFrames?.some((item) => item.toolFrameId === `custom-tcp-${sourceVersion}`)
+			&& saved.actuators?.some((item) => item.actuatorId === `custom-axis-${sourceVersion}`)
+			&& saved.poses?.some((item) => item.poseId === `custom-pose-${sourceVersion}`)
+			&& saved.behaviors?.some((item) => item.behaviorId === `custom-behavior-${sourceVersion}`)
+			&& saved.interlocks?.some((item) => item.interlockId === `custom-interlock-${sourceVersion}`), `V${sourceVersion}->V18 误删用户自定义动作定义`);
+		assert((saved.runtime as any).userCustomRuntimeFlag === `keep-v${sourceVersion}`, `V${sourceVersion}->V18 误覆盖用户 runtime 扩展字段`);
+		const snapshot = JSON.stringify(saved);
+		assert(upgradeReferencePackagingLineLayout(saved) === false && JSON.stringify(saved) === snapshot, `V${sourceVersion}->V18 迁移不是幂等操作`);
+	};
+	for (const version of [15, 16, 17] as const) assertReferenceV18Migration(version);
+
+	const brokenV18 = structuredClone(referenceLineV11);
+	brokenV18.runtime.referencePackagingLayoutVersion = REFERENCE_PACKAGING_LAYOUT_VERSION;
+	brokenV18.runtime.primaryWoodenPalletRouteId = undefined;
+	brokenV18.runtime.routePalletInitializers = brokenV18.runtime.routePalletInitializers?.filter((item) => item.routeId === brokenV18.runtime.primarySmallPalletRouteId) || [];
+	brokenV18.behaviors = brokenV18.behaviors?.filter((item) => item.behaviorId !== 'reference-top-cover-place-behavior');
+	assert(upgradeReferencePackagingLineLayout(brokenV18) === true, '已标记 V18 但结构不完整的旧场景没有执行自修复');
+	assert(brokenV18.runtime.primaryWoodenPalletRouteId === referenceLineV11.runtime.primaryWoodenPalletRouteId
+		&& brokenV18.runtime.routePalletInitializers?.some((item) => item.routeId === brokenV18.runtime.primaryWoodenPalletRouteId && item.simulationDefaultCount === 3)
+		&& brokenV18.behaviors?.some((item) => item.behaviorId === 'reference-top-cover-place-behavior'), '损坏 V18 自修复没有补齐关键结构');
+	const repairedV18Snapshot = JSON.stringify(brokenV18);
+	assert(upgradeReferencePackagingLineLayout(brokenV18) === false && JSON.stringify(brokenV18) === repairedV18Snapshot, '损坏 V18 修复后不具备幂等性');
 
 	const staleCurrentVersionName = structuredClone(referenceLineV11);
 	staleCurrentVersionName.name = '参考图双套袋环形包装产线 V10';
