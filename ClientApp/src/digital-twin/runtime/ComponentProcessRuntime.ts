@@ -113,10 +113,19 @@ export class ComponentProcessRuntime {
 		if (!this.requestedRunning || routeSnapshot.lengthMeters <= 0 || routeSnapshot.state === 'waiting') return true;
 
 		const nextDistance = routeSnapshot.distanceMeters + Math.max(0, routeSnapshot.speed) * Math.max(0, deltaSeconds);
-		const nextStation = this.stations
+		let nextStation = this.stations
 			.filter((station) => !this.processed.has(station.stationId))
 			.filter((station) => station.distanceMeters >= routeSnapshot.distanceMeters - 0.0001 && station.distanceMeters <= nextDistance + 0.0001)
 			.sort((left, right) => left.distanceMeters - right.distanceMeters)[0];
+		// 闭环路线跨越 length -> 0 时必须检查新一圈起点区间。
+		// 否则位于 Route 起点的机器人/工位只会在第一圈命中，后续运输单元会直接越站。
+		if (!nextStation && this.route.loop && routeSnapshot.lengthMeters > 0 && nextDistance >= routeSnapshot.lengthMeters) {
+			const wrappedDistance = nextDistance % routeSnapshot.lengthMeters;
+			this.processed.clear();
+			nextStation = this.stations
+				.filter((station) => station.distanceMeters <= wrappedDistance + 0.0001)
+				.sort((left, right) => left.distanceMeters - right.distanceMeters)[0];
+		}
 		if (!nextStation) return true;
 
 		if (nextStation.behaviorCompletionGroups.length && !this.prepareBehaviorBatch(nextStation)) return false;

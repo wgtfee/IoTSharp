@@ -190,9 +190,12 @@ export class RouteSlotArrayRuntime {
 					const routeSnapshot = engine.getSnapshot();
 					const isPrimarySmallPalletRoute = this.manifest.runtime.primarySmallPalletRouteId === routeId
 						&& transportUnitType === 'plastic-pallet';
-					const queueSpacingMeters = 1.8;
-					const initialDistance = isPrimarySmallPalletRoute && routeSnapshot.lengthMeters > 0
-						? (slot.slotIndex === 0 ? 0 : Math.max(0, routeSnapshot.lengthMeters - queueSpacingMeters * slot.slotIndex))
+					const isQueuedNonLoopSimulationRoute = curveInfo.loop === false && slot.slotCount > 1;
+					// Simulation 的默认小托盘逻辑上必须全部从机器人批次工位开始；
+					// 视觉排队由 applyStationQueueVisual 单独拉开，绝不能靠“靠近路线尾端”伪造，
+					// 否则尾端若存在桁架工位会先被桁架截停，形成 1+5 永久死锁。
+					const initialDistance = (isPrimarySmallPalletRoute || isQueuedNonLoopSimulationRoute) && routeSnapshot.lengthMeters > 0
+						? 0
 						: progress * routeSnapshot.lengthMeters;
 					const initialProgress = routeSnapshot.lengthMeters > 0 ? initialDistance / routeSnapshot.lengthMeters : 0;
 					engine.correctDistance(initialDistance);
@@ -249,6 +252,7 @@ export class RouteSlotArrayRuntime {
 				entity.targetProgress = snapshot.progress;
 				entity.root.userData.routeProgress = snapshot.progress;
 				entity.root.userData.routeState = snapshot.state;
+				entity.root.userData.routeCompleted = this.curves.get(entity.routeId)?.loop === false && snapshot.progress >= 0.999;
 				entity.root.userData.activeProcessComponentObjectId = entity.simulationProcess?.getSnapshot().activeComponentObjectId;
 				continue;
 			}
@@ -263,6 +267,7 @@ export class RouteSlotArrayRuntime {
 			if (curveInfo.loop) entity.currentProgress = ((entity.currentProgress % 1) + 1) % 1;
 			else entity.currentProgress = THREE.MathUtils.clamp(entity.currentProgress, 0, 1);
 			this.applyPose(entity, curveInfo, entity.currentProgress);
+			entity.root.userData.routeCompleted = !curveInfo.loop && entity.currentProgress >= 0.999;
 		}
 	}
 

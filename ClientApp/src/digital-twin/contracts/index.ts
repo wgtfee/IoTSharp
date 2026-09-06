@@ -181,6 +181,7 @@ export interface TwinRuntimeDefinition {
 	referencePackagingLayoutVersion?: number;
 	/** 参考包装线 simulation 多托盘使用的主工艺闭环，由组件 internalFlows + Port Connection 派生。 */
 	primarySmallPalletRouteId?: string;
+	primaryWoodenPalletRouteId?: string;
 	/** 每条小辊道路线的托盘槽位初始化。live 由 telemetry routeSlotArray 接管，simulation 使用默认数量。 */
 	routePalletInitializers?: TwinRoutePalletInitializerDefinition[];
 	silkLineSimulation?: SilkLineSimulationOptions;

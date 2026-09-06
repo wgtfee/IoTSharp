@@ -397,7 +397,13 @@ export class TopCoverGantryComponent implements TwinComponentGenerator {
 		const stockDeckX = Math.min(coverSizeX + 0.50, length - 0.60);
 		const stockDeckZ = Math.min(coverSizeZ + 0.30, width * 0.44);
 		addBox(table, 'TopCover-Stock-Base', [stockDeckX, 0.68, stockDeckZ], [0, 0.34, 0], frame);
-		for (let i = 0; i < 8; i += 1) addBox(table, `TopCover-Stock-${i + 1}`, [coverSizeX, 0.06, coverSizeZ], [0, 0.72 + i * 0.075, 0], cover);
+		for (let i = 0; i < 8; i += 1) {
+			const stock = addBox(table, `TopCover-Stock-${i + 1}`, [coverSizeX, 0.06, coverSizeZ], [0, 0.72 + i * 0.075, 0], cover);
+			stock.userData.materialEntity = true;
+			stock.userData.payloadType = 'top-cover';
+			stock.userData.twinEntityId = `${context.definition.objectId}:top-cover:${i + 1}`;
+			stock.userData.materialStage = 'top-cover-stock';
+		}
 		root.add(table);
 		return finish(root, context, this.generator, this.componentType, { ...props, length, width, height });
 	}

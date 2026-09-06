@@ -22,7 +22,9 @@
           "B": 3.141592653589793
         },
         "rotationNodePath": "RotatingDeck",
-        "minimumBatch": 12
+        "minimumBatch": 12,
+        "simulationReplenish": true,
+        "simulationReplenishLimit": 2
       }
     },
     {
@@ -47,7 +49,9 @@
           "A": 3.141592653589793
         },
         "rotationNodePath": "RotatingDeck",
-        "minimumBatch": 12
+        "minimumBatch": 12,
+        "simulationReplenish": true,
+        "simulationReplenishLimit": 2
       }
     },
     {
@@ -116,7 +120,10 @@
         "layerMaterialRequired": true,
         "layerMaterialOffsetY": 0.21
       },
-      "placedStage": "on-wood-pallet"
+      "placedStage": "on-wood-pallet",
+      "runtimeOwnerType": "wooden-pallet",
+      "runtimeOwnerNodePath": "StackAnchor",
+      "runtimeOwnerSelection": "station-batch"
     },
     {
       "slotId": "reference-gantry-separator-source-slot",
@@ -130,7 +137,11 @@
         0
       ],
       "payloadType": "separator",
-      "capacity": 10
+      "capacity": 10,
+      "metadata": {
+        "simulationReplenish": true,
+        "simulationReplenishLimit": 3
+      }
     },
     {
       "slotId": "reference-gantry-separator-stack-slot",
@@ -146,7 +157,45 @@
       "payloadType": "separator",
       "capacity": 8,
       "stackPatternSlotId": "reference-gantry-wood-stack-slot",
-      "placedStage": "on-wood-pallet"
+      "placedStage": "on-wood-pallet",
+      "runtimeOwnerType": "wooden-pallet",
+      "runtimeOwnerNodePath": "StackAnchor",
+      "runtimeOwnerSelection": "station-batch"
+    },
+    {
+      "slotId": "reference-top-cover-source-slot",
+      "name": "天盖库存取料槽位",
+      "objectId": "reference-top-cover-gantry",
+      "role": "source",
+      "nodePath": "TopCover-Stock-Table",
+      "localPosition": [
+        0,
+        1.245,
+        0
+      ],
+      "payloadType": "top-cover",
+      "capacity": 8,
+      "metadata": {
+        "simulationReplenish": true,
+        "simulationReplenishLimit": 1
+      }
+    },
+    {
+      "slotId": "reference-top-cover-target-slot",
+      "name": "当前满木托天盖放置槽位",
+      "objectId": "reference-top-cover-gantry",
+      "role": "target",
+      "localPosition": [
+        0,
+        0,
+        0
+      ],
+      "payloadType": "top-cover",
+      "capacity": 1,
+      "runtimeOwnerType": "wooden-pallet",
+      "runtimeOwnerNodePath": "StackAnchor",
+      "runtimeOwnerSelection": "station-batch",
+      "placedStage": "covered"
     }
   ],
   "toolFrames": [
@@ -190,6 +239,20 @@
       ],
       "payloadTypes": [
         "separator"
+      ]
+    },
+    {
+      "toolFrameId": "reference-top-cover-tcp",
+      "name": "天盖真空夹具 TCP",
+      "objectId": "reference-top-cover-gantry",
+      "nodePath": "TopCover-Gantry-Gripper",
+      "localPosition": [
+        0,
+        -0.43,
+        0
+      ],
+      "payloadTypes": [
+        "top-cover"
       ]
     }
   ],
@@ -316,6 +379,43 @@
         1.5,
         5.6,
         -5.4
+      ]
+    },
+    {
+      "workPointId": "reference-top-cover-stock-pick",
+      "name": "天盖库存取料点",
+      "objectId": "reference-top-cover-gantry",
+      "role": "pick",
+      "materialSlotId": "reference-top-cover-source-slot",
+      "toolFrameId": "reference-top-cover-tcp",
+      "localPosition": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "workPointId": "reference-top-cover-pallet-place",
+      "name": "满木托天盖放置点",
+      "objectId": "reference-top-cover-gantry",
+      "role": "place",
+      "materialSlotId": "reference-top-cover-target-slot",
+      "toolFrameId": "reference-top-cover-tcp",
+      "localPosition": [
+        0,
+        4.1,
+        0
+      ]
+    },
+    {
+      "workPointId": "reference-top-cover-home-point",
+      "name": "天盖桁架安全原点",
+      "objectId": "reference-top-cover-gantry",
+      "role": "home",
+      "localPosition": [
+        0,
+        5.8,
+        1.55
       ]
     }
   ],
@@ -471,6 +571,40 @@
       "name": "隔板真空夹具",
       "objectId": "reference-stacking-gantry",
       "nodePath": "Gantry-Separator-Gripper",
+      "kind": "gripper",
+      "unit": "boolean"
+    },
+    {
+      "actuatorId": "reference-top-cover-z",
+      "name": "天盖桥架 Z 轴",
+      "objectId": "reference-top-cover-gantry",
+      "nodePath": "TopCover-Gantry-Bridge",
+      "kind": "linear-axis",
+      "motionAxis": "z",
+      "unit": "meter",
+      "minValue": -6.5,
+      "maxValue": 2,
+      "homeValue": 1.55,
+      "speed": 3
+    },
+    {
+      "actuatorId": "reference-top-cover-y",
+      "name": "天盖夹具升降轴",
+      "objectId": "reference-top-cover-gantry",
+      "nodePath": "TopCover-Gantry-Z-Slide",
+      "kind": "linear-axis",
+      "motionAxis": "y",
+      "unit": "meter",
+      "minValue": -5.5,
+      "maxValue": 0.5,
+      "homeValue": 0,
+      "speed": 2.2
+    },
+    {
+      "actuatorId": "reference-top-cover-gripper",
+      "name": "天盖真空夹具",
+      "objectId": "reference-top-cover-gantry",
+      "nodePath": "TopCover-Gantry-Gripper",
       "kind": "gripper",
       "unit": "boolean"
     }
@@ -683,6 +817,59 @@
           "value": -5
         }
       ]
+    },
+    {
+      "poseId": "reference-top-cover-home",
+      "name": "天盖桁架 Home",
+      "objectId": "reference-top-cover-gantry",
+      "targets": [
+        {
+          "actuatorId": "reference-top-cover-z",
+          "value": 1.55
+        },
+        {
+          "actuatorId": "reference-top-cover-y",
+          "value": 0
+        },
+        {
+          "actuatorId": "reference-top-cover-gripper",
+          "value": false
+        }
+      ]
+    },
+    {
+      "poseId": "reference-top-cover-pick",
+      "name": "天盖库存取料姿态",
+      "objectId": "reference-top-cover-gantry",
+      "workPointId": "reference-top-cover-stock-pick",
+      "toolFrameId": "reference-top-cover-tcp",
+      "targets": [
+        {
+          "actuatorId": "reference-top-cover-z",
+          "value": -5.4
+        },
+        {
+          "actuatorId": "reference-top-cover-y",
+          "value": -4.45
+        }
+      ]
+    },
+    {
+      "poseId": "reference-top-cover-place",
+      "name": "满木托放盖姿态",
+      "objectId": "reference-top-cover-gantry",
+      "workPointId": "reference-top-cover-pallet-place",
+      "toolFrameId": "reference-top-cover-tcp",
+      "targets": [
+        {
+          "actuatorId": "reference-top-cover-z",
+          "value": 0
+        },
+        {
+          "actuatorId": "reference-top-cover-y",
+          "value": -4.15
+        }
+      ]
     }
   ],
   "interlocks": [
@@ -714,6 +901,17 @@
         {
           "source": "reference-stacking-gantry.channels.yarn.layerPlaced",
           "operator": "falsy"
+        }
+      ]
+    },
+    {
+      "interlockId": "reference-wood-stack-complete",
+      "name": "2×3×8 丝锭和每层隔板全部完成",
+      "mode": "all",
+      "conditions": [
+        {
+          "source": "reference-gantry-wood-stack-slot.complete",
+          "operator": "truthy"
         }
       ]
     }
@@ -1035,6 +1233,102 @@
       "initialState": [
         {
           "source": "reference-stacking-gantry.channels.separator.hasPayload",
+          "value": false
+        }
+      ]
+    },
+    {
+      "behaviorId": "reference-wood-stack-release",
+      "name": "满木托码垛完成后允许后包装",
+      "actorObjectId": "reference-stacking-pallet",
+      "enabled": true,
+      "loop": true,
+      "stationCompletionGroup": "stack-ready",
+      "stationRequiredCycles": 1,
+      "actions": [
+        {
+          "actionId": "wood-stack-wait-complete",
+          "kind": "wait",
+          "waitForInterlockId": "reference-wood-stack-complete",
+          "onStartState": [
+            {
+              "source": "reference-gantry-wood-stack-slot.complete",
+              "value": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "behaviorId": "reference-top-cover-place-behavior",
+      "name": "天盖桁架抓取并放置天盖",
+      "actorObjectId": "reference-top-cover-gantry",
+      "enabled": true,
+      "loop": true,
+      "stationCompletionGroup": "cover",
+      "stationRequiredCycles": 1,
+      "actions": [
+        {
+          "actionId": "top-cover-pick-pose",
+          "kind": "movePose",
+          "poseId": "reference-top-cover-pick",
+          "speedRatio": 0.8,
+          "onStartState": [
+            {
+              "source": "reference-top-cover.completed",
+              "value": false
+            }
+          ]
+        },
+        {
+          "actionId": "top-cover-grip-close",
+          "kind": "gripClose",
+          "actuatorId": "reference-top-cover-gripper"
+        },
+        {
+          "actionId": "top-cover-attach",
+          "kind": "attach",
+          "workPointId": "reference-top-cover-stock-pick",
+          "sourceSlotId": "reference-top-cover-source-slot",
+          "toolFrameId": "reference-top-cover-tcp",
+          "payloadType": "top-cover",
+          "payloadCount": 1
+        },
+        {
+          "actionId": "top-cover-place-pose",
+          "kind": "movePose",
+          "poseId": "reference-top-cover-place",
+          "speedRatio": 0.8
+        },
+        {
+          "actionId": "top-cover-detach",
+          "kind": "detach",
+          "workPointId": "reference-top-cover-pallet-place",
+          "targetSlotId": "reference-top-cover-target-slot",
+          "toolFrameId": "reference-top-cover-tcp",
+          "payloadType": "top-cover",
+          "onCompleteState": [
+            {
+              "source": "reference-top-cover.completed",
+              "value": true
+            }
+          ]
+        },
+        {
+          "actionId": "top-cover-grip-open",
+          "kind": "gripOpen",
+          "actuatorId": "reference-top-cover-gripper"
+        },
+        {
+          "actionId": "top-cover-home",
+          "kind": "home",
+          "poseId": "reference-top-cover-home",
+          "workPointId": "reference-top-cover-home-point"
+        }
+      ],
+      "initialState": [
+        {
+          "source": "reference-top-cover.completed",
           "value": false
         }
       ]

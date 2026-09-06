@@ -12,7 +12,7 @@ import referencePackagingActionsV17 from './reference-packaging-actions-v17.json
 
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
-export const REFERENCE_PACKAGING_LAYOUT_VERSION = 17;
+export const REFERENCE_PACKAGING_LAYOUT_VERSION = 18;
 
 const applyReferenceActionPreset = (manifest: TwinSceneManifest) => {
 	const preset = referencePackagingActionsV17 as unknown as Pick<TwinSceneManifest, 'materialSlots' | 'toolFrames' | 'workPoints' | 'actuators' | 'poses' | 'interlocks' | 'behaviors'>;
@@ -24,9 +24,11 @@ const applyReferenceActionPreset = (manifest: TwinSceneManifest) => {
 	manifest.interlocks = structuredClone(preset.interlocks || []);
 	manifest.behaviors = structuredClone(preset.behaviors || []);
 	const primarySmallRouteId = manifest.runtime.primarySmallPalletRouteId;
-	manifest.runtime.routePalletInitializers = primarySmallRouteId
-		? [{ routeId: primarySmallRouteId, telemetryKey: `PalletSlots.${primarySmallRouteId}`, simulationDefaultCount: 6, emptyValue: 0 }]
-		: [];
+	const primaryWoodenRouteId = manifest.runtime.primaryWoodenPalletRouteId;
+	manifest.runtime.routePalletInitializers = [
+		...(primarySmallRouteId ? [{ routeId: primarySmallRouteId, telemetryKey: `PalletSlots.${primarySmallRouteId}`, simulationDefaultCount: 6, emptyValue: 0 }] : []),
+		...(primaryWoodenRouteId ? [{ routeId: primaryWoodenRouteId, telemetryKey: `PalletSlots.${primaryWoodenRouteId}`, simulationDefaultCount: 3, emptyValue: 0 }] : []),
+	];
 };
 
 const componentObject = (
@@ -114,9 +116,10 @@ const buildReferenceTopologyConnections = (manifest: TwinSceneManifest, routes: 
 	for (const route of routes) {
 		for (const routePoint of route.points) {
 			const center = pointComponent(routePoint);
+			const centerOwnsMaterialFlow = center ? resolveComponentPorts(center).some((port) => port.type === 'material-input' || port.type === 'material-output' || port.type === 'material-bidirectional') : false;
 			const incoming = route.edges.filter((edge) => edge.toPointId === routePoint.pointId).map((edge) => endpointObject(route, edge, routePoint.pointId)).filter(Boolean) as TwinV7SceneObjectDefinition[];
 			const outgoing = route.edges.filter((edge) => edge.fromPointId === routePoint.pointId).map((edge) => endpointObject(route, edge, routePoint.pointId)).filter(Boolean) as TwinV7SceneObjectDefinition[];
-			if (center) {
+			if (center && centerOwnsMaterialFlow) {
 				for (const source of incoming) connectObjects(source, center);
 				for (const target of outgoing) connectObjects(center, target);
 				continue;
@@ -409,18 +412,22 @@ const createGantryMergeRoute = (): TwinRouteDefinition => ({
 
 const createLargeRoute = (): TwinRouteDefinition => ({
 	routeId: 'reference-large-pallet-line',
-	name: '左侧纸箱大辊道',
+	name: '木托后包装大辊道',
 	type: 'conveyor', curveKind: 'line', defaultSpeed: 0.65, loop: false, orientToPath: true,
 	points: [
-		{ ...point('ref-large-in', '纸箱大辊道上端', -15.7, -18.8, 'station'), position: [-15.7, LARGE_HEIGHT, -18.8] },
-		{ ...point('ref-large-stack', '码垛桁架纸箱停留位', -15.7, -11, 'processStation'), position: [-15.7, LARGE_HEIGHT, -11], componentObjectId: 'reference-stacking-gantry', process: { type: 'gantry-stacking', cycleSeconds: 5 } },
-		{ ...point('ref-large-mid', '纸箱大辊道缓存', -15.7, -5, 'buffer'), position: [-15.7, LARGE_HEIGHT, -5] },
-		{ ...point('ref-large-out', '纸箱输出口', -15.7, 1.8, 'station'), position: [-15.7, LARGE_HEIGHT, 1.8] },
+		{ ...point('ref-large-in', '空木托进入', -22.5, -11, 'station'), position: [-22.5, LARGE_HEIGHT, -11] },
+		{ ...point('ref-large-stack', '2×3×8 码垛完成位', -15.7, -11, 'processStation'), position: [-15.7, LARGE_HEIGHT, -11], componentObjectId: 'reference-stacking-pallet', process: { type: 'wood-stack-ready', cycleSeconds: 1 } },
+		{ ...point('ref-large-cover', '天盖桁架工位', -3.5, -11, 'processStation'), position: [-3.5, LARGE_HEIGHT, -11], componentObjectId: 'reference-top-cover-gantry', process: { type: 'top-cover', cycleSeconds: 3 } },
+		{ ...point('ref-large-wrap', '缠膜工位', 9, -11, 'processStation'), position: [9, LARGE_HEIGHT, -11], componentObjectId: 'reference-wrapper', process: { type: 'wrapping', cycleSeconds: 8 } },
+		{ ...point('ref-large-label', '贴标工位', 20.5, -11, 'processStation'), position: [20.5, LARGE_HEIGHT, -11], componentObjectId: 'reference-labeling', process: { type: 'labeling', cycleSeconds: 2 } },
+		{ ...point('ref-large-out', '成品出库', 32, -11, 'station'), position: [32, LARGE_HEIGHT, -11] },
 	],
 	edges: [
-		edge('ref-large-edge-in', 'ref-large-in', 'ref-large-stack', '码垛前大辊道', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'carton' }),
-		edge('ref-large-edge-a', 'ref-large-stack', 'ref-large-mid', '码垛后大辊道', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'carton' }),
-		edge('ref-large-edge-b', 'ref-large-mid', 'ref-large-out', '纸箱输出大辊道', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'carton' }),
+		edge('ref-large-edge-in', 'ref-large-in', 'ref-large-stack', '空木托到码垛位', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
+		edge('ref-large-edge-cover', 'ref-large-stack', 'ref-large-cover', '满托到天盖', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
+		edge('ref-large-edge-wrap', 'ref-large-cover', 'ref-large-wrap', '天盖后到缠膜', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
+		edge('ref-large-edge-label', 'ref-large-wrap', 'ref-large-label', '缠膜后到贴标', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
+		edge('ref-large-edge-out', 'ref-large-label', 'ref-large-out', '贴标后成品出库', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
 	],
 	startPointId: 'ref-large-in', junctionDecisions: {}, routingMode: 'manual', decisionRules: [],
 });
@@ -478,7 +485,7 @@ const createUpperFrameRoute = (): TwinRouteDefinition => ({
 export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	const manifest = createBlankTwinSceneManifest();
 	manifest.name = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
-	manifest.description = 'V17 标准引擎版：动作、Pose、TCP、MaterialSlot、码垛规则和联锁全部来自声明式场景数据；Runtime 只提供通用执行能力，Live 仍由 PLC / Telemetry 权威接管。';
+	manifest.description = 'V18 标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；外检、套袋、缠膜、贴标使用组件内部时间轴；木托从2×3×8码垛、隔板、天盖一直运行到缠膜、贴标和成品出库。';
 	manifest.world.background = '#08111f';
 	const smallRoute = createSmallMainRoute();
 	const largeRoute = createLargeRoute();
@@ -574,11 +581,13 @@ export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManife
 		// 丝锭桁架内部的暂存台位于本地 Z-；Y+90° 后它落到世界 X-，即大辊道左侧，符合图纸。
 		componentObject('builtin-silk-gantry', 'reference-stacking-gantry', '码垛桁架和暂存台', [-15.7, 0, -11], Math.PI / 2, { length: 7.2, width: 15, height: 7.2 }, 'ref-large-stack'),
 		componentObject('builtin-wooden-pallet', 'reference-stacking-pallet', '码垛位木托盘', [-15.7, LARGE_HEIGHT, -11], 0, { length: 4.0, width: 3.4, height: 0.18 }, 'ref-large-stack-pallet'),
+		componentObject('builtin-top-cover-gantry', 'reference-top-cover-gantry', '天盖桁架', [-3.5, 0, -11], 0, { length: 7.05, width: 10.5, height: 6.0 }, 'ref-large-cover'),
+		componentObject('builtin-wrapper-machine', 'reference-wrapper', '缠膜机', [9, 0, -11], 0, { height: 6.2, armRadius: 3.0, width: 6.8 }, 'ref-large-wrap'),
+		componentObject('builtin-labeling-machine', 'reference-labeling', '贴标机', [20.5, 0, -11], 0, { height: 2.4, sideOffset: 1.85, armReach: 0.6 }, 'ref-large-label'),
 		componentObject('builtin-industrial-robot', 'reference-loading-robot', '底部六轴机器人+2×6丝锭夹具', [0.4, 0, 19.8], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.2, gripperRowSpacing: 1.15, upperArmLength: 2.4, forearmLength: 2.2, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }, 'ref-robot'),
 		componentObject('builtin-turntable', 'reference-turntable-west', '西侧旋转台+双面丝车', [-5.2, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-west'),
 		componentObject('builtin-turntable', 'reference-turntable-east', '东侧旋转台+双面丝车', [6, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-east'),
 	);
-
 	manifest.objects = objects as TwinSceneManifest['objects'];
 	manifest.bindings = [];
 	manifest.routes = [];
@@ -610,10 +619,31 @@ export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManife
 		smallProcessRoute.name = '参考图小托盘完整工艺闭环（机器人→外检→套袋→桁架→空托回流）';
 		smallProcessRoute.loop = true;
 	}
+	const woodenProcessRoute = manifest.routes
+		.filter((route) => route.edges.some((edge) => edge.conveyorSizeClass === 'large' && edge.transportUnitType === 'wooden-pallet'))
+		.sort((left, right) => right.edges.length - left.edges.length)[0];
+	if (woodenProcessRoute) {
+		const nearestPoint = (x: number, z: number) => [...woodenProcessRoute.points].sort((left, right) => Math.hypot(left.position[0] - x, left.position[2] - z) - Math.hypot(right.position[0] - x, right.position[2] - z))[0];
+		for (const station of [
+			{ x: -15.7, z: -11, objectId: 'reference-stacking-pallet', type: 'wood-stack-ready', cycleSeconds: 1 },
+			{ x: -3.5, z: -11, objectId: 'reference-top-cover-gantry', type: 'top-cover', cycleSeconds: 3 },
+			{ x: 9, z: -11, objectId: 'reference-wrapper', type: 'wrapping', cycleSeconds: 8 },
+			{ x: 20.5, z: -11, objectId: 'reference-labeling', type: 'labeling', cycleSeconds: 2 },
+		]) {
+			const processPoint = nearestPoint(station.x, station.z);
+			if (!processPoint) continue;
+			processPoint.kind = 'processStation';
+			processPoint.componentObjectId = station.objectId;
+			processPoint.process = { type: station.type, cycleSeconds: station.cycleSeconds, batchSize: 1 };
+		}
+		woodenProcessRoute.name = '木托后包装完整工艺（码垛→天盖→缠膜→贴标→出库）';
+		woodenProcessRoute.loop = false;
+	}
 	manifest.runtime = {
 		dataMode: 'simulation', maxPixelRatio: 2, showGrid: true,
 		referencePackagingLayoutVersion: REFERENCE_PACKAGING_LAYOUT_VERSION,
 		primarySmallPalletRouteId: smallProcessRoute?.routeId,
+		primaryWoodenPalletRouteId: woodenProcessRoute?.routeId,
 	};
 	applyReferenceActionPreset(manifest);
 	return manifest;
