@@ -187,7 +187,15 @@ export class RouteSlotArrayRuntime {
 					const routingContext = { payload: { routeCode, palletId: slot.palletId }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
 					const engine = new RouteEngine(structuredClone(curveInfo.route), entity.root);
 					engine.setRoutingContext(routingContext);
-					engine.correctDistance(progress * engine.getSnapshot().lengthMeters);
+					const routeSnapshot = engine.getSnapshot();
+					const isPrimarySmallPalletRoute = this.manifest.runtime.primarySmallPalletRouteId === routeId
+						&& transportUnitType === 'plastic-pallet';
+					const queueSpacingMeters = 1.8;
+					const initialDistance = isPrimarySmallPalletRoute && routeSnapshot.lengthMeters > 0
+						? (slot.slotIndex === 0 ? 0 : Math.max(0, routeSnapshot.lengthMeters - queueSpacingMeters * slot.slotIndex))
+						: progress * routeSnapshot.lengthMeters;
+					const initialProgress = routeSnapshot.lengthMeters > 0 ? initialDistance / routeSnapshot.lengthMeters : 0;
+					engine.correctDistance(initialDistance);
 					engine.setRunning(this.running);
 					const process = new ComponentProcessRuntime({
 						route: structuredClone(curveInfo.route),
@@ -200,9 +208,14 @@ export class RouteSlotArrayRuntime {
 					entity.simulationEngine = engine;
 					entity.simulationProcess = process;
 					entity.routeCode = routeCode;
+					entity.initialProgress = initialProgress;
+					entity.currentProgress = initialProgress;
+					entity.targetProgress = initialProgress;
 					entity.root.userData.simulationRouteDriven = true;
 					entity.root.userData.routeCode = routeCode;
-					entity.root.userData.initialRouteProgress = progress;
+					entity.root.userData.initialRouteProgress = initialProgress;
+					entity.root.userData.simulationQueueIndex = slot.slotIndex;
+					engine.render(1);
 				}
 			} else {
 				entity.routeId = routeId;
@@ -230,6 +243,7 @@ export class RouteSlotArrayRuntime {
 				if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
 				entity.simulationEngine.render(1);
 				const snapshot = entity.simulationEngine.getSnapshot();
+				this.applyStationQueueVisual(entity, snapshot.distanceMeters, snapshot.lengthMeters);
 				entity.currentProgress = snapshot.progress;
 				entity.targetProgress = snapshot.progress;
 				entity.root.userData.routeProgress = snapshot.progress;
@@ -249,6 +263,39 @@ export class RouteSlotArrayRuntime {
 			else entity.currentProgress = THREE.MathUtils.clamp(entity.currentProgress, 0, 1);
 			this.applyPose(entity, curveInfo, entity.currentProgress);
 		}
+	}
+
+	private applyStationQueueVisual(entity: RouteSlotEntity, stationDistance: number, routeLength: number) {
+		if (!entity.simulationEngine || routeLength <= 0) return;
+		const route = this.curves.get(entity.routeId)?.route;
+		if (!route) return;
+		let queueIndex = -1;
+		for (const point of route.points || []) {
+			if (point.kind !== 'processStation' || !point.componentObjectId) continue;
+			const root = this.getComponentRoot?.(point.componentObjectId);
+			if (!root) continue;
+			const activeIds = Array.isArray(root.userData?.stationPalletIds) ? root.userData.stationPalletIds.map(String) : [];
+			const waitingIds = Array.isArray(root.userData?.stationWaitingPalletIds) ? root.userData.stationWaitingPalletIds.map(String) : [];
+			const activeIndex = activeIds.indexOf(entity.palletId);
+			const waitingIndex = waitingIds.indexOf(entity.palletId);
+			queueIndex = activeIndex >= 0 ? activeIndex : waitingIndex;
+			if (queueIndex >= 0) break;
+		}
+		if (queueIndex <= 0) return;
+
+		const queueSpacingMeters = 1.5;
+		let visualDistance = stationDistance - queueIndex * queueSpacingMeters;
+		visualDistance = ((visualDistance % routeLength) + routeLength) % routeLength;
+		const normalized = THREE.MathUtils.clamp(visualDistance / routeLength, 0, 1);
+		const curve = entity.simulationEngine.getCurve();
+		const position = curve.getPointAt(normalized);
+		entity.root.position.copy(position);
+		if (route.orientToPath !== false) {
+			const tangent = curve.getTangentAt(normalized);
+			if (tangent.lengthSq() > 0.000001) entity.root.lookAt(position.clone().add(tangent));
+		}
+		entity.root.userData.stationQueueIndex = queueIndex;
+		entity.root.userData.stationQueueVisual = true;
 	}
 
 	setRunning(running: boolean) {

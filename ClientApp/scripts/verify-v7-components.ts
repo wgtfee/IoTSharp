@@ -516,6 +516,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const before = v15PalletRuntime.getSimulationSnapshot();
 		assert(before.length >= 6 && new Set(before.map((item) => item.palletId)).size === before.length, '参考图 V15 没有创建至少 6 个稳定 ID 的仿真小托盘');
 		assert(before.some((item) => item.routeCode === 'A') && before.some((item) => item.routeCode === 'B'), '参考图 V15 仿真小托盘没有交替分配 A/B 套袋分支');
+		const initialProgresses = [...before].map((item) => item.progress).sort((left, right) => left - right);
+		assert(initialProgresses[0] < 0.01 && initialProgresses.slice(1).every((progress) => progress > 0.85), '参考图 V15 默认小托盘仍被均匀撒在整条工艺线上，没有从机器人前回流段连续排队');
 		v15PalletRuntime.setRunning(true);
 		for (let tick = 0; tick < 240; tick += 1) v15PalletRuntime.tick(1 / 30);
 		const after = v15PalletRuntime.getSimulationSnapshot();
@@ -527,6 +529,86 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	}
 
 	// V12 声明式动作必须真正驱动现有组件节点，而不是只停留在 Manifest 配置。
+	const v15IntegratedScene = new THREE.Scene();
+	const v15IntegratedRoots = new Map<string, THREE.Group>();
+	const v15IntegratedBuilt: Array<{ root: THREE.Group; dispose: () => void }> = [];
+	for (const item of referenceComponentsV11) {
+		const built = defaultComponentRegistry.create({
+			objectId: item.objectId,
+			name: item.name,
+			resourceKey: item.component!.resourceKey,
+			componentType: item.component!.componentType as any,
+			generator: item.component!.generator,
+			generatorVersion: item.component!.generatorVersion,
+			properties: item.component!.properties,
+			transform: item.transform,
+			sectionId: item.component!.sectionId,
+		});
+		v15IntegratedScene.add(built.root);
+		v15IntegratedRoots.set(item.objectId, built.root);
+		v15IntegratedBuilt.push(built);
+	}
+	const v15IntegratedSlots = new RouteSlotArrayRuntime(v15IntegratedScene, referenceLineV11, undefined, (objectId) => v15IntegratedRoots.get(objectId));
+	const v15IntegratedBehavior = new BehaviorRuntime(referenceLineV11, v15IntegratedScene, (objectId) => v15IntegratedRoots.get(objectId));
+	try {
+		const loadingRoot = v15IntegratedRoots.get('reference-loading-robot')!;
+		const gantryRoot = v15IntegratedRoots.get('reference-stacking-gantry')!;
+		const stackRoot = v15IntegratedRoots.get('reference-stacking-pallet')!;
+		const robotAxis1 = loadingRoot.getObjectByName('Robot-Axis-1')!;
+		const robotStartYaw = robotAxis1.rotation.y;
+		let sawLoadingBatch = false;
+		let sawLoadingBatchSeparated = false;
+		let sawRobotMotion = false;
+		let sawSixPalletsWithTwoCakes = false;
+		let sawGantryBatch = false;
+		let sawGantryMotion = false;
+		let sawFirstStackLayer = false;
+		v15IntegratedSlots.setRunning(true);
+		v15IntegratedBehavior.setRunning(true);
+		for (let tick = 0; tick < 36000; tick += 1) {
+			v15IntegratedSlots.tick(1 / 60);
+			v15IntegratedBehavior.updateFixed(1 / 60);
+			const loadingIds = Array.isArray(loadingRoot.userData.stationPalletIds) ? loadingRoot.userData.stationPalletIds : [];
+			const gantryIds = Array.isArray(gantryRoot.userData.stationPalletIds) ? gantryRoot.userData.stationPalletIds : [];
+			if (loadingIds.length === 6) sawLoadingBatch = true;
+			if (Math.abs(robotAxis1.rotation.y - robotStartYaw) > 0.02) sawRobotMotion = true;
+			if (gantryIds.length === 6) sawGantryBatch = true;
+			const yarnChannel = v15IntegratedBehavior.getSnapshot().channels.find((item) => item.actorNodePath === 'YarnFixture');
+			if (yarnChannel && (yarnChannel.completedActions > 0 || yarnChannel.status === 'moving' || yarnChannel.status === 'acting')) sawGantryMotion = true;
+			const runtimePallets: THREE.Object3D[] = [];
+			v15IntegratedScene.traverse((node) => {
+				if (node.userData?.twinEntityType === 'route-slot-pallet' && node.parent?.name === 'IoTSharp Route Slot Array Runtime') runtimePallets.push(node);
+			});
+			if (runtimePallets.length === 6 && runtimePallets.every((pallet) => {
+				let count = 0;
+				pallet.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
+				return count === 2;
+			})) sawSixPalletsWithTwoCakes = true;
+			if (loadingIds.length === 6 && runtimePallets.length === 6) {
+				let minimumDistance = Number.POSITIVE_INFINITY;
+				for (let left = 0; left < runtimePallets.length; left += 1) for (let right = left + 1; right < runtimePallets.length; right += 1) {
+					minimumDistance = Math.min(minimumDistance, runtimePallets[left].position.distanceTo(runtimePallets[right].position));
+				}
+				if (minimumDistance > 0.5) sawLoadingBatchSeparated = true;
+			}
+			if (Number(stackRoot.userData.stackedSilkCakeCount || 0) >= 6) sawFirstStackLayer = true;
+			if (sawLoadingBatch && sawLoadingBatchSeparated && sawRobotMotion && sawSixPalletsWithTwoCakes && sawGantryBatch && sawGantryMotion && sawFirstStackLayer) break;
+		}
+		const integratedPalletSnapshot = v15IntegratedSlots.getSimulationSnapshot();
+		const integratedBehaviorSnapshot = v15IntegratedBehavior.getSnapshot();
+		assert(sawLoadingBatch, `V15 integrated runtime did not form loading batch: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawLoadingBatchSeparated, `V15 integrated runtime loading batch visually overlapped into one pallet: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawRobotMotion, `V15 integrated runtime robot did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-loading-robot'))}`);
+		assert(sawSixPalletsWithTwoCakes, `V15 integrated runtime did not distribute 12 cakes to 6 pallets: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawGantryBatch, `V15 integrated runtime did not form gantry batch: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawGantryMotion, `V15 integrated runtime gantry did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}`);
+		assert(sawFirstStackLayer, `V15 integrated runtime did not stack first layer: stack=${Number(stackRoot.userData.stackedSilkCakeCount || 0)}`);
+	} finally {
+		v15IntegratedBehavior.dispose();
+		v15IntegratedSlots.dispose();
+		for (const built of v15IntegratedBuilt) built.dispose();
+	}
+
 	const behaviorSceneV12 = new THREE.Scene();
 	const behaviorRootsV12 = new Map<string, THREE.Object3D>();
 	const behaviorBuiltV12: Array<{ root: THREE.Group; dispose: () => void }> = [];
@@ -546,6 +628,17 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		});
 		behaviorSceneV12.add(built.root);
 		behaviorRootsV12.set(item.objectId, built.root);
+		behaviorBuiltV12.push(built);
+	}
+	const behaviorStationPalletIds = Array.from({ length: 6 }, (_, index) => `V15-STATION-PALLET-${index + 1}`);
+	const behaviorStationPalletRoots: THREE.Group[] = [];
+	for (let index = 0; index < behaviorStationPalletIds.length; index += 1) {
+		const built = defaultComponentRegistry.create(createComponentDefinitionFromTemplate('builtin-small-pallet', { objectId: `verify-v15-station-pallet-${index + 1}` }));
+		built.root.userData.twinEntityId = behaviorStationPalletIds[index];
+		built.root.userData.twinEntityType = 'route-slot-pallet';
+		built.root.position.set(index * 0.15, 0, 0);
+		behaviorSceneV12.add(built.root);
+		behaviorStationPalletRoots.push(built.root);
 		behaviorBuiltV12.push(built);
 	}
 	const robotMetadataRoot = behaviorRootsV12.get('reference-loading-robot')!;
@@ -568,6 +661,23 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	try {
 		const robotAxis1 = behaviorRootsV12.get('reference-loading-robot')!.getObjectByName('Robot-Axis-1')!;
 		const robotStartYaw = robotAxis1.rotation.y;
+		const loadingStationRoot = behaviorRootsV12.get('reference-loading-robot')!;
+		const gantryStationRoot = behaviorRootsV12.get('reference-stacking-gantry')!;
+		const activateV15StationBatch = () => {
+			loadingStationRoot.userData.stationPalletIds = [...behaviorStationPalletIds];
+			loadingStationRoot.userData.stationBehaviorRequirements = { load: 1 };
+			loadingStationRoot.userData.stationCompletedGroupCounts = {};
+			loadingStationRoot.userData.stationCompletedGroups = [];
+			gantryStationRoot.userData.stationPalletIds = [...behaviorStationPalletIds];
+			gantryStationRoot.userData.stationBehaviorRequirements = { yarn: 2, separator: 2 };
+			gantryStationRoot.userData.stationCompletedGroupCounts = {};
+			gantryStationRoot.userData.stationCompletedGroups = [];
+		};
+		behaviorRuntimeV12.setRunning(true);
+		for (let index = 0; index < 60; index += 1) behaviorRuntimeV12.updateFixed(1 / 60);
+		assert(behaviorRuntimeV12.getSnapshot().channels.filter((item) => ['reference-loading-robot', 'reference-stacking-gantry'].includes(item.actorObjectId)).every((item) => item.status === 'waiting-station'), 'V15 没有托盘到位时机器人/桁架仍自行执行');
+		assert(Math.abs(robotAxis1.rotation.y - robotStartYaw) < 0.001, 'V15 没有托盘到位时机器人 J1 仍发生运动');
+		activateV15StationBatch();
 		let sawBehaviorPayload = false;
 		let sawRealMaterialCarrier = false;
 		let sawRealSeparatorCarrier = false;
@@ -576,8 +686,9 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		let realEntityIdsStayedStable = true;
 		let sawSeparatorWaiting = false;
 		let sawSeparatorReleased = false;
+		let firstBatchCompleted = false;
 		behaviorRuntimeV12.setRunning(true);
-		for (let index = 0; index < 3600; index += 1) {
+		for (let index = 0; index < 12000; index += 1) {
 			behaviorRuntimeV12.updateFixed(1 / 60);
 			if (index % 10 === 0) {
 				behaviorSceneV12.traverse((node) => {
@@ -597,7 +708,14 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (separator?.status === 'waiting-interlock') sawSeparatorWaiting = true;
 				if (sawSeparatorWaiting && separator && separator.status !== 'waiting-interlock' && separator.completedActions >= 3) sawSeparatorReleased = true;
 			}
+			const loadCounts = loadingStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+			const gantryCounts = gantryStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+			if (Number(loadCounts?.load || 0) >= 1 && Number(gantryCounts?.yarn || 0) >= 2 && Number(gantryCounts?.separator || 0) >= 2) {
+				firstBatchCompleted = true;
+				break;
+			}
 		}
+		assert(firstBatchCompleted, `V15 第一批 2×6 在超时前没有完成两轮 2×3 + 两次隔板：groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}, channels=${JSON.stringify(behaviorRuntimeV12.getSnapshot().channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}, gantry=${JSON.stringify({ stationPalletIds: gantryStationRoot.userData.stationPalletIds, completedGroups: gantryStationRoot.userData.stationCompletedGroups })}`);
 		const behaviorSnapshot = behaviorRuntimeV12.getSnapshot();
 		assert(behaviorSnapshot.active === true && behaviorSnapshot.dataMode === 'simulation', 'V12 BehaviorRuntime 没有在 simulation 模式启动');
 		const robotChannel = behaviorSnapshot.channels.find((item) => item.actorObjectId === 'reference-loading-robot');
@@ -615,6 +733,60 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(!sawLegacySyntheticSeparator, 'V14 隔板抓取仍退回 createPayload synthetic 隔板');
 		const gantryDetail = behaviorRuntimeV12.getObjectDetail('reference-stacking-gantry') as any;
 		assert(gantryDetail?.behaviorRuntime?.channels?.length === 2, '桁架运行状态没有暴露丝锭/隔板两个动作通道');
+
+		const stackPalletRoot = behaviorRootsV12.get('reference-stacking-pallet')!;
+		assert(Number(stackPalletRoot.userData.stackedSilkCakeCount || 0) === 12, `V15 第一批 2×6 没有码出两层共 12 个真实丝锭：stack=${Number(stackPalletRoot.userData.stackedSilkCakeCount || 0)}, yarn=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
+		assert(Number(stackPalletRoot.userData.stackedSeparatorCount || 0) === 2, `V15 第一批 2×6 没有完成两层隔板：separator=${Number(stackPalletRoot.userData.stackedSeparatorCount || 0)}, groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}`);
+		const clearV15StationBatch = () => {
+			loadingStationRoot.userData.stationPalletIds = [];
+			gantryStationRoot.userData.stationPalletIds = [];
+			behaviorRuntimeV12.updateFixed(1 / 60);
+		};
+		for (let batch = 2; batch <= 4; batch += 1) {
+			clearV15StationBatch();
+			activateV15StationBatch();
+			let batchCompleted = false;
+			for (let tick = 0; tick < 7200; tick += 1) {
+				behaviorRuntimeV12.updateFixed(1 / 60);
+				const loadCounts = loadingStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+				const gantryCounts = gantryStationRoot.userData.stationCompletedGroupCounts as Record<string, number> | undefined;
+				if (Number(loadCounts?.load || 0) >= 1 && Number(gantryCounts?.yarn || 0) >= 2 && Number(gantryCounts?.separator || 0) >= 2) {
+					batchCompleted = true;
+					break;
+				}
+			}
+			assert(batchCompleted, `V15 第 ${batch} 个 2×6 批次没有完成机器人上料 + 两轮 2×3 桁架码垛`);
+			assert(Number(stackPalletRoot.userData.stackedSilkCakeCount || 0) === batch * 12, `V15 第 ${batch} 批后木托真实丝锭数量不等于 ${batch * 12}`);
+			assert(Number(stackPalletRoot.userData.stackedSeparatorCount || 0) === batch * 2, `V15 第 ${batch} 批后隔板数量不等于 ${batch * 2}`);
+		}
+		const stackAnchorV15 = stackPalletRoot.getObjectByName('StackAnchor')!;
+		const stackedSilkV15: THREE.Object3D[] = [];
+		const stackedSeparatorsV15: THREE.Object3D[] = [];
+		stackAnchorV15.traverse((node) => {
+			if (node.userData?.materialEntity !== true) return;
+			if (node.userData?.payloadType === 'silk-cake') stackedSilkV15.push(node);
+			if (node.userData?.payloadType === 'separator') stackedSeparatorsV15.push(node);
+		});
+		assert(stackedSilkV15.length === 48, `V15 木托最终不是 48 个真实丝锭，而是 ${stackedSilkV15.length}`);
+		assert(stackedSeparatorsV15.length === 8, `V15 木托最终不是 8 张真实隔板，而是 ${stackedSeparatorsV15.length}`);
+		assert(new Set(stackedSilkV15.map((node) => String(node.userData.twinEntityId))).size === 48, 'V15 48 个码垛丝锭没有保持唯一稳定 twinEntityId');
+		assert(stackedSilkV15.every((node) => initialSilkEntityIds.has(String(node.userData.twinEntityId))), 'V15 木托出现了不是来自原始丝车的 synthetic 丝锭');
+		assert(new Set(stackedSilkV15.map((node) => String(node.userData.stackSlotId))).size === 48, 'V15 2×3×8 StackSlot 出现重复占位');
+		assert(new Set(stackedSilkV15.map((node) => `${node.position.x.toFixed(3)},${node.position.y.toFixed(3)},${node.position.z.toFixed(3)}`)).size === 48, 'V15 48 个丝锭实际落点没有形成 48 个唯一坐标');
+		for (let layer = 1; layer <= 8; layer += 1) {
+			assert(stackedSilkV15.filter((node) => Number(node.userData.stackLayer) === layer).length === 6, `V15 第 ${layer} 层不是 2×3 共 6 锭`);
+			assert(stackedSeparatorsV15.filter((node) => Number(node.userData.separatorLayer) === layer).length === 1, `V15 第 ${layer} 层没有唯一隔板`);
+		}
+		assert(stackPalletRoot.userData.stackComplete === true && stackPalletRoot.userData.readyForPostProcess === true, 'V15 48 锭 + 8 隔板完成后木托没有进入满托/后包装就绪状态');
+		assert(behaviorStationPalletRoots.every((root) => {
+			let count = 0;
+			root.getObjectByName('SilkCakeAnchor')?.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
+			return count === 0;
+		}), 'V15 完成两轮 2×3 后仍有丝锭残留在小托盘，不能进入空托回流');
+		const westTurntableAngle = behaviorRootsV12.get('reference-turntable-west')!.getObjectByName('RotatingDeck')!.rotation.y;
+		const eastTurntableAngle = behaviorRootsV12.get('reference-turntable-east')!.getObjectByName('RotatingDeck')!.rotation.y;
+		const isHalfTurn = (angle: number) => Math.abs(Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle))) - Math.PI) < 0.05;
+		assert(isHalfTurn(westTurntableAngle) && isHalfTurn(eastTurntableAngle), 'V15 第 3/4 批没有真实执行双面丝车 180° 换面');
 
 		const liveManifest = structuredClone(referenceLineV11);
 		liveManifest.runtime.dataMode = 'live';
@@ -819,6 +991,15 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(upgradeReferencePackagingLineLayout(savedComponentizedV11) === true, '已组件化 V11 参考场景没有继续执行 V12 迁移');
 	assert(savedComponentizedV11.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, 'V11->V12 迁移没有写入当前布局版本');
 	assert(savedComponentizedV11.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, 'V11->V12 迁移没有同步参考图名称');
+	const savedV15BeforeRuntimeIntegration = structuredClone(referenceLineV11);
+	savedV15BeforeRuntimeIntegration.runtime.referencePackagingLayoutVersion = 15;
+	savedV15BeforeRuntimeIntegration.name = '参考图双套袋环形包装产线 V15';
+	if (savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers?.[0]) savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers[0].simulationDefaultCount = 1;
+	assert(upgradeReferencePackagingLineLayout(savedV15BeforeRuntimeIntegration) === true, '已保存 V15 没有强制迁移到 V16 真实运行集成版本');
+	assert(savedV15BeforeRuntimeIntegration.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, 'V15->V16 没有刷新布局版本');
+	assert(savedV15BeforeRuntimeIntegration.runtime.routePalletInitializers?.[0]?.simulationDefaultCount === 6, 'V15->V16 没有刷新主小托盘仿真批次初始化');
+	assert(savedV15BeforeRuntimeIntegration.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, 'V15->V16 没有同步场景名称');
+
 	const staleCurrentVersionName = structuredClone(referenceLineV11);
 	staleCurrentVersionName.name = '参考图双套袋环形包装产线 V10';
 	assert(upgradeReferencePackagingLineLayout(staleCurrentVersionName) === true, '当前布局版本的旧 V10 名称没有被规范到 V12');

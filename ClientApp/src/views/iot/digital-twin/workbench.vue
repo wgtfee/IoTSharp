@@ -509,7 +509,7 @@ const createSceneTemplate = ref<'blank' | 'silk-v6' | 'reference-packaging-v1'>(
 const createSceneTemplateHelp = computed(() => createSceneTemplate.value === 'silk-v6'
 	? '将创建完整工艺 V6：丝车、旋转台、上料机器人、分流、桁架、回流及托盘闭环。'
 	: createSceneTemplate.value === 'reference-packaging-v1'
-		? '将按参考图 V12 创建组件化产线：四处双排小辊道、中央马蹄缓存、双套袋、外检回路、码垛桁架和底部双转台机器人。'
+		? '将按当前参考图 V16 创建组件化产线：双排小辊道、中央马蹄缓存、双套袋、外检回路、码垛桁架和底部双转台机器人，并启用多托盘工位联动。'
 		: '将创建空白 3D 场景：不预置模型、设备或工艺路线。');
 const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packaging-v1' = 'blank') => {
 	createSceneTemplate.value = template;
@@ -517,8 +517,8 @@ const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packag
 		createForm.name = '丝饼完整工艺数字孪生 V6';
 		createForm.description = '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
 	} else if (template === 'reference-packaging-v1') {
-		createForm.name = '参考图双套袋环形包装产线 V12';
-		createForm.description = '按用户最新标注图 V12 比例校准：左上/右上双竖线、中部三横线、底部双排、中央马蹄缓存、双套袋、外检、码垛桁架和双转台机器人。';
+		createForm.name = '参考图双套袋环形包装产线 V16';
+		createForm.description = '参考图 V16：双排小辊道、中央马蹄缓存、双套袋、外检、2×6 上料机器人、码垛桁架、多托盘工位联动和空托回流。';
 	} else {
 		createForm.name = '新建 3D 数字孪生场景';
 		createForm.description = '';
@@ -1413,7 +1413,7 @@ const loadScene = async (sceneId: string | number | boolean) => {
 				await digitalTwinApi.updateScene(detail.id, { name: normalizedManifest.name, description: detail.description, rootAssetId: detail.rootAssetId });
 				detail.name = normalizedManifest.name;
 				await loadScenes();
-			} catch { ElMessage.warning('参考图已升级到 V12，但场景列表名称同步失败；保存草稿后会再次同步'); }
+			} catch { ElMessage.warning('参考图已升级到当前版本，但场景列表名称同步失败；保存草稿后会再次同步'); }
 		}
 		latestBindingUpdates.value = {};
 		currentScene.value = detail; selectedSceneId.value = detail.id; manifest.value = normalizedManifest;

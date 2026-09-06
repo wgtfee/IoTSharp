@@ -81,6 +81,12 @@ export type TwinProcessType = 'robot-loading' | 'external-inspection' | 'bagging
 export interface TwinProcessDefinition {
 	type: TwinProcessType;
 	cycleSeconds?: number;
+	/** 工位一次必须到齐的运输单元数量；机器人 1×6 / 桁架 2×3 均为 6。 */
+	batchSize?: number;
+	/** simulation 下只有这些 Behavior 完成组全部回写后，工位才允许放行。 */
+	behaviorCompletionGroups?: string[];
+	/** 每个 Behavior 完成组在一次工位批次中要求完成的次数。 */
+	behaviorCompletionRequirements?: Record<string, number>;
 	readyBindingId?: string;
 	busyBindingId?: string;
 	completeBindingId?: string;
@@ -191,6 +197,19 @@ export type TwinWorkPointRole = 'pick' | 'place' | 'safe' | 'home' | 'buffer' | 
 
 export type TwinMaterialSlotRole = 'source' | 'target' | 'buffer' | 'stack' | 'fixture';
 
+export interface TwinStackPatternDefinition {
+	columns: number;
+	rows: number;
+	layers: number;
+	spacingX: number;
+	spacingZ: number;
+	firstLayerY: number;
+	layerPitch: number;
+	originX?: number;
+	originZ?: number;
+	separatorThickness?: number;
+}
+
 export interface TwinMaterialSlotDefinition {
 	slotId: string;
 	name: string;
@@ -203,6 +222,12 @@ export interface TwinMaterialSlotDefinition {
 	capacity?: number;
 	runtimeOwnerType?: 'plastic-pallet' | 'wooden-pallet' | 'carton';
 	runtimeOwnerNodePath?: string;
+	/** nearest 兼容旧场景；station-batch 严格使用当前工位到位托盘集合。 */
+	runtimeOwnerSelection?: 'nearest' | 'station-batch';
+	/** 抓取的一组物料按 1:1 分发给当前工位批次内每个运行托盘。 */
+	distributePayloadAcrossRuntimeOwners?: boolean;
+	/** 通用规则化码垛槽位；运行时按 layer/row/column 计算真实落点。 */
+	stackPattern?: TwinStackPatternDefinition;
 	metadata?: Record<string, unknown>;
 }
 
@@ -327,6 +352,8 @@ export interface TwinBehaviorDefinition {
 	actorObjectId: string;
 	actions: TwinBehaviorActionDefinition[];
 	interlockIds?: string[];
+	/** 存在时 Behavior 只在 actor 对应 ProcessStation 有到位托盘时执行；完成后回写该组。 */
+	stationCompletionGroup?: string;
 	enabled?: boolean;
 	/** false 表示执行一次后停在 completed；默认循环用于离线仿真。 */
 	loop?: boolean;

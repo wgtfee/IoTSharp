@@ -12,6 +12,10 @@ interface ComponentProcessStationInfo {
 	distanceMeters: number;
 	process: TwinProcessDefinition;
 	capacity: number;
+	batchSize: number;
+	behaviorCompletionGroups: string[];
+	behaviorCompletionRequirements: Record<string, number>;
+	stopperComponentObjectId?: string;
 	dataMode: 'simulation' | 'live';
 }
 
@@ -67,6 +71,7 @@ export class ComponentProcessRuntime {
 	private previousDistance = 0;
 	private readonly entityId: string;
 	private readonly baseTransforms = new Map<string, Map<THREE.Object3D, { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }>>();
+	private pendingStopperReset?: { objectId: string; elapsedSeconds: number };
 
 	constructor(private readonly options: ComponentProcessRuntimeOptions) {
 		this.route = structuredClone(options.route);
@@ -104,6 +109,7 @@ export class ComponentProcessRuntime {
 
 	/** 返回 true 时 TwinRuntime 可继续执行 RouteEngine.updateFixed。 */
 	updateFixed(deltaSeconds: number) {
+		this.updatePendingStopperReset(deltaSeconds);
 		const routeSnapshot = this.options.routeEngine.getSnapshot();
 		if (routeSnapshot.distanceMeters + 0.0001 < this.previousDistance) this.processed.clear();
 		this.previousDistance = routeSnapshot.distanceMeters;
@@ -121,6 +127,7 @@ export class ComponentProcessRuntime {
 			.sort((left, right) => left.distanceMeters - right.distanceMeters)[0];
 		if (!nextStation) return true;
 
+		if (nextStation.behaviorCompletionGroups.length && !this.prepareBehaviorBatch(nextStation)) return false;
 		this.options.routeEngine.correctDistance(nextStation.distanceMeters);
 		this.options.routeEngine.setRunning(false);
 		if (!this.stationManager.canAccept(nextStation.sectionId, this.entityId)) return false;
@@ -158,11 +165,13 @@ export class ComponentProcessRuntime {
 		this.applyModelAnimation(active.station, progress, entity?.state !== 'fault');
 
 		if (!this.stationManager.canRelease(active.station.sectionId, active.entityId).canRelease) return;
+		if (active.station.behaviorCompletionGroups.length && !this.authorizeBehaviorBatchRelease(active.station, active.entityId)) return;
 		this.stationManager.release(active.station.sectionId, active.entityId);
 		this.processed.add(active.station.stationId);
 		this.restoreModel(active.station.componentObjectId);
 		this.active = undefined;
 		this.options.routeEngine.setRunning(this.requestedRunning);
+		if (active.station.behaviorCompletionGroups.length) this.finishBehaviorBatchRelease(active.station, active.entityId);
 	}
 
 	private rebuild() {
@@ -201,6 +210,8 @@ export class ComponentProcessRuntime {
 				: this.pointDistance(pointIndex, segmentLengths, straightLength, routeSnapshot.lengthMeters);
 			const sectionId = componentEdge?.sectionId || componentEdge?.edgeId || 'process-' + componentObjectId;
 			const process = structuredClone(point.process);
+			const incomingEdgeIndex = pointIndex > 0 ? pointIndex - 1 : resolved.closed ? resolved.edgeIds.length - 1 : -1;
+			const incomingEdge = incomingEdgeIndex >= 0 ? routeEdges.get(resolved.edgeIds[incomingEdgeIndex]) : undefined;
 			nextStations.push({
 				stationId: componentObjectId,
 				sectionId,
@@ -210,6 +221,10 @@ export class ComponentProcessRuntime {
 				distanceMeters,
 				process,
 				capacity: Math.max(1, Math.floor(Number(componentEdge?.capacity) || 1)),
+				batchSize: Math.max(1, Math.floor(Number(process.batchSize) || 1)),
+				behaviorCompletionGroups: [...new Set((process.behaviorCompletionGroups || []).map((item) => String(item).trim()).filter(Boolean))],
+				behaviorCompletionRequirements: Object.fromEntries(Object.entries(process.behaviorCompletionRequirements || {}).map(([group, count]) => [group, Math.max(1, Math.floor(Number(count) || 1))])),
+				stopperComponentObjectId: incomingEdge?.componentObjectId,
 				dataMode: hasLiveBindings(process) ? 'live' : 'simulation',
 			});
 		}
@@ -222,6 +237,140 @@ export class ComponentProcessRuntime {
 			dataMode: station.dataMode,
 			capacity: station.capacity,
 		})));
+	}
+
+	private prepareBehaviorBatch(station: ComponentProcessStationInfo) {
+		const root = this.options.getComponentRoot(station.componentObjectId);
+		if (!root) return true;
+		const activeIds = this.stringArray(root.userData.stationPalletIds);
+		if (activeIds.length) {
+			if (activeIds.includes(this.entityId)) return true;
+			this.options.routeEngine.correctDistance(station.distanceMeters);
+			this.options.routeEngine.setRunning(false);
+			return false;
+		}
+
+		const waitingIds = this.stringArray(root.userData.stationWaitingPalletIds);
+		if (!waitingIds.includes(this.entityId)) waitingIds.push(this.entityId);
+		root.userData.stationWaitingPalletIds = waitingIds;
+		root.userData.stationRequiredBatchSize = station.batchSize;
+		root.userData.stationRequiredBehaviorGroups = station.behaviorCompletionGroups;
+		root.userData.stationBehaviorRequirements = station.behaviorCompletionRequirements;
+		root.userData.stationProcessType = station.process.type;
+		root.userData.palletPresent = true;
+		root.userData.processPhase = waitingIds.length < station.batchSize ? 'waiting-batch' : 'waiting-equipment';
+		this.setStationStopper(station, true, true);
+
+		this.options.routeEngine.correctDistance(station.distanceMeters);
+		this.options.routeEngine.setRunning(false);
+		if (waitingIds.length < station.batchSize) return false;
+
+		const selected = waitingIds.slice(0, station.batchSize);
+		root.userData.stationPalletIds = selected;
+		root.userData.stationPalletId = selected[0];
+		root.userData.stationCompletedGroupCounts = {};
+		root.userData.stationCompletedGroups = [];
+		root.userData.stationReadyToReleasePalletIds = [];
+		root.userData.stationReleasedPalletIds = [];
+		root.userData.stationReleaseAuthorized = false;
+		root.userData.processActive = true;
+		root.userData.processPhase = 'waiting-equipment';
+		return selected.includes(this.entityId);
+	}
+
+	private authorizeBehaviorBatchRelease(station: ComponentProcessStationInfo, entityId: string) {
+		const root = this.options.getComponentRoot(station.componentObjectId);
+		if (!root) return true;
+		const counts = this.numberRecord(root.userData.stationCompletedGroupCounts);
+		const complete = station.behaviorCompletionGroups.every((group) => counts[group] >= (station.behaviorCompletionRequirements[group] || 1));
+		if (!complete) return false;
+
+		const batchIds = this.stringArray(root.userData.stationPalletIds);
+		const ready = this.stringArray(root.userData.stationReadyToReleasePalletIds);
+		if (!ready.includes(entityId)) ready.push(entityId);
+		root.userData.stationReadyToReleasePalletIds = ready;
+		if (batchIds.length > 0 && ready.length >= batchIds.length) {
+			root.userData.stationReleaseAuthorized = true;
+			root.userData.processPhase = 'release';
+			this.setStationStopper(station, false, true);
+		}
+		return root.userData.stationReleaseAuthorized === true;
+	}
+
+	private finishBehaviorBatchRelease(station: ComponentProcessStationInfo, entityId: string) {
+		const root = this.options.getComponentRoot(station.componentObjectId);
+		if (!root) return;
+		const batchIds = this.stringArray(root.userData.stationPalletIds);
+		const released = this.stringArray(root.userData.stationReleasedPalletIds);
+		if (!released.includes(entityId)) released.push(entityId);
+		root.userData.stationReleasedPalletIds = released;
+		if (!batchIds.length || released.length < batchIds.length) return;
+
+		root.userData.stationLastCompletedPalletIds = batchIds;
+		root.userData.stationWaitingPalletIds = [];
+		root.userData.stationPalletIds = [];
+		delete root.userData.stationPalletId;
+		root.userData.stationCompletedGroupCounts = {};
+		root.userData.stationCompletedGroups = [];
+		root.userData.stationReadyToReleasePalletIds = [];
+		root.userData.stationReleasedPalletIds = [];
+		root.userData.stationReleaseAuthorized = false;
+		root.userData.palletPresent = false;
+		root.userData.processActive = false;
+		root.userData.processPhase = 'idle';
+		if (station.stopperComponentObjectId) this.pendingStopperReset = { objectId: station.stopperComponentObjectId, elapsedSeconds: 0 };
+	}
+
+	private setStationStopper(station: ComponentProcessStationInfo, raised: boolean, palletPresent: boolean) {
+		const root = station.stopperComponentObjectId ? this.options.getComponentRoot(station.stopperComponentObjectId) : undefined;
+		if (!root) return;
+		const definitions = Array.isArray(root.userData?.outputStoppers) ? root.userData.outputStoppers as Array<Record<string, unknown>> : [];
+		const definition = definitions[0];
+		if (!definition) return;
+		const stopper = root.getObjectByName(String(definition.nodePath || ''));
+		if (stopper) {
+			const raisedY = Number(stopper.userData?.raisedY ?? stopper.position.y);
+			const loweredY = Number(stopper.userData?.loweredY ?? raisedY - 0.22);
+			stopper.position.y = raised ? raisedY : loweredY;
+			stopper.userData.stopperRaised = raised;
+		}
+		const sensor = root.getObjectByName(String(definition.sensorNodePath || ''));
+		if (sensor) sensor.userData.palletPresent = palletPresent;
+		root.userData.processStopperRaised = raised;
+		root.userData.processPalletPresent = palletPresent;
+	}
+
+	private updatePendingStopperReset(deltaSeconds: number) {
+		if (!this.pendingStopperReset) return;
+		this.pendingStopperReset.elapsedSeconds += Math.max(0, deltaSeconds);
+		if (this.pendingStopperReset.elapsedSeconds < 0.5) return;
+		const root = this.options.getComponentRoot(this.pendingStopperReset.objectId);
+		if (root) {
+			const definitions = Array.isArray(root.userData?.outputStoppers) ? root.userData.outputStoppers as Array<Record<string, unknown>> : [];
+			const definition = definitions[0];
+			if (definition) {
+				const stopper = root.getObjectByName(String(definition.nodePath || ''));
+				if (stopper) {
+					const raisedY = Number(stopper.userData?.raisedY ?? stopper.position.y);
+					stopper.position.y = raisedY;
+					stopper.userData.stopperRaised = true;
+				}
+				const sensor = root.getObjectByName(String(definition.sensorNodePath || ''));
+				if (sensor) sensor.userData.palletPresent = false;
+			}
+			root.userData.processStopperRaised = true;
+			root.userData.processPalletPresent = false;
+		}
+		this.pendingStopperReset = undefined;
+	}
+
+	private stringArray(value: unknown) {
+		return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+	}
+
+	private numberRecord(value: unknown) {
+		const source = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+		return Object.fromEntries(Object.entries(source).map(([key, count]) => [key, Math.max(0, Number(count) || 0)]));
 	}
 
 	private pointDistance(pointIndex: number, segmentLengths: number[], straightLength: number, routeLength: number) {

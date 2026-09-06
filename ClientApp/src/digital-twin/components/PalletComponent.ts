@@ -57,7 +57,38 @@ export class PalletComponent implements TwinComponentGenerator {
 			stackAnchor.userData.materialSlot = true;
 			stackAnchor.userData.materialSlotRole = 'stack';
 			root.add(stackAnchor);
-			root.userData.materialSlots = [{ slotId: 'wood-stack', name: '木托码垛中心', role: 'stack', nodePath: 'StackAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 48 }];
+			const stackPattern = {
+				columns: 3, rows: 2, layers: 8,
+				spacingX: 1.55, spacingZ: 1.36,
+				firstLayerY: 0.36, layerPitch: 0.46,
+				originX: -1.55, originZ: -0.68,
+				separatorThickness: 0.05,
+			};
+			for (let layer = 0; layer < stackPattern.layers; layer += 1) {
+				for (let row = 0; row < stackPattern.rows; row += 1) for (let column = 0; column < stackPattern.columns; column += 1) {
+					const slot = new THREE.Group();
+					slot.name = `StackSlot-L${layer + 1}-R${row + 1}-C${column + 1}`;
+					slot.position.set(
+						stackPattern.originX + column * stackPattern.spacingX,
+						stackPattern.firstLayerY + layer * stackPattern.layerPitch,
+						stackPattern.originZ + row * stackPattern.spacingZ,
+					);
+					slot.userData.stackSlot = true;
+					slot.userData.layer = layer + 1;
+					slot.userData.row = row + 1;
+					slot.userData.column = column + 1;
+					stackAnchor.add(slot);
+				}
+				const separatorSlot = new THREE.Group();
+				separatorSlot.name = `SeparatorSlot-L${layer + 1}`;
+				separatorSlot.position.y = stackPattern.firstLayerY + layer * stackPattern.layerPitch + 0.21 + stackPattern.separatorThickness / 2;
+				separatorSlot.userData.separatorSlot = true;
+				separatorSlot.userData.layer = layer + 1;
+				stackAnchor.add(separatorSlot);
+			}
+			root.userData.stackPattern = stackPattern;
+			root.userData.stackSlotCount = stackPattern.columns * stackPattern.rows * stackPattern.layers;
+			root.userData.materialSlots = [{ slotId: 'wood-stack', name: '木托 2×3×8 码垛槽位', role: 'stack', nodePath: 'StackAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 48, stackPattern }];
 		}
 
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
