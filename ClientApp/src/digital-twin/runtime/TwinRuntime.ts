@@ -1291,7 +1291,7 @@ export class TwinRuntime {
 			equipmentType: equipmentInfo?.equipmentType,
 			equipmentId: equipmentInfo?.equipmentId,
 			runtimeData: entityInfo
-				? this.routeSlotArrayRuntime.getEntityDetail(entityInfo.entityType, entityInfo.entityId) ?? this.packagingLine?.getEntityDetail(entityInfo.entityType, entityInfo.entityId)
+				? this.getRuntimeEntityDetail(selected, entityInfo.entityType, entityInfo.entityId)
 				: this.getSceneObjectRuntimeDetail(twinInfo?.objectId, equipmentInfo?.equipmentType, equipmentInfo?.equipmentId),
 			worldPosition: [worldPosition.x, worldPosition.y, worldPosition.z],
 		});
@@ -1319,6 +1319,51 @@ export class TwinRuntime {
 			entityInfo: this.getTwinEntityInfo(root),
 			equipmentInfo: this.getTwinEquipmentInfo(root),
 			twinInfo: this.getTwinObjectInfo(root),
+		};
+	}
+
+	private getRuntimeEntityDetail(root: THREE.Object3D, entityType: string, entityId: string): Record<string, unknown> | undefined {
+		if (root.userData?.materialEntity === true || entityType === 'material') return this.getMaterialEntityRuntimeDetail(root, entityId);
+		return this.routeSlotArrayRuntime.getEntityDetail(entityType, entityId) ?? this.packagingLine?.getEntityDetail(entityType, entityId);
+	}
+
+	private getMaterialEntityRuntimeDetail(material: THREE.Object3D, entityId?: string): Record<string, unknown> {
+		let current: THREE.Object3D | null = material.parent;
+		let transportRoot: THREE.Object3D | undefined;
+		let twinRoot: THREE.Object3D | undefined;
+		while (current && current !== this.scene) {
+			if (!transportRoot && current.userData?.twinEntityType === 'route-slot-pallet' && current.userData?.twinEntityId) transportRoot = current;
+			if (!twinRoot && current.userData?.twinObjectId) twinRoot = current;
+			current = current.parent;
+		}
+		const twinObjectId = twinRoot?.userData?.twinObjectId ? String(twinRoot.userData.twinObjectId) : undefined;
+		const twinDefinition = twinObjectId ? this.manifest.objects.find((item) => item.objectId === twinObjectId) : undefined;
+		const transportEntityId = transportRoot?.userData?.twinEntityId ? String(transportRoot.userData.twinEntityId) : undefined;
+		const transportUnitType = transportRoot?.userData?.transportUnitType ? String(transportRoot.userData.transportUnitType) : undefined;
+		const attached = Boolean(material.userData?.materialAttachedBy);
+		const stage = attached ? 'attached-to-equipment'
+			: material.userData?.materialStage || (material.userData?.stackSlotId ? 'on-wood-pallet' : transportEntityId ? 'on-transport-unit' : material.userData?.materialSlotGroup ? 'at-source' : 'material');
+		const currentCarrierId = attached
+			? twinObjectId
+			: transportEntityId || (material.userData?.runtimeOwnerEntityId ? String(material.userData.runtimeOwnerEntityId) : twinObjectId);
+		const currentCarrierType = attached
+			? 'equipment'
+			: transportUnitType || (twinObjectId ? 'scene-object' : material.userData?.runtimeOwnerType ? String(material.userData.runtimeOwnerType) : undefined);
+		return {
+			entityType: 'material',
+			materialEntityId: entityId || String(material.userData?.twinEntityId || ''),
+			payloadType: material.userData?.payloadType,
+			stage,
+			currentCarrierType,
+			currentCarrierId,
+			currentCarrierName: attached || (!transportEntityId && twinObjectId) ? twinDefinition?.name : undefined,
+			attached,
+			attachedBy: material.userData?.materialAttachedBy,
+			sourceGroup: material.userData?.materialSlotGroup,
+			stackLayer: material.userData?.stackLayer,
+			stackRow: material.userData?.stackRow,
+			stackColumn: material.userData?.stackColumn,
+			stackSlotId: material.userData?.stackSlotId,
 		};
 	}
 

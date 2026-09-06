@@ -819,6 +819,10 @@ export class BehaviorRuntime {
 			for (const entity of realEntities) {
 				carrier.attach(entity);
 				entity.userData.materialAttachedBy = channel.channelKey;
+				delete entity.userData.runtimeOwnerEntityId;
+				delete entity.userData.runtimeOwnerType;
+				delete entity.userData.runtimeOwnerItemIndex;
+				delete entity.userData.runtimeOwnerItemCount;
 			}
 			payload = carrier;
 		} else if (sourceSlot) {
@@ -894,6 +898,7 @@ export class BehaviorRuntime {
 			material.rotation.set(0, 0, 0);
 			delete material.userData.materialAttachedBy;
 			material.userData.runtimeOwnerEntityId = palletIds[palletIndex];
+			material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
 			material.userData.runtimeOwnerItemIndex = level + 1;
 			material.userData.runtimeOwnerItemCount = levels;
 			if (slot.placedStage) material.userData.materialStage = slot.placedStage;
@@ -927,6 +932,10 @@ export class BehaviorRuntime {
 			);
 			material.rotation.set(0, 0, 0);
 			delete material.userData.materialAttachedBy;
+			material.userData.runtimeOwnerEntityId = resolved.owner.userData?.twinEntityId;
+			material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
+			delete material.userData.runtimeOwnerItemIndex;
+			delete material.userData.runtimeOwnerItemCount;
 			if (slot.placedStage) material.userData.materialStage = slot.placedStage;
 			material.userData.stackLayer = layer + 1;
 			material.userData.stackRow = row + 1;
@@ -960,6 +969,10 @@ export class BehaviorRuntime {
 		material.position.set(0, pattern.firstLayerY + layerMaterialCount * pattern.layerPitch + Number(pattern.layerMaterialOffsetY ?? 0.21) + Number(pattern.separatorThickness || 0.05) / 2, 0);
 		material.rotation.set(0, 0, 0);
 		delete material.userData.materialAttachedBy;
+		material.userData.runtimeOwnerEntityId = resolved.owner.userData?.twinEntityId;
+		material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
+		delete material.userData.runtimeOwnerItemIndex;
+		delete material.userData.runtimeOwnerItemCount;
 		if (slot.placedStage) material.userData.materialStage = slot.placedStage;
 		material.userData.stackLayerMaterialIndex = layerMaterialCount + 1;
 		resolved.anchor.userData.stackLayerMaterialCount = layerMaterialCount + 1;

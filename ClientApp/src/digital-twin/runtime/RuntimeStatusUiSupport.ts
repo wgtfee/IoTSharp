@@ -21,6 +21,21 @@ export const buildRuntimeSummaryRows=(data?:Record<string,unknown>):RuntimeSumma
 	if(!data)return[];
 	const rows:RuntimeSummaryRow[]=[];
 	const push=(label:string,value:unknown)=>{if(value!==undefined&&value!==null&&value!=='')rows.push({label,value:text(value)})};
+	if(data.materialEntityId){
+		const payload=String(data.payloadType||'');
+		const isSilk=payload==='silk-cake';
+		const stageMap:Record<string,string>={'at-source':'供料位','attached-to-equipment':'设备抓取中','on-small-pallet':'小托盘','on-wood-pallet':'木托码垛','on-transport-unit':'输送载体'};
+		const carrierMap:Record<string,string>={'plastic-pallet':'小托盘','wooden-pallet':'木托盘','carton':'纸箱','equipment':'设备','scene-object':'场景对象'};
+		push(isSilk?'丝锭ID':'物料ID',data.materialEntityId);
+		push('状态',stageMap[String(data.stage||'')]||data.stage);
+		push('当前载体',data.currentCarrierName??data.currentCarrierId);
+		push('载体类型',carrierMap[String(data.currentCarrierType||'')]||data.currentCarrierType);
+		if(data.stackSlotId)push('码垛位置',data.stackSlotId);
+		else if(data.stackLayer||data.stackRow||data.stackColumn)push('码垛位置',`L${data.stackLayer??'-'}-R${data.stackRow??'-'}-C${data.stackColumn??'-'}`);
+		push('来源分组',data.sourceGroup);
+		if(data.attached)push('抓取通道',data.attachedBy);
+		return rows.slice(0,8);
+	}
 	if(data.palletId){
 		push('\u6258\u76d8\u53f7',data.palletId);push('\u72b6\u6001',data.state??data.stage);push('\u5f53\u524d\u5de5\u4f4d',data.section);push('\u8def\u7ebf\u8fdb\u5ea6',typeof data.progress==='number'?pct(data.progress):data.progress);push('\u5faa\u73af\u6b21\u6570',data.cycleCount);
 		const carried=data.content as Record<string,unknown>|undefined;push('\u88c5\u8f7d\u4e1d\u997c',carried?.silkCakeId??data.silkCakeId??(data.loaded===false?'\u7a7a\u6258\u76d8':undefined));push('\u4e1d\u997c\u8d28\u91cf',carried?.quality);

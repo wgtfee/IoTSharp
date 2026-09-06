@@ -997,6 +997,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(new Set(stackedSilkV15.map((node) => String(node.userData.twinEntityId))).size === 48, 'V15 48 个码垛丝锭没有保持唯一稳定 twinEntityId');
 		assert(stackedSilkV15.every((node) => initialSilkEntityIds.has(String(node.userData.twinEntityId))), 'V15 木托出现了不是来自原始丝车的 synthetic 丝锭');
 		assert(new Set(stackedSilkV15.map((node) => String(node.userData.stackSlotId))).size === 48, 'V15 2×3×8 StackSlot 出现重复占位');
+		assert(stackedSilkV15.every((node) => String(node.userData.runtimeOwnerEntityId || '') === String(stackPalletRoot.userData.twinEntityId || '')), 'V15 码垛后的丝锭 runtimeOwnerEntityId 没有切换为当前木托');
+		assert(stackedSilkV15.every((node) => node.userData.runtimeOwnerType === 'wooden-pallet'), 'V15 码垛后的丝锭 runtimeOwnerType 不是 wooden-pallet');
 		assert(new Set(stackedSilkV15.map((node) => `${node.position.x.toFixed(3)},${node.position.y.toFixed(3)},${node.position.z.toFixed(3)}`)).size === 48, 'V15 48 个丝锭实际落点没有形成 48 个唯一坐标');
 		for (let layer = 1; layer <= 8; layer += 1) {
 			assert(stackedSilkV15.filter((node) => Number(node.userData.stackLayer) === layer).length === 6, `V15 第 ${layer} 层不是 2×3 共 6 锭`);
