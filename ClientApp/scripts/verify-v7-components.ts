@@ -705,6 +705,13 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	}
 	assert(!v18FullManifest.objects.some((item) => item.kind === 'procedural' && ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')), 'V18 参考线仍依赖 ProceduralPackagingLine');
 	const v18SmallRoute = v18FullManifest.routes.find((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId)!;
+	const v18WoodRoute = v18FullManifest.routes.find((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId)!;
+	const v18LargeConveyors = (v18FullManifest.objects as TwinV7SceneObjectDefinition[]).filter((item) => item.objectId.startsWith('reference-conveyor-ref-large-edge-'));
+	assert(v18LargeConveyors.length === 5, `V18 大辊道必须保持 5 段，实际 ${v18LargeConveyors.length}`);
+	assert(v18LargeConveyors.every((item) => Math.abs(item.transform.position[0] + 15.7) < 0.001 && Math.abs(item.transform.rotation[1] - Math.PI / 2) < 0.001), 'V18 大辊道没有沿图纸 Y 轴（Three.js Z）纵向布置');
+	const v18WoodXs = v18WoodRoute.points.map((item) => item.position[0]);
+	const v18WoodZs = v18WoodRoute.points.map((item) => item.position[2]);
+	assert(Math.max(...v18WoodXs) - Math.min(...v18WoodXs) < 0.01 && Math.max(...v18WoodZs) - Math.min(...v18WoodZs) > 50, 'V18 木托后包装路线仍错误平行 X 轴');
 	const v18LoadingProcess = v18SmallRoute.points.find((item) => item.componentObjectId === 'reference-loading-robot' && item.process)?.process;
 	const v18SmallInitializer = v18FullManifest.runtime.routePalletInitializers?.find((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
 	assert(v18LoadingProcess?.batchSize === 12 && v18SmallInitializer?.simulationDefaultCount === 12, 'V18 机器人上料必须是 2×6=12 托批次且 Simulation 默认 12 个小托盘');
@@ -730,6 +737,40 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		const wrapperRoot = v18FullRoots.get('reference-wrapper')!;
 		const labelRoot = v18FullRoots.get('reference-labeling')!;
 		assert(Boolean(loadingRoot && gantryRoot && stackStationRoot && topCoverRoot && wrapperRoot && labelRoot), 'V18 整线组件没有全部实例化');
+		const robotFrameV18 = (v18FullManifest.toolFrames || []).find((item) => item.toolFrameId === 'reference-robot-tcp')!;
+		const actuatorMapV18 = new Map((v18FullManifest.actuators || []).map((item) => [item.actuatorId, item]));
+		const poseMapV18 = new Map((v18FullManifest.poses || []).map((item) => [item.poseId, item]));
+		const slotMapV18 = new Map((v18FullManifest.materialSlots || []).map((item) => [item.slotId, item]));
+		const robotGripperV18 = loadingRoot.getObjectByName('RobotGridGripper-2x6')!;
+		const applyRobotPoseV18 = (poseId: string) => {
+			const pose = poseMapV18.get(poseId)!;
+			assert((pose.targets || []).filter((item) => String(item.actuatorId).startsWith('reference-robot-j')).length === 6, poseId + ' 没有完整示教 J1~J6');
+			for (const target of pose.targets || []) {
+				const actuator = actuatorMapV18.get(target.actuatorId);
+				if (!actuator || actuator.kind !== 'rotary-joint') continue;
+				const node = loadingRoot.getObjectByName(actuator.nodePath)!;
+				const value = Number(target.value);
+				if (actuator.motionAxis === 'x') node.rotation.x = value;
+				else if (actuator.motionAxis === 'y') node.rotation.y = value;
+				else node.rotation.z = value;
+			}
+			loadingRoot.updateMatrixWorld(true);
+		};
+		const assertRobotContactV18 = (poseId: string, slotId: string, turntableId: string, label: string) => {
+			applyRobotPoseV18(poseId);
+			const turntable = v18FullRoots.get(turntableId)!;
+			const slot = slotMapV18.get(slotId)!;
+			turntable.updateMatrixWorld(true);
+			const tcpWorld = robotGripperV18.localToWorld(new THREE.Vector3(...(robotFrameV18.localPosition || [0, 0, 0])));
+			const faceWorld = turntable.localToWorld(new THREE.Vector3(...slot.localPosition));
+			const approach = new THREE.Vector3(...(robotFrameV18.approachDirectionLocal || [0, 1, 0])).transformDirection(robotGripperV18.matrixWorld).normalize();
+			const normal = new THREE.Vector3(...(slot.contactNormalLocal || [0, 0, 1])).transformDirection(turntable.matrixWorld).normalize();
+			assert(tcpWorld.distanceTo(faceWorld) < 0.025, label + '取丝 TCP 没有贴合丝锭端面：' + tcpWorld.distanceTo(faceWorld).toFixed(4) + 'm');
+			assert(approach.dot(normal) < -0.995, label + '夹具没有横向正对丝锭端面');
+			assert(Math.abs(approach.y) < 0.01, label + '夹具接近方向仍然是竖直方向');
+		};
+		assertRobotContactV18('reference-robot-pick-west', 'reference-turntable-west-silk-source', 'reference-turntable-west', 'V18 西侧');
+		assertRobotContactV18('reference-robot-pick-east', 'reference-turntable-east-silk-source', 'reference-turntable-east', 'V18 东侧');
 		const coverBridge = topCoverRoot.getObjectByName('TopCover-Gantry-Bridge')!;
 		const wrapperArm = wrapperRoot.getObjectByName('Wrapper-Rotary-Arm')!;
 		const labelJoint = labelRoot.getObjectByName('Labeler-Apply-Joint-1') || labelRoot.getObjectByName('Labeler-Arm-Joint-1');
@@ -744,6 +785,26 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		});
 		assert(woodenPallets.size === 3, `V18 多循环必须创建 3 个木托，实际 ${woodenPallets.size}`);
 		assert(smallPallets.size === 12, `V18 双排机器人上料位必须初始化 12 个小托盘，实际 ${smallPallets.size}`);
+		const palletForGeometryV18 = [...smallPallets.values()][0];
+		const cakeSourceV18 = v18FullRoots.get('reference-turntable-west')!.getObjectByName('SilkCakeEntity-A-R1-C1')!;
+		const placedCakeV18 = cakeSourceV18.clone(true);
+		const palletAnchorV18 = palletForGeometryV18.getObjectByName('SilkCakeAnchor')!;
+		palletAnchorV18.add(placedCakeV18);
+		placedCakeV18.position.set(0, 0, 0);
+		placedCakeV18.rotation.set(-Math.PI / 2, 0, 0);
+		palletForGeometryV18.updateMatrixWorld(true);
+		const cakeMeshV18 = placedCakeV18.getObjectByName('SilkCake-A-R1-C1') as THREE.Mesh;
+		const shapesV18 = (cakeMeshV18.geometry as any).parameters?.shapes;
+		const shapeV18 = Array.isArray(shapesV18) ? shapesV18[0] : shapesV18;
+		assert(cakeMeshV18.geometry.type === 'ExtrudeGeometry' && (shapeV18?.holes?.length || 0) === 1, 'V18 丝锭没有真实中心孔，仍会穿入小托盘中心柱');
+		const cakeBoundsV18 = new THREE.Box3().setFromObject(cakeMeshV18);
+		const palletBaseWorldYV18 = palletForGeometryV18.getWorldPosition(new THREE.Vector3()).y;
+		const supportSurfaceYV18 = Number(palletForGeometryV18.userData.smallPalletSupportSurfaceY || 0);
+		assert(supportSurfaceYV18 > 0.18 && palletAnchorV18.position.y > supportSurfaceYV18, 'V18 小托盘放丝锚点没有位于支撑环上方');
+		assert(Math.abs(cakeBoundsV18.min.y - (palletBaseWorldYV18 + supportSurfaceYV18)) < 0.01, 'V18 丝锭底面没有贴合小托盘最高支撑面，仍存在嵌入或悬空');
+		const smallPalletPropsV18 = palletForGeometryV18.userData.properties || {};
+		assert(Number(smallPalletPropsV18.columnDiameter || 0) * 0.52 < 0.28, 'V18 小托盘中心柱直径超过丝锭中孔，仍会发生穿模');
+		placedCakeV18.removeFromParent();
 		const silkCountOnPallet = (pallet: THREE.Object3D | undefined) => {
 			let count = 0;
 			pallet?.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') count += 1; });
@@ -1403,6 +1464,7 @@ try {
 	assert(!builtLoadingRobot.root.getObjectByName('RobotGridGripper-RightAngleMount'), '2×6 夹具仍错误保留 90° 弯折吸附结构');
 	assert(Number(flangeMount.userData?.mountAngleDegrees) === 0, '2×6 夹具板面没有保持垂直于 J6 轴');
 	assert(gridGripper.userData?.gripperRows === 2 && gridGripper.userData?.gripperColumns === 6 && gridGripper.userData?.gripperHeadCount === 12, '2×6 丝锭夹具行列/夹爪数量错误');
+	assert(Math.abs(Number(gridGripper.userData?.contactPlaneOffset) - 0.54) < 0.001, '2×6 夹具 TCP 没有落在吸盘真实接触平面');
 	for (let head = 1; head <= 12; head += 1) assert(Boolean(gridGripper.getObjectByName('RobotGripperHead-' + head)), '2×6 丝锭夹具缺少抓头 ' + head);
 	builtLoadingRobot.root.updateMatrixWorld(true);
 	const q6 = axis6.getWorldQuaternion(new THREE.Quaternion());

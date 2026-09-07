@@ -181,8 +181,8 @@
       "role": "source",
       "localPosition": [
         0,
-        2.15,
-        1.26
+        2.475,
+        1.47
       ],
       "payloadType": "silk-cake",
       "capacity": 36,
@@ -199,7 +199,13 @@
         "minimumBatch": 1,
         "simulationReplenish": true,
         "simulationReplenishLimit": 2
-      }
+      },
+      "contactNormalLocal": [
+        0,
+        0,
+        1
+      ],
+      "contactTolerance": 0.1
     },
     {
       "slotId": "reference-turntable-east-silk-source",
@@ -208,8 +214,8 @@
       "role": "source",
       "localPosition": [
         0,
-        2.15,
-        -1.26
+        2.475,
+        -1.47
       ],
       "payloadType": "silk-cake",
       "capacity": 36,
@@ -226,7 +232,13 @@
         "minimumBatch": 1,
         "simulationReplenish": true,
         "simulationReplenishLimit": 2
-      }
+      },
+      "contactNormalLocal": [
+        0,
+        0,
+        -1
+      ],
+      "contactTolerance": 0.1
     },
     {
       "slotId": "reference-robot-small-pallet-target",
@@ -251,7 +263,12 @@
       ],
       "placedStage": "on-small-pallet",
       "runtimeOwnerDistributionMode": "one-per-owner",
-      "allowPartialRuntimeOwnerDistribution": true
+      "allowPartialRuntimeOwnerDistribution": true,
+      "localRotation": [
+        -1.5707963267948966,
+        0,
+        0
+      ]
     },
     {
       "slotId": "reference-gantry-yarn-source-slot",
@@ -382,11 +399,16 @@
       "nodePath": "RobotGridGripper-2x6",
       "localPosition": [
         0,
-        0,
+        0.54,
         0
       ],
       "payloadTypes": [
         "silk-cake"
+      ],
+      "approachDirectionLocal": [
+        0,
+        1,
+        0
       ]
     },
     {
@@ -667,19 +689,27 @@
       "targets": [
         {
           "actuatorId": "reference-robot-j1",
-          "value": 2.65
+          "value": 0
         },
         {
           "actuatorId": "reference-robot-j2",
-          "value": -0.95
+          "value": 0.18258877
         },
         {
           "actuatorId": "reference-robot-j3",
-          "value": 1.72
+          "value": 1.82179045
+        },
+        {
+          "actuatorId": "reference-robot-j4",
+          "value": 0
         },
         {
           "actuatorId": "reference-robot-j5",
-          "value": -0.72
+          "value": -0.4335829
+        },
+        {
+          "actuatorId": "reference-robot-j6",
+          "value": -1.5707963267948966
         }
       ]
     },
@@ -692,19 +722,27 @@
       "targets": [
         {
           "actuatorId": "reference-robot-j1",
-          "value": 0.05
+          "value": 0
         },
         {
           "actuatorId": "reference-robot-j2",
-          "value": -0.95
+          "value": -2.02568005
         },
         {
           "actuatorId": "reference-robot-j3",
-          "value": 1.72
+          "value": 1.82179045
+        },
+        {
+          "actuatorId": "reference-robot-j4",
+          "value": 0
         },
         {
           "actuatorId": "reference-robot-j5",
-          "value": -0.72
+          "value": -1.36690673
+        },
+        {
+          "actuatorId": "reference-robot-j6",
+          "value": -1.5707963267948966
         }
       ]
     },
@@ -2298,13 +2336,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          -19.1,
+          -15.7,
           0,
-          -11
+          -7.599999999999998
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -2345,13 +2383,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          -9.6,
+          -15.7,
           0,
-          -11
+          -17.1
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -2392,13 +2430,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          2.75,
+          -15.7,
           0,
-          -11
+          -29.45
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -2439,13 +2477,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          14.75,
+          -15.7,
           0,
-          -11
+          -41.45
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -2486,13 +2524,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          26.25,
+          -15.7,
           0,
-          -11
+          -52.95
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -3286,13 +3324,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          -3.5,
+          -15.7,
           0,
-          -11
+          -23.2
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -3322,13 +3360,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          9,
+          -15.7,
           0,
-          -11
+          -35.7
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -3358,13 +3396,13 @@
       "kind": "component",
       "transform": {
         "position": [
-          20.5,
+          -15.7,
           0,
-          -11
+          -47.2
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -5204,9 +5242,9 @@
           "pointId": "component-point-7f8db235",
           "name": "大辊道 · 满托到天盖.出口 ↔ 大辊道 · 天盖后到缠膜.入口",
           "position": [
-            -3.5,
+            -15.7,
             0.82,
-            -11
+            -23.2
           ],
           "kind": "processStation",
           "process": {
@@ -5221,9 +5259,9 @@
           "pointId": "component-point-0e449fbc",
           "name": "大辊道 · 空木托到码垛位.入口",
           "position": [
-            -22.5,
+            -15.7,
             0.82,
-            -11
+            -4.199999999999999
           ],
           "kind": "buffer",
           "componentObjectId": "reference-conveyor-ref-large-edge-in",
@@ -5233,9 +5271,9 @@
           "pointId": "component-point-88276e1c",
           "name": "大辊道 · 缠膜后到贴标.入口 ↔ 大辊道 · 天盖后到缠膜.出口",
           "position": [
-            9,
+            -15.7,
             0.82,
-            -11
+            -35.7
           ],
           "kind": "processStation",
           "process": {
@@ -5250,9 +5288,9 @@
           "pointId": "component-point-0797b724",
           "name": "大辊道 · 缠膜后到贴标.出口 ↔ 大辊道 · 贴标后成品出库.入口",
           "position": [
-            20.5,
+            -15.7,
             0.82,
-            -11
+            -47.2
           ],
           "kind": "processStation",
           "process": {
@@ -5267,9 +5305,9 @@
           "pointId": "component-point-eaaff950",
           "name": "大辊道 · 贴标后成品出库.出口",
           "position": [
-            32,
+            -15.7,
             0.82,
-            -11
+            -58.7
           ],
           "kind": "buffer",
           "componentObjectId": "reference-conveyor-ref-large-edge-out",

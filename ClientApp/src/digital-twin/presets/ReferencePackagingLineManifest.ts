@@ -12,6 +12,9 @@ import referencePackagingSceneV18 from './reference-packaging-v18.scene.json';
 
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
+// 用户图纸的平面 Y 轴对应 Three.js 地面坐标 Z；大辊道固定在 X=-15.7 并沿 -Z 运行。
+const LARGE_LINE_X = -15.7;
+const LARGE_LINE_ROTATION_Y = Math.PI / 2;
 export const REFERENCE_PACKAGING_LAYOUT_VERSION = 18;
 
 const componentObject = (
@@ -398,12 +401,12 @@ const createLargeRoute = (): TwinRouteDefinition => ({
 	name: '木托后包装大辊道',
 	type: 'conveyor', curveKind: 'line', defaultSpeed: 0.65, loop: false, orientToPath: true,
 	points: [
-		{ ...point('ref-large-in', '空木托进入', -22.5, -11, 'station'), position: [-22.5, LARGE_HEIGHT, -11] },
-		{ ...point('ref-large-stack', '2×3×8 码垛完成位', -15.7, -11, 'processStation'), position: [-15.7, LARGE_HEIGHT, -11], componentObjectId: 'reference-stacking-pallet', process: { type: 'wood-stack-ready', cycleSeconds: 1 } },
-		{ ...point('ref-large-cover', '天盖桁架工位', -3.5, -11, 'processStation'), position: [-3.5, LARGE_HEIGHT, -11], componentObjectId: 'reference-top-cover-gantry', process: { type: 'top-cover', cycleSeconds: 3 } },
-		{ ...point('ref-large-wrap', '缠膜工位', 9, -11, 'processStation'), position: [9, LARGE_HEIGHT, -11], componentObjectId: 'reference-wrapper', process: { type: 'wrapping', cycleSeconds: 8 } },
-		{ ...point('ref-large-label', '贴标工位', 20.5, -11, 'processStation'), position: [20.5, LARGE_HEIGHT, -11], componentObjectId: 'reference-labeling', process: { type: 'labeling', cycleSeconds: 2 } },
-		{ ...point('ref-large-out', '成品出库', 32, -11, 'station'), position: [32, LARGE_HEIGHT, -11] },
+		{ ...point('ref-large-in', '空木托进入', LARGE_LINE_X, -4.2, 'station'), position: [LARGE_LINE_X, LARGE_HEIGHT, -4.2] },
+		{ ...point('ref-large-stack', '2×3×8 码垛完成位', LARGE_LINE_X, -11, 'processStation'), position: [LARGE_LINE_X, LARGE_HEIGHT, -11], componentObjectId: 'reference-stacking-pallet', process: { type: 'wood-stack-ready', cycleSeconds: 1 } },
+		{ ...point('ref-large-cover', '天盖桁架工位', LARGE_LINE_X, -23.2, 'processStation'), position: [LARGE_LINE_X, LARGE_HEIGHT, -23.2], componentObjectId: 'reference-top-cover-gantry', process: { type: 'top-cover', cycleSeconds: 3 } },
+		{ ...point('ref-large-wrap', '缠膜工位', LARGE_LINE_X, -35.7, 'processStation'), position: [LARGE_LINE_X, LARGE_HEIGHT, -35.7], componentObjectId: 'reference-wrapper', process: { type: 'wrapping', cycleSeconds: 8 } },
+		{ ...point('ref-large-label', '贴标工位', LARGE_LINE_X, -47.2, 'processStation'), position: [LARGE_LINE_X, LARGE_HEIGHT, -47.2], componentObjectId: 'reference-labeling', process: { type: 'labeling', cycleSeconds: 2 } },
+		{ ...point('ref-large-out', '成品出库', LARGE_LINE_X, -58.7, 'station'), position: [LARGE_LINE_X, LARGE_HEIGHT, -58.7] },
 	],
 	edges: [
 		edge('ref-large-edge-in', 'ref-large-in', 'ref-large-stack', '空木托到码垛位', { capacity: 2, conveyorSizeClass: 'large', transportUnitType: 'wooden-pallet' }),
@@ -564,9 +567,9 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 		// 丝锭桁架内部的暂存台位于本地 Z-；Y+90° 后它落到世界 X-，即大辊道左侧，符合图纸。
 		componentObject('builtin-silk-gantry', 'reference-stacking-gantry', '码垛桁架和暂存台', [-15.7, 0, -11], Math.PI / 2, { length: 7.2, width: 15, height: 7.2 }, 'ref-large-stack'),
 		componentObject('builtin-wooden-pallet', 'reference-stacking-pallet', '码垛位木托盘', [-15.7, LARGE_HEIGHT, -11], 0, { length: 4.0, width: 3.4, height: 0.18 }, 'ref-large-stack-pallet'),
-		componentObject('builtin-top-cover-gantry', 'reference-top-cover-gantry', '天盖桁架', [-3.5, 0, -11], 0, { length: 7.05, width: 10.5, height: 6.0 }, 'ref-large-cover'),
-		componentObject('builtin-wrapper-machine', 'reference-wrapper', '缠膜机', [9, 0, -11], 0, { height: 6.2, armRadius: 3.0, width: 6.8 }, 'ref-large-wrap'),
-		componentObject('builtin-labeling-machine', 'reference-labeling', '贴标机', [20.5, 0, -11], 0, { height: 2.4, sideOffset: 1.85, armReach: 0.6 }, 'ref-large-label'),
+		componentObject('builtin-top-cover-gantry', 'reference-top-cover-gantry', '天盖桁架', [LARGE_LINE_X, 0, -23.2], LARGE_LINE_ROTATION_Y, { length: 7.05, width: 10.5, height: 6.0 }, 'ref-large-cover'),
+		componentObject('builtin-wrapper-machine', 'reference-wrapper', '缠膜机', [LARGE_LINE_X, 0, -35.7], LARGE_LINE_ROTATION_Y, { height: 6.2, armRadius: 3.0, width: 6.8 }, 'ref-large-wrap'),
+		componentObject('builtin-labeling-machine', 'reference-labeling', '贴标机', [LARGE_LINE_X, 0, -47.2], LARGE_LINE_ROTATION_Y, { height: 2.4, sideOffset: 1.85, armReach: 0.6 }, 'ref-large-label'),
 		componentObject('builtin-industrial-robot', 'reference-loading-robot', '底部六轴机器人+2×6丝锭夹具', [0.4, 0, 19.8], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.2, gripperRowSpacing: 1.15, upperArmLength: 2.4, forearmLength: 2.2, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }, 'ref-robot'),
 		componentObject('builtin-turntable', 'reference-turntable-west', '西侧旋转台+双面丝车', [-5.2, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-west'),
 		componentObject('builtin-turntable', 'reference-turntable-east', '东侧旋转台+双面丝车', [6, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-east'),
@@ -608,10 +611,10 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	if (woodenProcessRoute) {
 		const nearestPoint = (x: number, z: number) => [...woodenProcessRoute.points].sort((left, right) => Math.hypot(left.position[0] - x, left.position[2] - z) - Math.hypot(right.position[0] - x, right.position[2] - z))[0];
 		for (const station of [
-			{ x: -15.7, z: -11, objectId: 'reference-stacking-pallet', type: 'wood-stack-ready', cycleSeconds: 1 },
-			{ x: -3.5, z: -11, objectId: 'reference-top-cover-gantry', type: 'top-cover', cycleSeconds: 3 },
-			{ x: 9, z: -11, objectId: 'reference-wrapper', type: 'wrapping', cycleSeconds: 8 },
-			{ x: 20.5, z: -11, objectId: 'reference-labeling', type: 'labeling', cycleSeconds: 2 },
+			{ x: LARGE_LINE_X, z: -11, objectId: 'reference-stacking-pallet', type: 'wood-stack-ready', cycleSeconds: 1 },
+			{ x: LARGE_LINE_X, z: -23.2, objectId: 'reference-top-cover-gantry', type: 'top-cover', cycleSeconds: 3 },
+			{ x: LARGE_LINE_X, z: -35.7, objectId: 'reference-wrapper', type: 'wrapping', cycleSeconds: 8 },
+			{ x: LARGE_LINE_X, z: -47.2, objectId: 'reference-labeling', type: 'labeling', cycleSeconds: 2 },
 		]) {
 			const processPoint = nearestPoint(station.x, station.z);
 			if (!processPoint) continue;
@@ -731,6 +734,12 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	const currentBehaviorIds = new Set((manifest.behaviors || []).map((item) => item.behaviorId));
 	const currentMaterialSlotIds = new Set((manifest.materialSlots || []).map((item) => item.slotId));
 	const currentInterlockIds = new Set((manifest.interlocks || []).map((item) => item.interlockId));
+	const currentLargeOut = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
+	const canonicalLargeOut = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
+	const hasCanonicalLargeAxis = Boolean(currentLargeOut && canonicalLargeOut
+		&& Math.abs(currentLargeOut.transform.position[0] - canonicalLargeOut.transform.position[0]) < 0.001
+		&& Math.abs(currentLargeOut.transform.position[2] - canonicalLargeOut.transform.position[2]) < 0.001
+		&& Math.abs(currentLargeOut.transform.rotation[1] - canonicalLargeOut.transform.rotation[1]) < 0.001);
 	const currentWoodRoute = canonicalWoodRouteId ? (manifest.routes || []).find((item) => item.routeId === canonicalWoodRouteId) : undefined;
 	const currentWoodProcessTypes = currentWoodRoute?.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type) || [];
 	const hasCurrentV18Structure = Boolean(canonicalForHealthCheck
@@ -740,6 +749,7 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		&& manifest.runtime.primaryWoodenPalletRouteId === canonicalWoodRouteId
 		&& currentInitializers.some((item) => item.routeId === canonicalSmallRouteId && item.simulationDefaultCount === 12)
 		&& currentInitializers.some((item) => item.routeId === canonicalWoodRouteId && item.simulationDefaultCount === 3)
+		&& hasCanonicalLargeAxis
 		&& ['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => currentWoodProcessTypes.includes(type))
 		&& (canonicalForHealthCheck.behaviors || []).every((item) => currentBehaviorIds.has(item.behaviorId))
 		&& (canonicalForHealthCheck.materialSlots || []).every((item) => currentMaterialSlotIds.has(item.slotId))

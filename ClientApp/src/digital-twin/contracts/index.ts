@@ -224,6 +224,10 @@ export interface TwinMaterialSlotDefinition {
 	nodePath?: string;
 	localPosition: TwinVector3;
 	localRotation?: TwinVector3;
+	/** 物料可接触面的外法向（槽位局部坐标）。抓取时工具接近方向应与其相反。 */
+	contactNormalLocal?: TwinVector3;
+	/** 抓取 TCP 与槽位接触中心允许的最大距离，单位米。 */
+	contactTolerance?: number;
 	payloadType?: string;
 	capacity?: number;
 	runtimeOwnerType?: 'plastic-pallet' | 'wooden-pallet' | 'carton';
@@ -254,6 +258,8 @@ export interface TwinToolFrameDefinition {
 	nodePath: string;
 	localPosition?: TwinVector3;
 	localRotation?: TwinVector3;
+	/** 工具从夹具本体指向被抓物的接近方向（工具节点局部坐标）。 */
+	approachDirectionLocal?: TwinVector3;
 	payloadTypes?: string[];
 }
 

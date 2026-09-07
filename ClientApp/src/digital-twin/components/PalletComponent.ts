@@ -125,8 +125,11 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		root.add(base);
 
 		const ringY = baseHeight + 0.015;
+		const ringTubeRadius = Math.max(0.035, diameter * 0.037);
+		const supportSurfaceY = ringY + ringTubeRadius;
+		const silkCakeAxialDepth = 0.42;
 		for (const [name, ringRadius] of [['SmallPallet-InnerRing', radius * 0.58], ['SmallPallet-OuterRing', radius * 0.84]] as const) {
-			const ring = new THREE.Mesh(new THREE.TorusGeometry(ringRadius, Math.max(0.035, diameter * 0.037), 10, 32), darkGreen);
+			const ring = new THREE.Mesh(new THREE.TorusGeometry(ringRadius, ringTubeRadius, 10, 32), darkGreen);
 			ring.name = name;
 			ring.rotation.x = Math.PI / 2;
 			ring.position.y = ringY;
@@ -153,7 +156,8 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 
 		const cakeAnchor = new THREE.Group();
 		cakeAnchor.name = 'SilkCakeAnchor';
-		cakeAnchor.position.y = baseHeight + 0.21;
+		// 丝锭放置后轴向改为竖直：底面必须落在支撑环最高面，中心柱只穿过中孔。
+		cakeAnchor.position.y = supportSurfaceY + silkCakeAxialDepth / 2;
 		cakeAnchor.userData.materialSlot = true;
 		cakeAnchor.userData.materialSlotRole = 'target';
 		root.add(cakeAnchor);
@@ -163,7 +167,9 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		root.userData.transportUnitType = 'plastic-pallet';
 		root.userData.transportUnitVariant = 'small-pallet';
 		root.userData.resourceKey = definition.resourceKey;
-		root.userData.materialSlots = [{ slotId: 'silk-place', name: '小托盘放丝位', role: 'target', nodePath: 'SilkCakeAnchor', localPosition: [0, 0, 0], payloadType: 'silk-cake', capacity: 12 }];
+		root.userData.smallPalletSupportSurfaceY = supportSurfaceY;
+		root.userData.silkCakeAxialDepth = silkCakeAxialDepth;
+		root.userData.materialSlots = [{ slotId: 'silk-place', name: '小托盘放丝位', role: 'target', nodePath: 'SilkCakeAnchor', localPosition: [0, 0, 0], localRotation: [-Math.PI / 2, 0, 0], payloadType: 'silk-cake', capacity: 12 }];
 		root.userData.properties = { ...props, diameter, baseHeight, columnHeight, columnDiameter, routeManagedExternally: true };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, []);

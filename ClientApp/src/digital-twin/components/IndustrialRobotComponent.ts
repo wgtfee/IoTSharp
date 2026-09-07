@@ -143,6 +143,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 				gripper.userData.axis6AngleDegrees = 0;
 				gripper.userData.gripDirection = 'local-positive-y-parallel-j6';
 				gripper.userData.contactPlane = 'local-xz';
+				gripper.userData.contactPlaneOffset = 0.54;
 				mount.add(gripper);
 				tool.add(mount);
 			} else {
@@ -240,7 +241,8 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 			toolFrameId: 'robot-tcp',
 			name: '机器人 TCP',
 			nodePath: tcpNodePath,
-			localPosition: [0, 0, 0],
+			localPosition: toolType === 'silk-grid-2x6' ? [0, 0.54, 0] : [0, 0, 0],
+			approachDirectionLocal: toolType === 'silk-grid-2x6' ? [0, 1, 0] : undefined,
 			payloadTypes: toolType.startsWith('silk-') ? ['silk-cake'] : toolType === 'carton-gripper' ? ['carton'] : [],
 		}];
 		root.userData.actuatorDefinitions = [];

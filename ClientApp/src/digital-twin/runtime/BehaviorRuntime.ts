@@ -12,7 +12,7 @@ import type {
 	TwinWorkPointDefinition,
 } from '/@/digital-twin/contracts';
 
-type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-station' | 'waiting-material' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
+type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-station' | 'waiting-material' | 'waiting-contact' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
 
 interface ChannelState {
 	channelKey: string;
@@ -793,6 +793,10 @@ export class BehaviorRuntime {
 		const toolFrameId = action.toolFrameId || workPoint?.toolFrameId;
 		const toolFrame = toolFrameId ? this.toolFrames.get(toolFrameId) : undefined;
 		const attachNode = this.resolveAttachNode(actorRoot, action.actorNodePath || channel.actorNodePath, toolFrameId);
+		if (sourceSlot && toolFrame && (sourceSlot.contactTolerance !== undefined || sourceSlot.contactNormalLocal) && !this.isToolFrameInContact(attachNode, toolFrame, sourceSlot)) {
+			channel.status = 'waiting-contact';
+			return false;
+		}
 		const requestedCount = Math.max(1, Number(action.payloadCount || 1));
 		const minimumRequestedCount = action.allowPartialPayload === true
 			? Math.min(requestedCount, Math.max(1, Math.floor(Number(action.minimumPayloadCount || 1))))
@@ -897,7 +901,8 @@ export class BehaviorRuntime {
 				const material = materials[index];
 				resolved.anchor.attach(material);
 				material.position.set(0, 0, 0);
-				material.rotation.set(0, 0, 0);
+				const placedRotation = slot.localRotation || [0, 0, 0];
+				material.rotation.set(placedRotation[0], placedRotation[1], placedRotation[2]);
 				delete material.userData.materialAttachedBy;
 				material.userData.runtimeOwnerEntityId = palletIds[index];
 				material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
@@ -921,7 +926,8 @@ export class BehaviorRuntime {
 			const material = materials[index];
 			resolved.anchor.attach(material);
 			material.position.copy(itemOffset.clone().multiplyScalar(level));
-			material.rotation.set(0, 0, 0);
+			const placedRotation = slot.localRotation || [0, 0, 0];
+			material.rotation.set(placedRotation[0], placedRotation[1], placedRotation[2]);
 			delete material.userData.materialAttachedBy;
 			material.userData.runtimeOwnerEntityId = palletIds[palletIndex];
 			material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
@@ -1083,6 +1089,21 @@ export class BehaviorRuntime {
 			}
 		}
 		return (actorNodePath ? this.findNode(actorRoot, actorNodePath) : undefined) || actorRoot;
+	}
+
+	private isToolFrameInContact(attachNode: THREE.Object3D, toolFrame: TwinToolFrameDefinition, slot: TwinMaterialSlotDefinition) {
+		attachNode.updateMatrixWorld(true);
+		const tcpWorld = attachNode.localToWorld(vector(toolFrame.localPosition));
+		const resolvedSlot = this.resolveMaterialSlotAnchor(slot, this.preferredRuntimeOwnerId(slot));
+		const tolerance = Math.max(0.01, Number(slot.contactTolerance ?? 0.10));
+		if (tcpWorld.distanceTo(resolvedSlot.world) > tolerance) return false;
+		if (!slot.contactNormalLocal || !toolFrame.approachDirectionLocal) return true;
+		const approach = vector(toolFrame.approachDirectionLocal).normalize();
+		const localRotation = toolFrame.localRotation || [0, 0, 0];
+		approach.applyEuler(new THREE.Euler(localRotation[0], localRotation[1], localRotation[2]));
+		approach.transformDirection(attachNode.matrixWorld).normalize();
+		const surfaceNormal = vector(slot.contactNormalLocal).normalize().transformDirection(resolvedSlot.anchor.matrixWorld).normalize();
+		return approach.dot(surfaceNormal) <= -0.94;
 	}
 
 	private getStationPalletIds(actorRoot?: THREE.Object3D) {

@@ -26,6 +26,19 @@ export class TurntableComponent implements TwinComponentGenerator {
 		const wheelMaterial = createMaterial(0x111827, { roughness: 0.72, metalness: 0.3 });
 		const silkMaterial = createMaterial(0xf8fafc, { roughness: 0.78, metalness: 0.0 });
 		const silkEdgeMaterial = createMaterial(0xcbd5e1, { roughness: 0.68, metalness: 0.02 });
+		const createSilkCakeGeometry = () => {
+			const outerRadius = 0.48;
+			const innerRadius = 0.28;
+			const depth = 0.42;
+			const shape = new THREE.Shape();
+			shape.absarc(0, 0, outerRadius, 0, Math.PI * 2, false);
+			const hole = new THREE.Path();
+			hole.absarc(0, 0, innerRadius, 0, Math.PI * 2, true);
+			shape.holes.push(hole);
+			const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 28, steps: 1 });
+			geometry.translate(0, 0, -depth / 2);
+			return geometry;
+		};
 
 		const base = new THREE.Mesh(new THREE.CylinderGeometry(baseRadius, baseRadius * 1.04, 0.28, 40), baseMaterial);
 		base.name = 'TurntableBase';
@@ -109,9 +122,8 @@ export class TurntableComponent implements TwinComponentGenerator {
 							cakeEntity.userData.materialSlotGroup = side;
 							cakeEntity.userData.twinEntityType = 'material';
 							cakeEntity.userData.twinEntityId = `${definition.objectId}:silk:${side}:R${row + 1}:C${column + 1}`;
-							const cake = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.42, 28), silkMaterial);
+							const cake = new THREE.Mesh(createSilkCakeGeometry(), silkMaterial);
 							cake.name = `SilkCake-${side}-R${row + 1}-C${column + 1}`;
-							cake.rotation.x = Math.PI / 2;
 							cakeEntity.add(cake);
 							const edge = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.025, 8, 28), silkEdgeMaterial);
 							edge.name = `SilkCake-Edge-${side}-R${row + 1}-C${column + 1}`;
@@ -169,8 +181,8 @@ export class TurntableComponent implements TwinComponentGenerator {
 		root.userData.withSilkCart = withSilkCart;
 		root.userData.silkCartLoaded = silkCartLoaded;
 		root.userData.materialSlots = withSilkCart ? [
-			{ slotId: 'silk-cart-side-a-pick', name: '丝车 A 面抓取区', role: 'source', localPosition: [0, 2.15, 1.26], payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'A' } },
-			{ slotId: 'silk-cart-side-b-pick', name: '丝车 B 面抓取区', role: 'source', localPosition: [0, 2.15, -1.26], payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'B' } },
+			{ slotId: 'silk-cart-side-a-pick', name: '丝车 A 面抓取区', role: 'source', localPosition: [0, 2.475, 1.47], contactNormalLocal: [0, 0, 1], contactTolerance: 0.10, payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'A' } },
+			{ slotId: 'silk-cart-side-b-pick', name: '丝车 B 面抓取区', role: 'source', localPosition: [0, 2.475, -1.47], contactNormalLocal: [0, 0, -1], contactTolerance: 0.10, payloadType: 'silk-cake', capacity: 18, metadata: { entityGroup: 'B' } },
 		] : [];
 		root.userData.deckConveyorType = 'chain';
 		root.userData.capabilities = ['material-flow', 'capacity', 'rotation', 'plc-binding'];
