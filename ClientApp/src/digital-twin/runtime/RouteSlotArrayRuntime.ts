@@ -5,6 +5,13 @@ import { createComponentDefinitionFromTemplate, defaultComponentRegistry } from 
 import { RouteEngine, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 
+interface ManualStationReleaseState {
+	pointId: string;
+	station: THREE.Vector3;
+	direction: THREE.Vector3;
+	handoffProjection: number;
+}
+
 interface RouteSlotEntity {
 	key: string;
 	bindingId: string;
@@ -21,6 +28,10 @@ interface RouteSlotEntity {
 	simulationProcess?: ComponentProcessRuntime;
 	routingContext?: TwinRouteRoutingContext;
 	routeCode?: 'A' | 'B';
+	physicalLane?: 'A' | 'B';
+	physicalLaneOrdinal?: number;
+	simulationRoute?: TwinRouteDefinition;
+	manualStationRelease?: ManualStationReleaseState;
 	initialProgress?: number;
 }
 
@@ -41,6 +52,7 @@ export class RouteSlotArrayRuntime {
 	private readonly curves = new Map<string, RouteCurveInfo>();
 	private readonly bindingRouteIds = new Map<string, string>();
 	private readonly group = new THREE.Group();
+	private readonly simulationAutoFeedSequences = new Map<string, number>();
 	private running = false;
 
 	constructor(
@@ -63,6 +75,7 @@ export class RouteSlotArrayRuntime {
 			if (entity.simulationEngine) this.removeEntity(entity.key);
 		}
 		this.manifest = structuredClone(manifest);
+		this.simulationAutoFeedSequences.clear();
 		this.curves.clear();
 		this.bindingRouteIds.clear();
 		for (const route of this.manifest.routes || []) {
@@ -71,15 +84,18 @@ export class RouteSlotArrayRuntime {
 		}
 		const activeBindings = new Set<string>();
 		const authoritativeRouteIds = new Set<string>();
+		const simulationMode = this.manifest.runtime.dataMode === 'simulation';
 		for (const binding of this.manifest.bindings || []) {
 			if (binding.enabled === false || binding.transform.kind !== 'routeSlotArray') continue;
 			const routeId = this.resolveRouteId(binding);
 			if (!routeId) continue;
-			activeBindings.add(binding.bindingId);
 			this.bindingRouteIds.set(binding.bindingId, routeId);
-			authoritativeRouteIds.add(routeId);
+			if (!simulationMode) {
+				activeBindings.add(binding.bindingId);
+				authoritativeRouteIds.add(routeId);
+			}
 		}
-		if (this.manifest.runtime.dataMode === 'simulation') {
+		if (simulationMode) {
 			for (const initializer of this.manifest.runtime.routePalletInitializers || []) {
 				if (authoritativeRouteIds.has(initializer.routeId)) continue;
 				const route = this.manifest.routes.find((item) => item.routeId === initializer.routeId);
@@ -92,7 +108,7 @@ export class RouteSlotArrayRuntime {
 		for (const entity of [...this.entities.values()]) {
 			if (!activeBindings.has(entity.bindingId)) this.removeEntity(entity.key);
 		}
-		if (this.manifest.runtime.dataMode === 'simulation') this.applySimulationDefaults(authoritativeRouteIds);
+		if (simulationMode) this.applySimulationDefaults(authoritativeRouteIds);
 	}
 
 	private applySimulationDefaults(authoritativeRouteIds: Set<string>) {
@@ -125,6 +141,9 @@ export class RouteSlotArrayRuntime {
 	}
 
 	apply(binding: TwinObjectBindingDefinition, value: unknown, stale: boolean) {
+		const simulationBinding = binding.bindingId.startsWith('simulation-route-slots:');
+		if (this.manifest.runtime.dataMode === 'simulation' && !simulationBinding) return;
+		if (this.manifest.runtime.dataMode === 'live' && simulationBinding) return;
 		const routeId = this.bindingRouteIds.get(binding.bindingId) || this.resolveRouteId(binding);
 		if (!routeId) {
 			this.reportError?.(`托盘位置数组绑定 ${binding.bindingId} 未配置目标路线`);
@@ -185,8 +204,15 @@ export class RouteSlotArrayRuntime {
 				this.group.add(entity.root);
 				if (binding.bindingId.startsWith('simulation-route-slots:') && this.manifest.runtime.dataMode === 'simulation') {
 					const routeCode: 'A' | 'B' = slot.slotIndex % 2 === 0 ? 'A' : 'B';
-					const routingContext = { payload: { routeCode, palletId: slot.palletId }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
-					const engine = new RouteEngine(structuredClone(curveInfo.route), entity.root);
+					const physicalLane = routeCode;
+					const physicalLaneOrdinal = Math.floor(slot.slotIndex / 2);
+					const simulationRoute = structuredClone(curveInfo.route);
+					const laneStart = this.manifest.runtime.primarySmallPalletRouteId === routeId && transportUnitType === 'plastic-pallet'
+						? simulationRoute.points.find((point) => point.kind === 'processStation' && point.process?.physicalLane === physicalLane && point.componentObjectId === 'reference-loading-robot')
+						: undefined;
+					if (laneStart) simulationRoute.startPointId = laneStart.pointId;
+					const routingContext = { payload: { routeCode, physicalLane, palletId: slot.palletId }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
+					const engine = new RouteEngine(simulationRoute, entity.root);
 					engine.setRoutingContext(routingContext);
 					const routeSnapshot = engine.getSnapshot();
 					const isPrimarySmallPalletRoute = this.manifest.runtime.primarySmallPalletRouteId === routeId
@@ -202,7 +228,7 @@ export class RouteSlotArrayRuntime {
 					engine.correctDistance(initialDistance);
 					engine.setRunning(this.running);
 					const process = new ComponentProcessRuntime({
-						route: structuredClone(curveInfo.route),
+						route: structuredClone(simulationRoute),
 						routeEngine: engine,
 						getComponentRoot: (objectId) => this.getComponentRoot?.(objectId),
 						getRoutingContext: () => routingContext,
@@ -214,14 +240,21 @@ export class RouteSlotArrayRuntime {
 					entity.simulationProcess = process;
 					entity.routingContext = routingContext;
 					entity.routeCode = routeCode;
+					entity.physicalLane = physicalLane;
+					entity.physicalLaneOrdinal = physicalLaneOrdinal;
+					entity.simulationRoute = simulationRoute;
 					entity.initialProgress = initialProgress;
 					entity.currentProgress = initialProgress;
 					entity.targetProgress = initialProgress;
 					entity.root.userData.simulationRouteDriven = true;
 					entity.root.userData.routeCode = routeCode;
+					entity.root.userData.physicalLaneId = physicalLane;
+					entity.root.userData.physicalLaneOrdinal = physicalLaneOrdinal;
 					entity.root.userData.initialRouteProgress = initialProgress;
 					entity.root.userData.simulationQueueIndex = slot.slotIndex;
 					engine.render(1);
+					this.applyTransportUnitYawOffset(entity);
+					this.applyInitialPhysicalStationLayout(entity);
 				}
 			} else {
 				entity.routeId = routeId;
@@ -241,16 +274,34 @@ export class RouteSlotArrayRuntime {
 
 	tick(deltaSeconds: number) {
 		if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+		if (this.running) this.ensureSimulationAutoFeed();
 		const blend = 1 - Math.exp(-Math.min(deltaSeconds, 0.25) * 10);
 		for (const entity of this.entities.values()) {
 			if (!entity.root.visible) continue;
 			if (entity.simulationEngine) {
 				this.refreshSimulationRoutingContext(entity);
+				const beforeSnapshot = entity.simulationEngine.getSnapshot();
+				const beforeDistance = beforeSnapshot.distanceMeters;
+				const beforePosition = entity.root.position.clone();
 				const allowRouteStep = entity.simulationProcess?.updateFixed(deltaSeconds) ?? true;
-				if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
-				entity.simulationEngine.render(1);
+				this.captureManualStationRelease(entity);
+				if (entity.manualStationRelease) {
+					this.advanceManualStationRelease(entity, deltaSeconds);
+				} else {
+					if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
+					entity.simulationEngine.render(1);
+					this.applyTransportUnitYawOffset(entity);
+					const movingSnapshot = entity.simulationEngine.getSnapshot();
+					this.applyStationQueueVisual(entity, movingSnapshot.distanceMeters, movingSnapshot.lengthMeters);
+					if (!entity.root.userData.stationBatchVisual && !entity.root.userData.stationQueueVisual && !this.isPlasticPalletPositionClear(entity, entity.root.position)) {
+						entity.simulationEngine.correctDistance(beforeDistance);
+						entity.root.position.copy(beforePosition);
+						entity.root.userData.collisionHeld = true;
+					} else {
+						delete entity.root.userData.collisionHeld;
+					}
+				}
 				const snapshot = entity.simulationEngine.getSnapshot();
-				this.applyStationQueueVisual(entity, snapshot.distanceMeters, snapshot.lengthMeters);
 				entity.currentProgress = snapshot.progress;
 				entity.targetProgress = snapshot.progress;
 				entity.root.userData.routeProgress = snapshot.progress;
@@ -272,6 +323,53 @@ export class RouteSlotArrayRuntime {
 			this.applyPose(entity, curveInfo, entity.currentProgress);
 			entity.root.userData.routeCompleted = !curveInfo.loop && entity.currentProgress >= 0.999;
 		}
+		this.syncSimulationOutputStoppers();
+	}
+
+	private setOutputStopperVisual(root: THREE.Group, definition: any, raised: boolean, palletPresent: boolean) {
+		const stopper = root.getObjectByName(String(definition.nodePath || ''));
+		if (stopper) {
+			const raisedY = Number(stopper.userData?.raisedY ?? stopper.position.y);
+			const loweredY = Number(stopper.userData?.loweredY ?? raisedY - 0.22);
+			stopper.position.y = raised ? raisedY : loweredY;
+			stopper.userData.stopperRaised = raised;
+		}
+		const sensor = root.getObjectByName(String(definition.sensorNodePath || ''));
+		if (sensor) sensor.userData.palletPresent = palletPresent;
+	}
+
+	private syncSimulationOutputStoppers() {
+		if (this.manifest.runtime.dataMode !== 'simulation' || !this.getComponentRoot) return;
+		const states = new Map<string, { root: THREE.Group; definition: any; raised: boolean; present: boolean }>();
+		for (const route of this.manifest.routes || []) for (const edge of route.edges || []) {
+			if (edge.enabled === false || edge.conveyorSizeClass !== 'small') continue;
+			const objectId = edge.componentObjectId || edge.conveyorObjectId;
+			if (!objectId) continue;
+			const root = this.getComponentRoot(objectId);
+			const definitions = Array.isArray(root?.userData?.outputStoppers) ? root.userData.outputStoppers as any[] : [];
+			for (const definition of definitions) states.set(objectId + ':' + definition.portId, { root: root!, definition, raised: true, present: false });
+		}
+		for (const entity of this.entities.values()) {
+			if (!entity.simulationEngine || !entity.root.visible) continue;
+			const route = this.curves.get(entity.routeId)?.route;
+			const snapshot = entity.simulationEngine.getSnapshot();
+			const edge = route?.edges.find((item) => item.edgeId === snapshot.currentEdgeId);
+			if (!route || !edge || edge.conveyorSizeClass !== 'small') continue;
+			const objectId = edge.componentObjectId || edge.conveyorObjectId;
+			if (!objectId) continue;
+			const toPoint = route.points.find((point) => point.pointId === edge.toPointId);
+			const root = this.getComponentRoot(objectId);
+			const definitions = Array.isArray(root?.userData?.outputStoppers) ? root.userData.outputStoppers as any[] : [];
+			const portId = toPoint?.componentPortId;
+			const definition = definitions.find((item) => item.portId === portId) || (definitions.length === 1 ? definitions[0] : undefined);
+			if (!definition || !toPoint) continue;
+			const state = states.get(objectId + ':' + definition.portId);
+			if (!state) continue;
+			const distance = entity.root.position.distanceTo(new THREE.Vector3(...toPoint.position));
+			if (distance <= 0.85) state.present = true;
+			if (distance <= 0.62 && snapshot.state !== 'waiting') state.raised = false;
+		}
+		for (const state of states.values()) this.setOutputStopperVisual(state.root, state.definition, state.raised, state.present);
 	}
 
 	private refreshSimulationRoutingContext(entity: RouteSlotEntity) {
@@ -294,24 +392,149 @@ export class RouteSlotArrayRuntime {
 		entity.simulationEngine.setRoutingContext(entity.routingContext);
 	}
 
+	private applyInitialPhysicalStationLayout(entity: RouteSlotEntity) {
+		if (!entity.simulationRoute || !entity.physicalLane) return;
+		const point = entity.simulationRoute.points.find((item) => item.kind === 'processStation' && item.process?.physicalLane === entity.physicalLane && item.componentObjectId === 'reference-loading-robot');
+		if (!point?.process?.batchLayout) return;
+		this.applyPhysicalBatchSlot(entity, point);
+		entity.root.userData.initialPhysicalLaneLayout = true;
+	}
+
+	private applyPhysicalBatchSlot(entity: RouteSlotEntity, point: TwinRouteDefinition['points'][number]) {
+		const layout = point.process?.batchLayout;
+		if (!layout) return;
+		const columns = Math.max(1, Math.floor(Number(layout.columns) || 6));
+		const ordinal = Math.max(0, Math.min(columns - 1, Number(entity.physicalLaneOrdinal || 0)));
+		// 创建顺序 A0/B0/A1/B1...；0 号托盘放在前端，释放顺序天然是前车先走。
+		const column = columns - 1 - ordinal;
+		const center = new THREE.Vector3(...point.position).add(new THREE.Vector3(...(layout.centerOffset || [0, 0, 0])));
+		const columnOffset = (column - (columns - 1) / 2) * Number(layout.columnSpacingMeters || 1.55);
+		if ((layout.columnAxis || 'x') === 'z') center.z += columnOffset; else center.x += columnOffset;
+		entity.root.position.copy(center);
+		entity.root.userData.stationBatchColumn = column;
+		entity.root.userData.stationBatchLane = entity.physicalLane;
+	}
+
+	private captureManualStationRelease(entity: RouteSlotEntity) {
+		if (entity.manualStationRelease || !entity.simulationRoute || !entity.physicalLane) return;
+		for (const point of entity.simulationRoute.points) {
+			if (point.kind !== 'processStation' || point.process?.physicalLane !== entity.physicalLane || !point.componentObjectId) continue;
+			const root = this.getComponentRoot?.(point.componentObjectId);
+			const releasedIds = Array.isArray(root?.userData?.stationReleasedPalletIds) ? root!.userData.stationReleasedPalletIds.map(String) : [];
+			if (!releasedIds.includes(entity.palletId)) continue;
+			if (entity.root.userData.routeHandoffCompletePointId === point.pointId) return;
+			// ComponentProcessRuntime 会把 RouteEngine 的逻辑距离校正到 processStation 中心。
+			// 批次视觉之前虽然把托盘拉回了各自 1×6 槽位，但释放这一帧不再走 queue visual，
+			// 因此必须在开始物理 handoff 前再次恢复自己的槽位，绝不能从共享 station center 起步。
+			this.applyPhysicalBatchSlot(entity, point);
+			const outgoing = entity.simulationRoute.edges
+				.filter((edge) => edge.enabled !== false && edge.fromPointId === point.pointId)
+				.map((edge) => ({ edge, target: entity.simulationRoute!.points.find((candidate) => candidate.pointId === edge.toPointId) }))
+				.filter((item) => Boolean(item.target))
+				.sort((left, right) => (left.edge.componentObjectId === 'reference-double-small-bottom' ? -1 : 1) - (right.edge.componentObjectId === 'reference-double-small-bottom' ? -1 : 1))[0];
+			if (!outgoing?.target) return;
+			const station = new THREE.Vector3(...point.position);
+			const direction = new THREE.Vector3(...outgoing.target.position).sub(station).setY(0);
+			if (direction.lengthSq() < 0.000001) return;
+			direction.normalize();
+			const columns = Math.max(1, Math.floor(Number(point.process?.batchLayout?.columns) || 6));
+			const spacing = Math.max(1.50, Number(point.process?.batchLayout?.columnSpacingMeters || 1.55));
+			entity.manualStationRelease = { pointId: point.pointId, station, direction, handoffProjection: ((columns - 1) / 2 + 1) * spacing };
+			entity.root.userData.stationReleaseVisual = true;
+			delete entity.root.userData.stationBatchVisual;
+			return;
+		}
+	}
+
+	private advanceManualStationRelease(entity: RouteSlotEntity, deltaSeconds: number) {
+		const state = entity.manualStationRelease;
+		if (!state || !entity.simulationEngine) return;
+		const speed = Math.max(0.25, Number(entity.simulationEngine.getSnapshot().speed || 1.2));
+		const candidate = entity.root.position.clone().addScaledVector(state.direction, speed * Math.max(0, deltaSeconds));
+		if (this.isPlasticPalletPositionClear(entity, candidate)) {
+			entity.root.position.copy(candidate);
+			delete entity.root.userData.collisionHeld;
+		} else {
+			entity.root.userData.collisionHeld = true;
+		}
+		const projection = entity.root.position.clone().sub(state.station).dot(state.direction);
+		if (projection < state.handoffProjection) return;
+		const distance = this.findNearestRouteDistance(entity.simulationEngine, entity.root.position);
+		entity.simulationEngine.correctDistance(distance);
+		entity.simulationEngine.render(1);
+		this.applyTransportUnitYawOffset(entity);
+		if (!this.isPlasticPalletPositionClear(entity, entity.root.position)) {
+			entity.root.position.copy(candidate);
+			return;
+		}
+		entity.manualStationRelease = undefined;
+		delete entity.root.userData.stationReleaseVisual;
+		entity.root.userData.routeHandoffComplete = true;
+		entity.root.userData.routeHandoffCompletePointId = state.pointId;
+	}
+
+	private findNearestRouteDistance(engine: RouteEngine, worldPosition: THREE.Vector3) {
+		const snapshot = engine.getSnapshot();
+		if (snapshot.lengthMeters <= 0) return 0;
+		const curve = engine.getCurve();
+		let bestT = 0, bestDistance = Number.POSITIVE_INFINITY;
+		for (let index = 0; index <= 512; index += 1) {
+			const t = index / 512;
+			const distance = curve.getPointAt(t).distanceToSquared(worldPosition);
+			if (distance < bestDistance) { bestDistance = distance; bestT = t; }
+		}
+		return bestT * snapshot.lengthMeters;
+	}
+
+	private palletDiameter(entity: RouteSlotEntity) {
+		const diameter = Number(entity.root.userData?.properties?.diameter || 1.48);
+		return Number.isFinite(diameter) && diameter > 0 ? diameter : 1.48;
+	}
+
+	private isPlasticPalletPositionClear(entity: RouteSlotEntity, candidate: THREE.Vector3) {
+		if (entity.transportUnitType !== 'plastic-pallet') return true;
+		for (const other of this.entities.values()) {
+			if (other === entity || other.transportUnitType !== 'plastic-pallet' || !other.root.visible) continue;
+			const required = (this.palletDiameter(entity) + this.palletDiameter(other)) / 2 + 0.02;
+			const dx = candidate.x - other.root.position.x, dz = candidate.z - other.root.position.z;
+			if (dx * dx + dz * dz < required * required - 0.000001) return false;
+		}
+		return true;
+	}
+
 	private applyStationQueueVisual(entity: RouteSlotEntity, stationDistance: number, routeLength: number) {
-		if (!entity.simulationEngine || routeLength <= 0) return;
-		const route = this.curves.get(entity.routeId)?.route;
+		if (!entity.simulationEngine || routeLength <= 0 || entity.manualStationRelease) return;
+		const route = entity.simulationRoute || this.curves.get(entity.routeId)?.route;
 		if (!route) return;
+		delete entity.root.userData.stationBatchVisual;
+		delete entity.root.userData.stationQueueVisual;
 		let queueIndex = -1;
 		for (const point of route.points || []) {
 			if (point.kind !== 'processStation' || !point.componentObjectId) continue;
+			if (point.process?.physicalLane && entity.physicalLane && point.process.physicalLane !== entity.physicalLane) continue;
 			const root = this.getComponentRoot?.(point.componentObjectId);
 			if (!root) continue;
 			const activeIds = Array.isArray(root.userData?.stationPalletIds) ? root.userData.stationPalletIds.map(String) : [];
 			const waitingIds = Array.isArray(root.userData?.stationWaitingPalletIds) ? root.userData.stationWaitingPalletIds.map(String) : [];
+			const releasedIds = Array.isArray(root.userData?.stationReleasedPalletIds) ? root.userData.stationReleasedPalletIds.map(String) : [];
 			const activeIndex = activeIds.indexOf(entity.palletId);
 			const waitingIndex = waitingIds.indexOf(entity.palletId);
+			const released = releasedIds.includes(entity.palletId);
+			if (!released && (activeIndex >= 0 || waitingIndex >= 0) && entity.root.userData.routeHandoffCompletePointId === point.pointId) {
+				delete entity.root.userData.routeHandoffComplete;
+				delete entity.root.userData.routeHandoffCompletePointId;
+			}
+			if (released) return;
+			if ((activeIndex >= 0 || waitingIndex >= 0) && point.process?.batchLayout && entity.physicalLane) {
+				this.applyPhysicalBatchSlot(entity, point);
+				entity.root.userData.stationBatchVisual = true;
+				entity.root.userData.stationQueueIndex = activeIndex >= 0 ? activeIndex : waitingIndex;
+				return;
+			}
 			queueIndex = activeIndex >= 0 ? activeIndex : waitingIndex;
 			if (queueIndex >= 0) break;
 		}
 		if (queueIndex <= 0) return;
-
 		const queueSpacingMeters = 1.5;
 		let visualDistance = stationDistance - queueIndex * queueSpacingMeters;
 		visualDistance = ((visualDistance % routeLength) + routeLength) % routeLength;
@@ -345,6 +568,33 @@ export class RouteSlotArrayRuntime {
 			entity.simulationEngine.setRunning(this.running);
 			entity.simulationProcess?.setRunning(this.running);
 		}
+		if (this.running) this.ensureSimulationAutoFeed();
+	}
+
+	private ensureSimulationAutoFeed() {
+		if (this.manifest.runtime.dataMode !== 'simulation') return;
+		for (const initializer of this.manifest.runtime.routePalletInitializers || []) {
+			if (initializer.simulationAutoFeed !== true) continue;
+			const route = this.manifest.routes.find((item) => item.routeId === initializer.routeId);
+			if (!route || !this.curves.has(route.routeId)) continue;
+			const bindingId = this.simulationBindingId(route.routeId);
+			const routeEntities = [...this.entities.values()].filter((entity) => entity.bindingId === bindingId && entity.simulationEngine);
+			const activeCount = routeEntities.filter((entity) => entity.root.userData.routeCompleted !== true).length;
+			const maxActive = Math.max(1, Math.floor(Number(initializer.simulationAutoFeedMaxActive) || 1));
+			if (activeCount >= maxActive) continue;
+			const sequence = (this.simulationAutoFeedSequences.get(route.routeId) || routeEntities.length) + 1;
+			this.simulationAutoFeedSequences.set(route.routeId, sequence);
+			const palletId = `SIM-AUTO-${route.routeId}-${String(sequence).padStart(4, '0')}`;
+			const binding: TwinObjectBindingDefinition = {
+				bindingId, objectId: `simulation:${route.routeId}`,
+				source: { kind: 'telemetry', key: initializer.telemetryKey },
+				target: { kind: 'customProperty', property: `routeSlots:${route.routeId}` },
+				transform: { kind: 'routeSlotArray', routeId: route.routeId, emptyValue: initializer.emptyValue ?? 0 },
+				staleAfterMs: 0,
+			};
+			this.bindingRouteIds.set(bindingId, route.routeId);
+			this.apply(binding, [...routeEntities.map((entity) => entity.palletId), palletId], false);
+		}
 	}
 
 	reset() {
@@ -361,12 +611,40 @@ export class RouteSlotArrayRuntime {
 			const initialProgress = THREE.MathUtils.clamp(Number(entity.initialProgress) || 0, 0, 1);
 			entity.simulationEngine.correctDistance(initialProgress * snapshot.lengthMeters);
 			entity.simulationEngine.render(1);
+			this.applyTransportUnitYawOffset(entity);
 			entity.currentProgress = initialProgress;
 			entity.targetProgress = initialProgress;
 			entity.root.userData.routeProgress = initialProgress;
 			entity.root.userData.routeState = 'paused';
 			delete entity.root.userData.activeProcessComponentObjectId;
 		}
+	}
+
+	getDiagnostics() {
+		const simulationEntities = [...this.entities.values()].filter((entity) => Boolean(entity.simulationEngine));
+		const plastic = simulationEntities.filter((entity) => entity.transportUnitType === 'plastic-pallet');
+		const wooden = simulationEntities.filter((entity) => entity.transportUnitType === 'wooden-pallet');
+		const uniquePositions = (items) => new Set(items.map((entity) => [entity.root.position.x, entity.root.position.y, entity.root.position.z].map((value) => value.toFixed(3)).join(','))).size;
+		return {
+			total: simulationEntities.length,
+			visible: simulationEntities.filter((entity) => entity.root.visible).length,
+			uniquePositions: uniquePositions(simulationEntities),
+			plasticPallets: plastic.length,
+			visiblePlasticPallets: plastic.filter((entity) => entity.root.visible).length,
+			uniquePlasticPositions: uniquePositions(plastic),
+			woodenPallets: wooden.length,
+		};
+	}
+
+	getTransportUnitBounds(transportUnitType: TwinTransportUnitType) {
+		const box = new THREE.Box3();
+		let found = false;
+		for (const entity of this.entities.values()) {
+			if (!entity.simulationEngine || entity.transportUnitType !== transportUnitType || !entity.root.visible) continue;
+			box.union(new THREE.Box3().setFromObject(entity.root));
+			found = true;
+		}
+		return found && !box.isEmpty() ? box : undefined;
 	}
 
 	getSimulationSnapshot() {
@@ -376,6 +654,8 @@ export class RouteSlotArrayRuntime {
 				palletId: entity.palletId,
 				routeId: entity.routeId,
 				routeCode: entity.routeCode,
+				physicalLane: entity.physicalLane,
+				physicalLaneOrdinal: entity.physicalLaneOrdinal,
 				progress: entity.simulationEngine!.getSnapshot().progress,
 				state: entity.simulationEngine!.getSnapshot().state,
 				activeEdgeIds: entity.simulationEngine!.getSnapshot().activeEdgeIds,
@@ -513,6 +793,14 @@ export class RouteSlotArrayRuntime {
 			const tangent = curveInfo.curve.getTangentAt(normalized);
 			if (tangent.lengthSq() > 0.000001) entity.root.lookAt(position.clone().add(tangent));
 		}
+		this.applyTransportUnitYawOffset(entity);
+	}
+
+	private applyTransportUnitYawOffset(entity: RouteSlotEntity) {
+		if (entity.transportUnitType !== 'wooden-pallet') return;
+		// 木托长边相对默认路线切线横转 90°；每次都在 RouteEngine/lookAt 重建基础姿态后调用，因此不会累计。
+		entity.root.rotateY(Math.PI / 2);
+		entity.root.userData.routeYawOffsetRadians = Math.PI / 2;
 	}
 
 	private removeEntity(key: string) {

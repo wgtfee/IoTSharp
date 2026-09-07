@@ -1,4 +1,5 @@
 import { booleanProperty, numberProperty, selectProperty, type TwinComponentBindingSlot, type TwinComponentTemplate } from './types';
+import { PACKAGING_WOOD_PALLET_LENGTH, PACKAGING_WOOD_PALLET_WIDTH } from './PackagingLineDimensions';
 
 const unitOptions = [
 	{ label: '小托盘', value: 'plastic-pallet' },
@@ -154,11 +155,11 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		category: 'transport-unit',
 		tags: ['托盘', '木托盘', '载具', '物流单元'],
 		capabilities: ['transport-unit'],
-		defaultProperties: { palletType: 'wooden-pallet', length: 1.2, width: 1.0, height: 0.16, routeManagedExternally: true },
+		defaultProperties: { palletType: 'wooden-pallet', length: PACKAGING_WOOD_PALLET_LENGTH, width: PACKAGING_WOOD_PALLET_WIDTH, height: 0.18, routeManagedExternally: true },
 		propertySchema: [
-			numberProperty('length', '长度', 1.2, 'geometry', { min: 0.4, max: 8, step: 0.05, unit: 'm' }),
-			numberProperty('width', '宽度', 1.0, 'geometry', { min: 0.4, max: 4, step: 0.05, unit: 'm' }),
-			numberProperty('height', '高度', 0.16, 'geometry', { min: 0.06, max: 0.8, step: 0.01, unit: 'm' }),
+			numberProperty('length', '长度', PACKAGING_WOOD_PALLET_LENGTH, 'geometry', { min: 0.4, max: 8, step: 0.05, unit: 'm' }),
+			numberProperty('width', '宽度', PACKAGING_WOOD_PALLET_WIDTH, 'geometry', { min: 0.4, max: 4, step: 0.05, unit: 'm' }),
+			numberProperty('height', '高度', 0.18, 'geometry', { min: 0.06, max: 0.8, step: 0.01, unit: 'm' }),
 		],
 	},
 	{

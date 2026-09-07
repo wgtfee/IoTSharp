@@ -125,7 +125,7 @@ export const removePoseDefinition = (manifest: TwinSceneManifest, poseId: string
 export const addBehaviorDefinition = (manifest: TwinSceneManifest, actorObjectId: string, patch: Partial<TwinBehaviorDefinition> = {}) => {
 	const item: TwinBehaviorDefinition = {
 		behaviorId: patch.behaviorId || createOrchestrationId('behavior'), name: patch.name || '新动作编排',
-		enabled: patch.enabled ?? true, loop: patch.loop ?? true, actions: patch.actions || [], ...patch, actorObjectId,
+		selectionWeight: patch.selectionWeight ?? 1, enabled: patch.enabled ?? true, loop: patch.loop ?? true, actions: patch.actions || [], ...patch, actorObjectId,
 	};
 	(manifest.behaviors ||= []).push(item);
 	return item;

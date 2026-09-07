@@ -23,6 +23,7 @@ interface ActiveProcess {
 	station: ComponentProcessStationInfo;
 	entityId: string;
 	elapsedSeconds: number;
+	releaseElapsedSeconds?: number;
 }
 
 export interface ComponentProcessRuntimeSnapshot {
@@ -165,7 +166,10 @@ export class ComponentProcessRuntime {
 		this.applyProcessMetadata(active.station, progress, entity?.state !== 'fault');
 
 		if (!this.stationManager.canRelease(active.station.sectionId, active.entityId).canRelease) return;
-		if (active.station.behaviorCompletionGroups.length && !this.authorizeBehaviorBatchRelease(active.station, active.entityId)) return;
+		if (active.station.behaviorCompletionGroups.length) {
+			if (!this.authorizeBehaviorBatchRelease(active.station, active.entityId)) return;
+			if (!this.waitForBehaviorBatchReleaseWave(active, deltaSeconds)) return;
+		}
 		this.stationManager.release(active.station.sectionId, active.entityId);
 		this.processed.add(active.station.stationId);
 		this.clearProcessMetadata(active.station.componentObjectId);
@@ -210,6 +214,8 @@ export class ComponentProcessRuntime {
 				: this.pointDistance(pointIndex, segmentLengths, straightLength, routeSnapshot.lengthMeters);
 			const sectionId = componentEdge?.sectionId || componentEdge?.edgeId || 'process-' + componentObjectId;
 			const process = structuredClone(point.process);
+			const physicalLane = String(this.options.getRoutingContext().payload?.physicalLane || '');
+			if (process.physicalLane && physicalLane && process.physicalLane !== physicalLane) continue;
 			const behaviorRequirements = this.options.getBehaviorRequirements?.(componentObjectId) || {};
 			const processRequirements = Object.fromEntries(Object.entries(process.behaviorCompletionRequirements || {}).map(([group, count]) => [group, Math.max(1, Math.floor(Number(count) || 1))]));
 			const mergedRequirements = { ...behaviorRequirements, ...processRequirements };
@@ -220,7 +226,7 @@ export class ComponentProcessRuntime {
 			const incomingEdgeIndex = pointIndex > 0 ? pointIndex - 1 : resolved.closed ? resolved.edgeIds.length - 1 : -1;
 			const incomingEdge = incomingEdgeIndex >= 0 ? routeEdges.get(resolved.edgeIds[incomingEdgeIndex]) : undefined;
 			nextStations.push({
-				stationId: componentObjectId,
+				stationId: `${componentObjectId}:${point.pointId}`,
 				sectionId,
 				componentObjectId,
 				pointId: point.pointId,
@@ -302,6 +308,19 @@ export class ComponentProcessRuntime {
 			this.setStationStopper(station, false, true);
 		}
 		return root.userData.stationReleaseAuthorized === true;
+	}
+
+	private waitForBehaviorBatchReleaseWave(active: ActiveProcess, deltaSeconds: number) {
+		const root = this.options.getComponentRoot(active.station.componentObjectId);
+		if (!root) return true;
+		const batchIds = this.stringArray(root.userData.stationPalletIds);
+		const batchIndex = batchIds.indexOf(active.entityId);
+		if (batchIndex <= 0 || batchIds.length <= 1) return true;
+		active.releaseElapsedSeconds = (active.releaseElapsedSeconds || 0) + Math.max(0, deltaSeconds);
+		const routeSpeed = Math.max(0.1, Number(this.options.routeEngine.getSnapshot().speed || 0.1));
+		const layoutSpacing = Math.max(0.6, Number(active.station.process.batchLayout?.columnSpacingMeters || 1.5));
+		const releaseIntervalSeconds = THREE.MathUtils.clamp(layoutSpacing / routeSpeed * 0.45, 0.22, 0.75);
+		return active.releaseElapsedSeconds >= batchIndex * releaseIntervalSeconds;
 	}
 
 	private finishBehaviorBatchRelease(station: ComponentProcessStationInfo, entityId: string) {

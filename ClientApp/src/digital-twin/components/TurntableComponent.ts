@@ -120,6 +120,8 @@ export class TurntableComponent implements TwinComponentGenerator {
 							cakeEntity.userData.materialEntity = true;
 							cakeEntity.userData.payloadType = 'silk-cake';
 							cakeEntity.userData.materialSlotGroup = side;
+							cakeEntity.userData.materialGridRow = row + 1;
+							cakeEntity.userData.materialGridColumn = column + 1;
 							cakeEntity.userData.twinEntityType = 'material';
 							cakeEntity.userData.twinEntityId = `${definition.objectId}:silk:${side}:R${row + 1}:C${column + 1}`;
 							const cake = new THREE.Mesh(createSilkCakeGeometry(), silkMaterial);

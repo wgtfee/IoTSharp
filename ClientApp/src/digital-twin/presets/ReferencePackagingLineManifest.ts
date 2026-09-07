@@ -13,7 +13,7 @@ import referencePackagingSceneV18 from './reference-packaging-v18.scene.json';
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
 // 用户图纸的平面 Y 轴对应 Three.js 地面坐标 Z；大辊道固定在 X=-15.7 并沿 -Z 运行。
-const LARGE_LINE_X = -15.7;
+const LARGE_LINE_X = -19.0;
 const LARGE_LINE_ROTATION_Y = Math.PI / 2;
 export const REFERENCE_PACKAGING_LAYOUT_VERSION = 18;
 
@@ -247,8 +247,8 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 	loop: true,
 	orientToPath: true,
 	points: [
-		point('ref-robot-out', '底部机器人上料位', 0, 12.8, 'station'),
-		point('ref-robot-east', '机器人前行线右端', 13, 12.8, 'buffer'),
+		point('ref-robot-out', '底部机器人上料位', 0, 13.3, 'station'),
+		point('ref-robot-east', '机器人前行线右端', 13, 13.3, 'buffer'),
 		point('ref-inspection-east-turn', '外检回路右下转角', 13, 6.8, 'buffer'),
 		point('ref-inspection-right', '外检机右侧入口', 8, 6.8, 'buffer'),
 		{ ...point('ref-inspection', '外检机内部检测位', 4.6, 6.8, 'processStation'), componentObjectId: 'reference-external-inspection', process: { type: 'external-inspection', cycleSeconds: 2 } },
@@ -281,9 +281,9 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		point('ref-gantry-out', '桁架抓取后空托出口', -8, -17.7, 'buffer'),
 
 		point('ref-return-outer-top', '空托外侧回流上端', -14.6, -17.7, 'buffer'),
-		point('ref-return-outer-bottom', '空托外侧回流下端', -14.6, 14.7, 'buffer'),
-		point('ref-return-bottom-in', '底部双排 B 回流入口', -10.8, 14.7, 'buffer'),
-		point('ref-return-bottom-tap', '底部双排 B 机器人接驳', 0, 14.7, 'buffer'),
+		point('ref-return-outer-bottom', '空托外侧回流下端', -14.6, 15.2, 'buffer'),
+		point('ref-return-bottom-in', '底部双排 B 回流入口', -10.8, 15.2, 'buffer'),
+		point('ref-return-bottom-tap', '底部双排 B 机器人接驳', 0, 15.2, 'buffer'),
 	],
 	edges: [
 		edge('ref-edge-robot-east', 'ref-robot-out', 'ref-robot-east', '机器人上料后前行', { capacity: 8 }),
@@ -468,7 +468,7 @@ const createUpperFrameRoute = (): TwinRouteDefinition => ({
  * 依据用户提供的最新标注图创建独立的组件化 3D 产线 V11。
  * 以中央机器人 (-4,-10) 为标定原点，按约 0.06m/像素校准主要设备和辊道锚点。
  */
-const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
+export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	const manifest = createBlankTwinSceneManifest();
 	manifest.name = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
 	manifest.description = 'V18 标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；外检、套袋、缠膜、贴标使用组件内部时间轴；木托从2×3×8码垛、隔板、天盖一直运行到缠膜、贴标和成品出库。';
@@ -532,12 +532,12 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 				{ tapId: 'loaded-to-gantry', lane: 'B', localX: 1.45, terminal: true, side: 'negative' },
 			],
 		}, 'ref-double-middle'),
-		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-bottom', '底部横向双排小辊道', [1.1, 0, 13.75], 0, {
+		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-bottom', '底部横向双排小辊道', [1.1, 0, 14.25], 0, {
 			length: 23.8, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 12,
 			referenceEdgeIds: ['ref-edge-robot-east', 'ref-return-edge-bottom-b'],
 			routeTaps: [
 				{ tapId: 'robot-out', lane: 'A', localX: -1.1, side: 'positive' },
-				{ tapId: 'robot-return', lane: 'B', localX: -1.1, terminal: true, side: 'negative' },
+				{ tapId: 'robot-return', lane: 'B', localX: -1.1, side: 'negative' },
 			],
 		}, 'ref-double-bottom'),
 	);
@@ -564,13 +564,16 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 		componentObject('builtin-diverter-conveyor', 'reference-inspection-diverter', '外检后一分二辊道', [-10.8, 0, 6.8], Math.PI / 2, { capacity: 2 }, 'ref-inspection-diverter'),
 		componentObject('builtin-merger-conveyor', 'reference-bag-merger', '双套袋后二合一辊道', [21.5, 0, -5.5], 0, { capacity: 2 }, 'ref-post-bag-merge'),
 		componentObject('builtin-merger-conveyor', 'reference-gantry-merger', '桁架后二合一辊道', [-10.8, 0, -17.7], 0, { capacity: 2 }, 'ref-gantry-merger'),
+		// B 排机器人上料后必须沿自己的辊道继续前行，再通过真实 1.9m 横移辊道并入外检入口；禁止从 B 排瞬移到 A 排。
+		componentObject('builtin-small-roller-conveyor', 'reference-bottom-b-to-inspection-merge', '底部 B 排上料后合流短辊道', [13, 0, 14.25], Math.PI / 2, { length: 1.9, width: 1.55, height: SMALL_HEIGHT, capacity: 2, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' }, 'ref-bottom-b-to-inspection-merge'),
 		// 丝锭桁架内部的暂存台位于本地 Z-；Y+90° 后它落到世界 X-，即大辊道左侧，符合图纸。
-		componentObject('builtin-silk-gantry', 'reference-stacking-gantry', '码垛桁架和暂存台', [-15.7, 0, -11], Math.PI / 2, { length: 7.2, width: 15, height: 7.2 }, 'ref-large-stack'),
-		componentObject('builtin-wooden-pallet', 'reference-stacking-pallet', '码垛位木托盘', [-15.7, LARGE_HEIGHT, -11], 0, { length: 4.0, width: 3.4, height: 0.18 }, 'ref-large-stack-pallet'),
+		componentObject('builtin-silk-gantry', 'reference-stacking-gantry', '码垛桁架和暂存台', [LARGE_LINE_X, 0, -11], Math.PI / 2, { length: 7.2, width: 17.5, height: 7.2 }, 'ref-large-stack'),
+		// 固定对象只作为码垛语义锚点；初始化不画木托，真实/仿真木托由 RouteSlot runtime 进入。
+		componentObject('builtin-wooden-pallet', 'reference-stacking-pallet', '码垛位木托工位', [LARGE_LINE_X, LARGE_HEIGHT, -11], Math.PI / 2, { length: 4.5, width: 2.1, height: 0.18, semanticOnly: true }, 'ref-large-stack-pallet'),
 		componentObject('builtin-top-cover-gantry', 'reference-top-cover-gantry', '天盖桁架', [LARGE_LINE_X, 0, -23.2], LARGE_LINE_ROTATION_Y, { length: 7.05, width: 10.5, height: 6.0 }, 'ref-large-cover'),
 		componentObject('builtin-wrapper-machine', 'reference-wrapper', '缠膜机', [LARGE_LINE_X, 0, -35.7], LARGE_LINE_ROTATION_Y, { height: 6.2, armRadius: 3.0, width: 6.8 }, 'ref-large-wrap'),
 		componentObject('builtin-labeling-machine', 'reference-labeling', '贴标机', [LARGE_LINE_X, 0, -47.2], LARGE_LINE_ROTATION_Y, { height: 2.4, sideOffset: 1.85, armReach: 0.6 }, 'ref-large-label'),
-		componentObject('builtin-industrial-robot', 'reference-loading-robot', '底部六轴机器人+2×6丝锭夹具', [0.4, 0, 19.8], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.2, gripperRowSpacing: 1.15, upperArmLength: 2.4, forearmLength: 2.2, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }, 'ref-robot'),
+		componentObject('builtin-industrial-robot', 'reference-loading-robot', '底部六轴机器人+2×6丝锭夹具', [0.4, 0, 19.8], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.6, gripperRowSpacing: 1.15, upperArmLength: 2.4, forearmLength: 2.2, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }, 'ref-robot'),
 		componentObject('builtin-turntable', 'reference-turntable-west', '西侧旋转台+双面丝车', [-5.2, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-west'),
 		componentObject('builtin-turntable', 'reference-turntable-east', '东侧旋转台+双面丝车', [6, 0, 19.8], Math.PI / 2, { withSilkCart: true, silkCartLoaded: true, deckLength: 7.2, width: 2.8, height: SMALL_HEIGHT, baseRadius: 2.45 }, 'ref-turntable-east'),
 	);
@@ -578,7 +581,24 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	manifest.bindings = [];
 	manifest.routes = [];
 	const topologyConnections = buildReferenceTopologyConnections(manifest, layoutScaffoldRoutes);
-	manifest.connections = [...topologyConnections, ...buildReferenceTouchingConnections(manifest, 0.18, topologyConnections)];
+	const bottomLaneBConnections: ReferenceConnection[] = [
+		{
+			connectionId: 'reference-physical-bottom-b-output-to-merge',
+			from: { objectId: 'reference-double-small-bottom', portId: 'b-output' },
+			to: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'input' },
+			autoGenerated: true,
+			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
+		},
+		{
+			connectionId: 'reference-physical-bottom-b-merge-to-inspection',
+			from: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'output' },
+			to: { objectId: 'reference-conveyor-ref-edge-inspection-right-rise', portId: 'input' },
+			autoGenerated: true,
+			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
+		},
+	];
+	const reservedConnections = [...topologyConnections, ...bottomLaneBConnections];
+	manifest.connections = [...reservedConnections, ...buildReferenceTouchingConnections(manifest, 0.18, reservedConnections)];
 	upsertGeneratedComponentRoutes(manifest);
 	const smallProcessRoute = manifest.routes
 		.filter((route) => route.edges.some((edge) => edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'))
@@ -589,13 +609,23 @@ const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 			const rightDistance = Math.hypot(right.position[0] - x, right.position[2] - z);
 			return leftDistance - rightDistance;
 		})[0];
-		const robotPoint = nearestPoint(0, 12.8);
+		const robotPointA = nearestPoint(0, 13.3);
+		const robotPointB = nearestPoint(0, 15.2);
 		const gantryPoint = nearestPoint(-12.7, -17.7);
-		if (robotPoint) {
+		const loadingLayout = { rows: 1, columns: 6, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z' as const, columnAxis: 'x' as const };
+		for (const [robotPoint, physicalLane] of [[robotPointA, 'A'], [robotPointB, 'B']] as const) {
+			if (!robotPoint) continue;
 			robotPoint.kind = 'processStation';
 			robotPoint.componentObjectId = 'reference-loading-robot';
-			robotPoint.process = { type: 'robot-loading', cycleSeconds: 2, batchSize: 6, behaviorCompletionGroups: ['load'], behaviorCompletionRequirements: { load: 1 } };
-			smallProcessRoute.startPointId = robotPoint.pointId;
+			robotPoint.process = { type: 'robot-loading', cycleSeconds: 2, batchSize: 12, batchLayout: loadingLayout, physicalLane, behaviorCompletionGroups: ['load'], behaviorCompletionRequirements: { load: 1 } };
+		}
+		if (robotPointA) smallProcessRoute.startPointId = robotPointA.pointId;
+		if (robotPointB) {
+			robotPointB.decisionMode = 'simulation';
+			const bForward = smallProcessRoute.edges.find((item) => item.fromPointId === robotPointB.pointId && item.componentObjectId === 'reference-double-small-bottom');
+			const aCross = smallProcessRoute.edges.find((item) => item.fromPointId === robotPointB.pointId && item.componentObjectId === 'reference-conveyor-ref-return-edge-robot-cross');
+			if (bForward) smallProcessRoute.decisionRules.push({ ruleId: 'reference-bottom-lane-b-forward', name: 'B排托盘保持B排前行', junctionPointId: robotPointB.pointId, edgeId: bForward.edgeId, source: 'payload', payloadKey: 'physicalLane', operator: 'equals', matchValue: 'B', priority: 100, enabled: true });
+			if (aCross) smallProcessRoute.decisionRules.push({ ruleId: 'reference-bottom-lane-a-return-cross', name: 'A排回流托盘经真实横移辊道回A排', junctionPointId: robotPointB.pointId, edgeId: aCross.edgeId, source: 'payload', payloadKey: 'physicalLane', operator: 'equals', matchValue: 'A', priority: 100, enabled: true });
 		}
 		if (gantryPoint) {
 			gantryPoint.kind = 'processStation';
@@ -734,22 +764,67 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	const currentBehaviorIds = new Set((manifest.behaviors || []).map((item) => item.behaviorId));
 	const currentMaterialSlotIds = new Set((manifest.materialSlots || []).map((item) => item.slotId));
 	const currentInterlockIds = new Set((manifest.interlocks || []).map((item) => item.interlockId));
+	const hasContactSafeRobotPlacement = ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east'].every((behaviorId) => {
+		const behavior = (manifest.behaviors || []).find((item) => item.behaviorId === behaviorId);
+		const placeAction = behavior?.actions.find((action) => action.actionId.endsWith('-detach'));
+		return placeAction?.kind === 'place' && Array.isArray(placeAction.approachOffset);
+	});
 	const currentLargeOut = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
 	const canonicalLargeOut = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
 	const hasCanonicalLargeAxis = Boolean(currentLargeOut && canonicalLargeOut
 		&& Math.abs(currentLargeOut.transform.position[0] - canonicalLargeOut.transform.position[0]) < 0.001
 		&& Math.abs(currentLargeOut.transform.position[2] - canonicalLargeOut.transform.position[2]) < 0.001
 		&& Math.abs(currentLargeOut.transform.rotation[1] - canonicalLargeOut.transform.rotation[1]) < 0.001);
+	const isReferenceSmallConveyor = (item: TwinV7SceneObjectDefinition) => item.kind === 'component'
+		&& item.component?.properties?.referenceDrawingLine === true
+		&& (item.component.properties.conveyorSizeClass === 'small'
+			|| ['double-small-roller-conveyor', 'turn-conveyor-90', 'diverter-conveyor', 'merger-conveyor'].includes(String(item.component.componentType || '')));
+	const currentSmallObjects = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).filter(isReferenceSmallConveyor);
+	const canonicalSmallObjects = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).filter(isReferenceSmallConveyor);
+	const currentSmallById = new Map(currentSmallObjects.map((item) => [item.objectId, item]));
+	const hasCanonicalSmallPlane = canonicalSmallObjects.length > 0 && canonicalSmallObjects.every((canonicalObject) => {
+		const currentObject = currentSmallById.get(canonicalObject.objectId);
+		if (!currentObject) return false;
+		const canonicalHeight = Number(canonicalObject.component?.properties?.height ?? SMALL_HEIGHT);
+		const currentHeight = Number(currentObject.component?.properties?.height ?? SMALL_HEIGHT);
+		return Math.abs(currentObject.transform.position[1] - canonicalObject.transform.position[1]) < 0.001
+			&& Math.abs(currentHeight - canonicalHeight) < 0.001;
+	});
 	const currentWoodRoute = canonicalWoodRouteId ? (manifest.routes || []).find((item) => item.routeId === canonicalWoodRouteId) : undefined;
 	const currentWoodProcessTypes = currentWoodRoute?.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type) || [];
+	const currentSmallRoute = canonicalSmallRouteId ? (manifest.routes || []).find((item) => item.routeId === canonicalSmallRouteId) : undefined;
+	const loadingPoints = currentSmallRoute?.points.filter((item) => item.componentObjectId === 'reference-loading-robot' && item.kind === 'processStation' && item.process) || [];
+	const canonicalLoadingPoints = canonicalForHealthCheck?.routes.find((item) => item.routeId === canonicalSmallRouteId)?.points.filter((item) => item.componentObjectId === 'reference-loading-robot' && item.kind === 'processStation' && item.process) || [];
+	const hasCanonicalLoadingLanes = loadingPoints.length === 2 && ['A', 'B'].every((lane) => {
+		const current = loadingPoints.find((point) => point.process?.physicalLane === lane);
+		const canonical = canonicalLoadingPoints.find((point) => point.process?.physicalLane === lane);
+		return Boolean(current && canonical
+			&& current.process?.batchLayout?.rows === 1
+			&& current.process?.batchLayout?.columns === 6
+			&& Math.abs(Number(current.process?.batchLayout?.columnSpacingMeters || 0) - 1.55) < 0.001
+			&& Math.hypot(current.position[0] - canonical.position[0], current.position[2] - canonical.position[2]) < 0.001);
+	});
+	const hasCanonicalSmallRouteTopology = Boolean(currentSmallRoute
+		&& hasCanonicalLoadingLanes
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'component-edge-reference-double-small-bottom-lane-b-segment-2')
+		&& currentSmallRoute.edges.some((edge) => edge.componentObjectId === 'reference-bottom-b-to-inspection-merge'));
+	const currentStackingPallet = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-stacking-pallet');
+	const canonicalStackingPallet = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-stacking-pallet');
+	const hasCanonicalWoodPalletSize = Boolean(currentStackingPallet && canonicalStackingPallet
+		&& Math.abs(Number(currentStackingPallet.component?.properties?.length || 0) - Number(canonicalStackingPallet.component?.properties?.length || 0)) < 0.001
+		&& Math.abs(Number(currentStackingPallet.component?.properties?.width || 0) - Number(canonicalStackingPallet.component?.properties?.width || 0)) < 0.001);
 	const hasCurrentV18Structure = Boolean(canonicalForHealthCheck
 		&& canonicalSmallRouteId
 		&& canonicalWoodRouteId
 		&& manifest.runtime.primarySmallPalletRouteId === canonicalSmallRouteId
 		&& manifest.runtime.primaryWoodenPalletRouteId === canonicalWoodRouteId
 		&& currentInitializers.some((item) => item.routeId === canonicalSmallRouteId && item.simulationDefaultCount === 12)
-		&& currentInitializers.some((item) => item.routeId === canonicalWoodRouteId && item.simulationDefaultCount === 3)
+		&& currentInitializers.some((item) => item.routeId === canonicalWoodRouteId && item.simulationDefaultCount === 0 && item.simulationAutoFeed === true)
 		&& hasCanonicalLargeAxis
+		&& hasCanonicalSmallPlane
+		&& hasCanonicalSmallRouteTopology
+		&& hasCanonicalWoodPalletSize
+		&& hasContactSafeRobotPlacement
 		&& ['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => currentWoodProcessTypes.includes(type))
 		&& (canonicalForHealthCheck.behaviors || []).every((item) => currentBehaviorIds.has(item.behaviorId))
 		&& (canonicalForHealthCheck.materialSlots || []).every((item) => currentMaterialSlotIds.has(item.slotId))
@@ -794,7 +869,26 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		existingObjectIds.has(connection.from.objectId) && existingObjectIds.has(connection.to.objectId));
 	const upgradeScaffoldRoutes = [createSmallMainRoute(), createSmallReturnRoute(), createGantryMergeRoute(), createLargeRoute(), createCentralBufferRoute(), createUpperFrameRoute()];
 	const topologyConnections = buildReferenceTopologyConnections(manifest, upgradeScaffoldRoutes);
-	const rebuiltReferenceConnections = [...topologyConnections, ...buildReferenceTouchingConnections(manifest, 0.18, topologyConnections)];
+	// 必须与 canonical 新建场景保持同一组 B 排物理桥接；否则旧 V10 迁移后生成的组件 Route
+	// 仍是旧拓扑 routeId，runtime/initializer 却会指向新 canonical routeId，最终 Simulation 0 托盘。
+	const bottomLaneBConnections: ReferenceConnection[] = [
+		{
+			connectionId: 'reference-physical-bottom-b-output-to-merge',
+			from: { objectId: 'reference-double-small-bottom', portId: 'b-output' },
+			to: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'input' },
+			autoGenerated: true,
+			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
+		},
+		{
+			connectionId: 'reference-physical-bottom-b-merge-to-inspection',
+			from: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'output' },
+			to: { objectId: 'reference-conveyor-ref-edge-inspection-right-rise', portId: 'input' },
+			autoGenerated: true,
+			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
+		},
+	];
+	const reservedReferenceConnections = [...topologyConnections, ...bottomLaneBConnections];
+	const rebuiltReferenceConnections = [...reservedReferenceConnections, ...buildReferenceTouchingConnections(manifest, 0.18, reservedReferenceConnections)];
 	const connectionKeys = new Set<string>();
 	manifest.connections = [...retainedConnections, ...rebuiltReferenceConnections].filter((connection) => {
 		const key = `${connection.from.objectId}:${connection.from.portId}->${connection.to.objectId}:${connection.to.portId}`;
@@ -889,7 +983,15 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		const previousPose = previousPoseMap.get(pose.poseId);
 		return previousPose ? { ...structuredClone(pose), targets: structuredClone(previousPose.targets) } : structuredClone(pose);
 	})];
-	manifest.behaviors = mergeCanonicalDefinitions(manifest.behaviors, canonical.behaviors || [], (item) => item.behaviorId);
+	const previousBehaviorMap = new Map((manifest.behaviors || []).map((behavior) => [behavior.behaviorId, behavior]));
+	const canonicalBehaviorIds = new Set((canonical.behaviors || []).map((behavior) => behavior.behaviorId));
+	const customBehaviors = (manifest.behaviors || []).filter((behavior) => !canonicalBehaviorIds.has(behavior.behaviorId)).map((behavior) => structuredClone(behavior));
+	manifest.behaviors = [...customBehaviors, ...(canonical.behaviors || []).map((behavior) => {
+		const previousBehavior = previousBehaviorMap.get(behavior.behaviorId);
+		return previousBehavior
+			? { ...structuredClone(behavior), selectionWeight: previousBehavior.selectionWeight ?? behavior.selectionWeight }
+			: structuredClone(behavior);
+	})];
 	manifest.interlocks = mergeCanonicalDefinitions(manifest.interlocks, canonical.interlocks || [], (item) => item.interlockId);
 	manifest.runtime.primarySmallPalletRouteId = canonical.runtime.primarySmallPalletRouteId;
 	manifest.runtime.primaryWoodenPalletRouteId = canonical.runtime.primaryWoodenPalletRouteId;

@@ -3,6 +3,7 @@ import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinEquipmentType, 
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
+import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
 import { clearTransportRouteAttachment, defaultComponentRegistry, isComponentSceneObject, isTransportUnitSceneObject, revalidateComponentConnections, snapSceneComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
 import { EngineeringOverlayManager, type EngineeringOverlayLayer } from '/@/digital-twin/editor-adapter/EngineeringOverlayManager';
@@ -103,6 +104,7 @@ export class ThreeEditorCoreHost {
 	private readonly loadedModels = new Map<string, LoadedEditorModel>();
 	private readonly routeOverlay: ThreeEditorRouteOverlay;
 	private readonly engineeringOverlay: EngineeringOverlayManager;
+	private transportUnitPreview?: RouteSlotArrayRuntime;
 	private manifest: TwinSceneManifest;
 	private editor: any;
 	private selectedObjectId?: string;
@@ -234,6 +236,7 @@ export class ThreeEditorCoreHost {
 		this.resizeObserver.observe(container);
 		this.loadManifestComponents();
 		this.loadManifestProceduralReferences();
+		this.rebuildTransportUnitPreview();
 	}
 
 	async loadGlbBuffer(object: TwinSceneObjectDefinition, fileName: string, buffer: ArrayBuffer) {
@@ -306,6 +309,7 @@ export class ThreeEditorCoreHost {
 		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		this.selectObject(objectId);
 		this.events.onChanged?.();
 	}
@@ -317,6 +321,7 @@ export class ThreeEditorCoreHost {
 		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		this.events.onChanged?.();
 	}
 
@@ -337,6 +342,7 @@ export class ThreeEditorCoreHost {
 		model.root.updateMatrixWorld?.(true);
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		this.selectObject(objectId);
 		this.editor.viewer.renderScene?.();
 		this.events.onChanged?.();
@@ -346,6 +352,7 @@ export class ThreeEditorCoreHost {
 	refreshRouteOverlay() {
 		this.routeOverlay.setManifest(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		this.editor.viewer.renderScene?.();
 	}
 
@@ -573,6 +580,7 @@ export class ThreeEditorCoreHost {
 		else if (this.manifest.routes.length) this.manifest.routes.splice(0, 1, cloneJson(route));
 		else this.manifest.routes.push(cloneJson(route));
 		this.routeOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 	}
 
 	updateRoutePoint(index: number, position: TwinVector3) {
@@ -626,6 +634,7 @@ export class ThreeEditorCoreHost {
 		upsertGeneratedComponentRoute(this.manifest);
 		this.routeOverlay.setManifest(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		const glbObjectIds = new Set(target.objects.filter((item) => item.kind === 'model').map((item) => item.objectId));
 		this.latestModelParams = this.latestModelParams.filter((item) => glbObjectIds.has(item.rootInfo.iotsharpObjectId));
 		if (glbObjectIds.size === 0) {
@@ -718,6 +727,21 @@ export class ThreeEditorCoreHost {
 		this.setSelectedObjectIds([objectId], objectId, root);
 	}
 
+	renameObject(objectId: string, name: string) {
+		const trimmed = String(name || '').trim();
+		if (!trimmed) return false;
+		const object = this.manifest.objects.find((item) => item.objectId === objectId);
+		const loaded = this.loadedModels.get(objectId);
+		if (!object || !loaded?.root) return false;
+		object.name = trimmed;
+		loaded.root.name = trimmed;
+		loaded.root.userData = { ...loaded.root.userData, displayName: trimmed };
+		if (loaded.root.rootInfo) loaded.root.rootInfo.name = trimmed;
+		this.editor.viewer.renderScene?.();
+		this.events.onChanged?.();
+		return true;
+	}
+
 	focusSelected() {
 		if (this.selectedRouteId && this.selectedRoutePointId) {
 			const point = this.routeOverlay.getPointMesh(this.selectedRouteId, this.selectedRoutePointId);
@@ -799,6 +823,25 @@ export class ThreeEditorCoreHost {
 		}
 	}
 
+	/**
+	 * 专业编辑默认只加载 Manifest 场景对象，而仿真运输单元来自 runtime.routePalletInitializers。
+	 * 这里挂一个不运行、不持久化的 RouteSlotArrayRuntime，只用于在工程视图显示初始托盘布局。
+	 * 该层不进入 loadedModels / Scene Tree，也不会被 captureManifest 写回草稿。
+	 */
+	private rebuildTransportUnitPreview() {
+		this.transportUnitPreview?.dispose();
+		this.transportUnitPreview = undefined;
+		if (this.disposed || !(this.manifest.runtime.routePalletInitializers || []).length || !this.editor?.viewer?.scene) return;
+		const previewManifest = cloneJson(this.manifest);
+		previewManifest.runtime.dataMode = 'simulation';
+		this.transportUnitPreview = new RouteSlotArrayRuntime(
+			this.editor.viewer.scene as THREE.Scene,
+			previewManifest,
+			(message) => this.events.onError?.(`运输单元初始预览：${message}`),
+		);
+		this.editor.viewer.renderScene?.();
+	}
+
 	private loadManifestComponents() {
 		for (const object of this.manifest.objects as TwinV7SceneObjectDefinition[]) if (isComponentSceneObject(object)) this.loadComponent(object);
 		this.routeOverlay.rebuild(this.manifest);
@@ -863,6 +906,7 @@ export class ThreeEditorCoreHost {
 		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		this.positionMultiSelectionPivot();
 		if (removedConnectionIds.length) this.events.onError?.(`整体移动后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
 		this.events.onChanged?.();
@@ -1155,6 +1199,7 @@ export class ThreeEditorCoreHost {
 		this.syncLoadedComponentTransformsFromManifest();
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
+		this.rebuildTransportUnitPreview();
 		if (removedConnectionIds.length > 0) {
 			this.events.onError?.(`撤销/重做后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
 		}
@@ -1171,6 +1216,8 @@ export class ThreeEditorCoreHost {
 		window.removeEventListener('pointerup', this.handleMarqueePointerUp, true);
 		this.editor?.viewer?.transformControls?.removeEventListener?.('change', this.handleTransformControlsChange);
 		this.resizeObserver.disconnect();
+		this.transportUnitPreview?.dispose();
+		this.transportUnitPreview = undefined;
 		this.routeOverlay.dispose();
 		this.engineeringOverlay.dispose();
 		this.multiSelectionPivot.parent?.remove(this.multiSelectionPivot);

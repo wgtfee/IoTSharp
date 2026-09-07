@@ -11,7 +11,8 @@ export class PalletComponent implements TwinComponentGenerator {
 		const { definition } = context;
 		const props = definition.properties;
 		const palletType = props.palletType === 'wooden-pallet' ? 'wooden-pallet' : 'plastic-pallet';
-		const length = resolveNumber(props, 'length', 1.2, 0.4, 4);
+		const semanticOnly = props.semanticOnly === true;
+		const length = resolveNumber(props, 'length', 1.2, 0.4, palletType === 'wooden-pallet' ? 8 : 4);
 		const width = resolveNumber(props, 'width', 1.0, 0.4, 4);
 		const height = resolveNumber(props, 'height', 0.16, 0.06, 0.8);
 		const deckThickness = Math.max(0.035, height * 0.34);
@@ -24,25 +25,26 @@ export class PalletComponent implements TwinComponentGenerator {
 		const deckMaterial = createMaterial(mainColor, { roughness: palletType === 'wooden-pallet' ? 0.82 : 0.55, metalness: 0.04 });
 		const runnerMaterial = createMaterial(accentColor, { roughness: palletType === 'wooden-pallet' ? 0.86 : 0.62, metalness: 0.03 });
 
-		const slatCount = palletType === 'wooden-pallet' ? 7 : 5;
-		const slatWidth = Math.min(width / slatCount * 0.72, 0.18);
-		for (let index = 0; index < slatCount; index += 1) {
-			const t = slatCount <= 1 ? 0.5 : index / (slatCount - 1);
-			const slat = new THREE.Mesh(new THREE.BoxGeometry(length, deckThickness, slatWidth), deckMaterial);
-			slat.name = `Deck_${index + 1}`;
-			slat.position.set(0, runnerHeight + deckThickness / 2, -width / 2 + slatWidth / 2 + t * Math.max(0, width - slatWidth));
-			root.add(slat);
-		}
-
 		const runnerWidth = Math.max(0.09, Math.min(0.16, width * 0.12));
-		for (const [index, z] of [-width * 0.34, 0, width * 0.34].entries()) {
-			const runner = new THREE.Mesh(new THREE.BoxGeometry(length * 0.92, runnerHeight, runnerWidth), runnerMaterial);
-			runner.name = `Runner_${index + 1}`;
-			runner.position.set(0, runnerHeight / 2, z);
-			root.add(runner);
+		if (!semanticOnly) {
+			const slatCount = palletType === 'wooden-pallet' ? 7 : 5;
+			const slatWidth = Math.min(width / slatCount * 0.72, 0.18);
+			for (let index = 0; index < slatCount; index += 1) {
+				const t = slatCount <= 1 ? 0.5 : index / (slatCount - 1);
+				const slat = new THREE.Mesh(new THREE.BoxGeometry(length, deckThickness, slatWidth), deckMaterial);
+				slat.name = `Deck_${index + 1}`;
+				slat.position.set(0, runnerHeight + deckThickness / 2, -width / 2 + slatWidth / 2 + t * Math.max(0, width - slatWidth));
+				root.add(slat);
+			}
+			for (const [index, z] of [-width * 0.34, 0, width * 0.34].entries()) {
+				const runner = new THREE.Mesh(new THREE.BoxGeometry(length * 0.92, runnerHeight, runnerWidth), runnerMaterial);
+				runner.name = `Runner_${index + 1}`;
+				runner.position.set(0, runnerHeight / 2, z);
+				root.add(runner);
+			}
 		}
 
-		if (palletType === 'plastic-pallet') {
+		if (!semanticOnly && palletType === 'plastic-pallet') {
 			for (const x of [-length * 0.3, 0, length * 0.3]) {
 				const brace = new THREE.Mesh(new THREE.BoxGeometry(runnerWidth, deckThickness * 0.72, width * 0.82), runnerMaterial);
 				brace.name = 'PlasticBrace';
@@ -94,7 +96,8 @@ export class PalletComponent implements TwinComponentGenerator {
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
 		root.userData.transportUnitType = palletType;
-		root.userData.properties = { ...props, palletType, length, width, height, routeManagedExternally: true };
+		root.userData.semanticOnly = semanticOnly;
+		root.userData.properties = { ...props, palletType, length, width, height, semanticOnly, routeManagedExternally: true };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, []);
 	}
@@ -126,7 +129,7 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 
 		const ringY = baseHeight + 0.015;
 		const ringTubeRadius = Math.max(0.035, diameter * 0.037);
-		const supportSurfaceY = ringY + ringTubeRadius;
+		const baseRingSurfaceY = ringY + ringTubeRadius;
 		const silkCakeAxialDepth = 0.42;
 		for (const [name, ringRadius] of [['SmallPallet-InnerRing', radius * 0.58], ['SmallPallet-OuterRing', radius * 0.84]] as const) {
 			const ring = new THREE.Mesh(new THREE.TorusGeometry(ringRadius, ringTubeRadius, 10, 32), darkGreen);
@@ -148,16 +151,20 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		const column = new THREE.Mesh(new THREE.CylinderGeometry(columnDiameter * 0.48, columnDiameter * 0.52, columnHeight, 28), green);
 		column.name = 'SmallPallet-CenterColumn';
 		column.position.y = baseHeight + columnHeight / 2;
+		column.userData.locatingPost = true;
 		root.add(column);
 		const core = new THREE.Mesh(new THREE.CylinderGeometry(columnDiameter * 0.29, columnDiameter * 0.29, columnHeight * 0.5, 24), darkGreen);
 		core.name = 'SmallPallet-Core';
 		core.position.y = baseHeight + columnHeight * 0.75;
 		root.add(core);
 
+		// 与 V6 保持同一机械语义：丝锭套住中央定位柱，整体位于小托盘上方。
+		// 默认几何下丝锭底面约 0.69m、中心约 0.90m；定位柱穿过丝锭中孔负责径向定位。
+		const supportSurfaceY = Math.max(baseRingSurfaceY, baseHeight + columnHeight * 0.62);
+		const cakeCenterY = supportSurfaceY + silkCakeAxialDepth / 2;
 		const cakeAnchor = new THREE.Group();
 		cakeAnchor.name = 'SilkCakeAnchor';
-		// 丝锭放置后轴向改为竖直：底面必须落在支撑环最高面，中心柱只穿过中孔。
-		cakeAnchor.position.y = supportSurfaceY + silkCakeAxialDepth / 2;
+		cakeAnchor.position.y = cakeCenterY;
 		cakeAnchor.userData.materialSlot = true;
 		cakeAnchor.userData.materialSlotRole = 'target';
 		root.add(cakeAnchor);
@@ -168,6 +175,9 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		root.userData.transportUnitVariant = 'small-pallet';
 		root.userData.resourceKey = definition.resourceKey;
 		root.userData.smallPalletSupportSurfaceY = supportSurfaceY;
+		root.userData.smallPalletBaseRingSurfaceY = baseRingSurfaceY;
+		root.userData.smallPalletCakeCenterY = cakeCenterY;
+		root.userData.smallPalletLocatingPost = { nodePath: 'SmallPallet-CenterColumn', diameter: columnDiameter, height: columnHeight };
 		root.userData.silkCakeAxialDepth = silkCakeAxialDepth;
 		root.userData.materialSlots = [{ slotId: 'silk-place', name: '小托盘放丝位', role: 'target', nodePath: 'SilkCakeAnchor', localPosition: [0, 0, 0], localRotation: [-Math.PI / 2, 0, 0], payloadType: 'silk-cake', capacity: 12 }];
 		root.userData.properties = { ...props, diameter, baseHeight, columnHeight, columnDiameter, routeManagedExternally: true };

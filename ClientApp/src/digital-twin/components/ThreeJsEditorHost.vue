@@ -33,9 +33,11 @@
 
 		<div v-show="treeOpen" class="three-editor-tree">
 			<div class="three-editor-tree__title"><span>SCENE TREE</span><strong>{{ manifest.objects.length }} 个对象</strong></div>
-			<button v-for="item in manifest.objects" :key="item.objectId" type="button" :class="{ 'is-selected': selectedObjectIds.includes(item.objectId) }" @click="selectObject(item.objectId, $event)">
-				<i :class="item.kind"></i><span>{{ item.name }}</span><small>{{ objectKindLabel(item) }}</small>
-			</button>
+			<div v-for="item in manifest.objects" :key="item.objectId" class="three-editor-tree__item" :class="{ 'is-selected': selectedObjectIds.includes(item.objectId) }" role="button" tabindex="0" @click="selectObject(item.objectId, $event)" @dblclick.stop="startTreeRename(item)">
+				<i :class="item.kind"></i>
+				<el-input v-if="editingTreeObjectId === item.objectId" v-model="editingTreeName" size="small" autofocus @click.stop @dblclick.stop @keyup.enter.stop="commitTreeRename(item.objectId)" @keyup.esc.stop="cancelTreeRename" @blur="commitTreeRename(item.objectId)" />
+				<span v-else :title="'双击修改名称：' + item.name">{{ item.name }}</span><small>{{ objectKindLabel(item) }}</small>
+			</div>
 		</div>
 
 		<div ref="viewport" class="three-editor-viewport"></div>
@@ -102,6 +104,8 @@ const routeDrawMode = ref(false);
 const selectionMode = ref<'select' | 'root' | 'multi'>('root');
 const selectedObjectId = ref('');
 const selectedObjectIds = ref<string[]>([]);
+const editingTreeObjectId = ref('');
+const editingTreeName = ref('');
 const marqueeRect = ref<TwinScreenRect>();
 const selectedRouteId = ref('');
 const selectedRoutePointId = ref('');
@@ -169,6 +173,21 @@ const selectObject = async (objectId: string, event?: MouseEvent) => {
 	await ready;
 	selectedRouteId.value = ''; selectedRoutePointId.value = '';
 	host.value?.selectObject(objectId, Boolean(event?.ctrlKey || event?.metaKey || event?.shiftKey));
+};
+const startTreeRename = (item: TwinSceneObjectDefinition) => {
+	editingTreeObjectId.value = item.objectId;
+	editingTreeName.value = item.name;
+};
+const cancelTreeRename = () => { editingTreeObjectId.value = ''; editingTreeName.value = ''; };
+const commitTreeRename = (objectId: string) => {
+	if (editingTreeObjectId.value !== objectId) return;
+	const name = editingTreeName.value.trim();
+	if (!name) { ElMessage.warning('场景对象名称不能为空'); return; }
+	if (!host.value?.renameObject(objectId, name)) return;
+	const item = props.manifest.objects.find((object) => object.objectId === objectId);
+	if (item) item.name = name;
+	cancelTreeRename();
+	emit('changed');
 };
 const objectKindLabel = (item: TwinSceneObjectDefinition) => {
 	const kind = (item as TwinV7SceneObjectDefinition).kind;
@@ -254,8 +273,8 @@ onBeforeUnmount(() => {
 .three-editor-host{position:absolute;inset:0;overflow:hidden;background:#050b13}.three-editor-host:fullscreen{width:100vw;height:100vh}.three-editor-viewport{position:absolute;inset:0}.three-editor-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.three-editor-toolbar{position:absolute;top:12px;left:50%;z-index:12;display:flex;flex-flow:row nowrap;align-items:center;gap:7px;max-width:calc(100% - 40px);padding:6px 8px;border:1px solid rgba(148,163,184,.24);border-radius:10px;transform:translateX(-50%);background:rgba(12,24,40,.92);box-shadow:0 12px 36px rgba(0,0,0,.28);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;white-space:nowrap}.three-editor-toolbar>*{flex:0 0 auto}.three-editor-toolbar :deep(.el-button-group){display:inline-flex;flex-flow:row nowrap;vertical-align:middle}.three-editor-toolbar :deep(.el-button){white-space:nowrap}.three-editor-toolbar :deep(.el-checkbox){flex:0 0 auto}.three-editor-toolbar :deep(.el-checkbox__label){font-size:11px;color:#cbd5e1}.toolbar-divider{width:1px;height:22px;flex:0 0 1px;background:rgba(148,163,184,.28)}
 .multi-selection-count{padding:3px 7px;border:1px solid rgba(34,197,94,.35);border-radius:999px;font-size:10px;color:#86efac;background:rgba(22,101,52,.22)}
 .three-editor-marquee{position:absolute;z-index:18;border:1px solid rgba(56,189,248,.95);background:rgba(14,165,233,.14);box-shadow:0 0 0 1px rgba(14,165,233,.18) inset;pointer-events:none}
-.three-editor-tree{position:absolute;top:82px;left:12px;z-index:10;width:210px;max-height:calc(100% - 124px);padding:9px;border:1px solid rgba(148,163,184,.2);border-radius:10px;background:rgba(7,17,31,.88);overflow:auto;backdrop-filter:blur(8px)}.three-editor-tree__title{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;padding:3px 4px 8px;border-bottom:1px solid rgba(148,163,184,.18)}.three-editor-tree__title span{font-size:9px;letter-spacing:.14em;color:#38bdf8}.three-editor-tree__title strong{font-size:10px;color:#94a3b8}.three-editor-tree button{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:#cbd5e1;background:transparent;text-align:left;cursor:pointer}.three-editor-tree button:hover,.three-editor-tree button.is-selected{color:#fff;background:rgba(14,165,233,.18)}.three-editor-tree button i{width:7px;height:7px;border-radius:2px;background:#64748b}.three-editor-tree button i.model{background:#38bdf8}.three-editor-tree button i.component{background:#22c55e}.three-editor-tree button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.three-editor-tree button small{font-size:9px;color:#64748b}
-.three-editor-tree button i.equipment{background:#f59e0b}
+.three-editor-tree{position:absolute;top:82px;left:12px;z-index:10;width:210px;max-height:calc(100% - 124px);padding:9px;border:1px solid rgba(148,163,184,.2);border-radius:10px;background:rgba(7,17,31,.88);overflow:auto;backdrop-filter:blur(8px)}.three-editor-tree__title{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;padding:3px 4px 8px;border-bottom:1px solid rgba(148,163,184,.18)}.three-editor-tree__title span{font-size:9px;letter-spacing:.14em;color:#38bdf8}.three-editor-tree__title strong{font-size:10px;color:#94a3b8}.three-editor-tree__item{display:grid;grid-template-columns:9px 1fr auto;align-items:center;gap:7px;width:100%;padding:7px;border:0;border-radius:7px;color:#cbd5e1;background:transparent;text-align:left;cursor:pointer}.three-editor-tree__item:hover,.three-editor-tree__item.is-selected{color:#fff;background:rgba(14,165,233,.18)}.three-editor-tree__item i{width:7px;height:7px;border-radius:2px;background:#64748b}.three-editor-tree__item i.model{background:#38bdf8}.three-editor-tree__item i.component{background:#22c55e}.three-editor-tree__item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.three-editor-tree__item small{font-size:9px;color:#64748b}
+.three-editor-tree__item i.equipment{background:#f59e0b}
 .three-editor-properties,.three-editor-component-properties{position:absolute;top:82px;right:12px;bottom:42px;z-index:11;overflow:auto}.three-editor-properties{width:0;opacity:0;transition:width .2s ease,opacity .2s ease;pointer-events:none}.three-editor-properties.is-open{width:285px;opacity:1;pointer-events:auto}.three-editor-properties :deep(.dg.main){position:static;width:100%!important;margin:0;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden}.three-editor-properties :deep(.dg .cr){border-left:0}.three-editor-component-properties{width:320px}.three-editor-route-hint{position:absolute;left:50%;bottom:18px;z-index:12;display:flex;flex-direction:column;gap:3px;max-width:560px;padding:8px 12px;border:1px solid rgba(245,158,11,.3);border-radius:8px;transform:translateX(-50%);background:rgba(7,17,31,.9);box-shadow:0 8px 24px rgba(0,0,0,.24);pointer-events:none}.three-editor-route-hint strong{font-size:10px;color:#fbbf24}.three-editor-route-hint span{font-size:9px;color:#cbd5e1}.three-editor-loading{position:absolute;inset:0;z-index:20;display:grid;place-items:center;color:#7dd3fc;background:#050b13}
 @media(max-width:1500px){.three-editor-toolbar{left:12px;right:12px;transform:none;overflow-x:auto}}
 </style>

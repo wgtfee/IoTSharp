@@ -250,10 +250,10 @@
 						<el-input v-if="ruleForm.source === 'payload'" v-model="ruleForm.payloadKey" size="small" placeholder="物料属性 Key，例如 sku" />
 						<el-select v-else v-model="ruleForm.bindingId" size="small" filterable placeholder="选择 Device 信号绑定"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						<div class="twin-route-edge-form"><el-select v-model="ruleForm.operator" size="small"><el-option v-for="option in ruleOperatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input v-if="!['truthy','falsy'].includes(ruleForm.operator)" v-model="ruleForm.matchValue" size="small" placeholder="比较值" /></div>
-						<el-input v-model="ruleForm.expectedActuatorValue" size="small" clearable placeholder="机构到位期望值（可选，如 Left）" />
+						<el-input v-model="ruleForm.expectedActuatorValue" size="small" clearable placeholder="机构到位期望值（可选，如 Left）" /><div class="twin-route-edge-form"><label>分流权重</label><el-input-number v-model="ruleForm.weight" :min="0.1" :max="1000" :step="0.1" size="small" controls-position="right" /></div>
 						<el-button size="small" type="primary" @click="addDecisionRule">新增自动规则</el-button>
 					</div>
-					<div class="twin-route-rules"><div v-for="rule in route.decisionRules" :key="rule.ruleId"><div><strong>{{ rule.name }}</strong><small>{{ decisionRuleSummary(rule) }}</small></div><el-switch v-model="rule.enabled" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" @click="removeDecisionRule(rule.ruleId)">×</el-button></div></div>
+					<div class="twin-route-rules"><div v-for="rule in route.decisionRules" :key="rule.ruleId"><div><strong>{{ rule.name }}</strong><small>{{ decisionRuleSummary(rule) }}</small></div><el-input-number v-model="rule.weight" :min="0.1" :max="1000" :step="0.1" size="small" controls-position="right" placeholder="权重" @change="syncRouteGraph" /><el-switch v-model="rule.enabled" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" @click="removeDecisionRule(rule.ruleId)">×</el-button></div></div>
 				</template>
 			</aside>
 
@@ -368,7 +368,7 @@
 					<div class="twin-inline-control"><strong>动作编排</strong><el-button text type="primary" size="small" @click="addBehavior">新增</el-button></div>
 					<div v-for="behavior in selectedBehaviors" :key="behavior.behaviorId" class="twin-behavior-item">
 						<div class="twin-behavior-item__head"><el-input v-model="behavior.name" size="small" @change="syncBehaviorManifest" /><el-switch v-model="behavior.enabled" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeBehavior(behavior.behaviorId)">×</el-button></div>
-						<div class="twin-behavior-grid"><el-input v-model="behavior.stationCompletionGroup" clearable size="small" placeholder="工位完成组（可选）" @change="syncBehaviorManifest" /><el-input-number v-model="behavior.stationRequiredCycles" :min="1" :step="1" size="small" controls-position="right" placeholder="工位所需循环次数" @change="syncBehaviorManifest" /></div>
+						<div class="twin-behavior-grid"><el-input v-model="behavior.stationCompletionGroup" clearable size="small" placeholder="工位完成组（可选）" @change="syncBehaviorManifest" /><el-input-number v-model="behavior.stationRequiredCycles" :min="1" :step="1" size="small" controls-position="right" placeholder="工位所需循环次数" @change="syncBehaviorManifest" /></div><div class="twin-behavior-grid"><el-input-number :model-value="Number(behavior.selectionWeight ?? 1)" :min="0.1" :max="1000" :step="0.1" size="small" controls-position="right" placeholder="调度权重" @change="setBehaviorSelectionWeight(behavior, $event)" /><small>同一执行通道多套动作按权重稳定调度；1:1=交替，3:1≈三次对一次。</small></div>
 						<el-select v-model="behavior.interlockIds" multiple clearable filterable size="small" placeholder="Behavior 启动联锁（可多选）" @change="syncBehaviorManifest"><el-option v-for="option in interlockOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 						<el-checkbox v-model="behavior.loop" @change="syncBehaviorManifest">循环仿真</el-checkbox>
 						<div class="twin-inline-control"><span>初始状态</span><el-button text type="primary" size="small" @click="addStateAssignment(ensureBehaviorInitialState(behavior))">增加</el-button><el-button text type="primary" size="small" @click="addBehaviorAction(behavior)">增加步骤</el-button></div>
@@ -571,7 +571,7 @@ const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packag
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
 const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind | 'routeSlots', routeId: '' });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
-const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' as 'payload' | 'binding', payloadKey: 'sku', bindingId: '', operator: 'equals' as TwinRouteRuleOperator, matchValue: '', expectedActuatorValue: '' });
+const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' as 'payload' | 'binding', payloadKey: 'sku', bindingId: '', operator: 'equals' as TwinRouteRuleOperator, matchValue: '', expectedActuatorValue: '', weight: 1 });
 const routingPayloadText = ref('{"sku":"A","weight":1}');
 const previewOccupancy = reactive<Record<string, number>>({});
 const route = computed(() => manifest.value.routes[0]);
@@ -1119,7 +1119,8 @@ const decisionRuleSummary = (rule: TwinRouteDecisionRule) => {
 	const source = rule.source === 'binding' ? routeBindingOptions.value.find((item) => item.value === rule.bindingId)?.label || rule.bindingId : `物料.${rule.payloadKey}`;
 	const operator = ruleOperatorOptions.find((item) => item.value === rule.operator)?.label || rule.operator;
 	const actuator = rule.expectedActuatorValue === undefined ? '' : ` · 到位=${String(rule.expectedActuatorValue)}`;
-	return `${source} ${operator}${['truthy', 'falsy'].includes(rule.operator) ? '' : ` ${String(rule.matchValue ?? '')}`} → ${route.value.edges.find((edge) => edge.edgeId === rule.edgeId)?.name || rule.edgeId}${actuator}`;
+	const weight = rule.weight === undefined ? '' : ` · 权重=${Number(rule.weight)}`;
+	return `${source} ${operator}${['truthy', 'falsy'].includes(rule.operator) ? '' : ` ${String(rule.matchValue ?? '')}`} → ${route.value.edges.find((edge) => edge.edgeId === rule.edgeId)?.name || rule.edgeId}${actuator}${weight}`;
 };
 const parsePreviewPayload = (showError: boolean): Record<string, unknown> | undefined => {
 	try {
@@ -1310,6 +1311,11 @@ const addBehavior = () => {
 	addBehaviorDefinition(manifest.value, actorObjectId);
 	syncBehaviorManifest();
 };
+const setBehaviorSelectionWeight = (behavior: TwinBehaviorDefinition, raw: unknown) => {
+	const value = Number(raw);
+	behavior.selectionWeight = Number.isFinite(value) && value > 0 ? value : 1;
+	syncBehaviorManifest();
+};
 const removeBehavior = (behaviorId: string) => {
 	removeBehaviorDefinition(manifest.value, behaviorId);
 	syncBehaviorManifest();
@@ -1373,7 +1379,9 @@ const formatStatusValue = (value: unknown) => {
 const initializeRuntime = () => {
 	if (!viewport.value) return;
 	adapter.value?.dispose();
-	adapter.value = new ThreeJsEditorAdapter(viewport.value, cloneTwinManifest(manifest.value), {
+	const previewManifest = cloneTwinManifest(manifest.value);
+	previewManifest.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
+	adapter.value = new ThreeJsEditorAdapter(viewport.value, previewManifest, {
 		onSelectionChange: handleSelectionChange,
 		onRouteChange: applyRuntimeRoute,
 		onMetrics: (value) => Object.assign(metrics, value),
@@ -2061,7 +2069,9 @@ const toggleLiveMode = async (value: string | number | boolean) => {
 	liveMode.value = Boolean(value); manifest.value.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
 	if (liveMode.value && viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 	if (viewportMode.value === 'runtime' && adapter.value) {
-		adapter.value.loadManifest(manifest.value);
+		const previewManifest = cloneTwinManifest(manifest.value);
+		previewManifest.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
+		adapter.value.loadManifest(previewManifest);
 		adapter.value.setRunning(!liveMode.value && playing.value);
 	}
 	liveMode.value ? startSnapshotPolling() : stopSnapshotPolling();
@@ -2216,6 +2226,7 @@ const addDecisionRule = async () => {
 	rule.operator = ruleForm.operator;
 	rule.matchValue = ['truthy', 'falsy'].includes(rule.operator) ? undefined : parseRuleValue(ruleForm.matchValue);
 	rule.expectedActuatorValue = ruleForm.expectedActuatorValue.trim() ? parseRuleValue(ruleForm.expectedActuatorValue) : undefined;
+	rule.weight = Number.isFinite(Number(ruleForm.weight)) && Number(ruleForm.weight) > 0 ? Number(ruleForm.weight) : 1;
 	rule.priority = 100;
 	route.value.decisionRules.push(rule);
 	await syncRouteGraph();

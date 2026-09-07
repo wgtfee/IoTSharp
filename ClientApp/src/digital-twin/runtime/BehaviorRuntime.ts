@@ -14,6 +14,16 @@ import type {
 
 type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-station' | 'waiting-material' | 'waiting-contact' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
 
+interface RobotPlacePathState {
+	withdraw: THREE.Vector3;
+	safeOutsidePick: THREE.Vector3;
+	swingStart: THREE.Vector3;
+	swingEnd: THREE.Vector3;
+	abovePlace: THREE.Vector3;
+	place: THREE.Vector3;
+	safeY: number;
+}
+
 interface ChannelState {
 	channelKey: string;
 	actorObjectId: string;
@@ -32,6 +42,9 @@ interface ChannelState {
 	stationBatchToken?: string;
 	attachedPayload?: THREE.Object3D;
 	placedPayload?: THREE.Object3D;
+	robotPlacePath?: RobotPlacePathState;
+	/** 平滑加权轮询积分；仅影响同一 actor/channel 下 Behavior 的下一次选择。 */
+	behaviorSelectionCredits: Record<string, number>;
 }
 
 interface BasePose {
@@ -147,12 +160,14 @@ export class BehaviorRuntime {
 					cycleCount: 0,
 					completedActions: 0,
 					interlockWaitCount: 0,
+					behaviorSelectionCredits: {},
 				};
 				this.channels.set(channelKey, channel);
 			}
 			channel.behaviors.push(behavior);
 			this.captureActorBase(behavior.actorObjectId);
 		}
+		for (const channel of this.channels.values()) this.initializeBehaviorSelection(channel);
 		this.initializeSemanticState();
 		this.running = wasRunning && this.manifest.runtime.dataMode === 'simulation';
 		if (!this.running) for (const channel of this.channels.values()) channel.status = 'paused';
@@ -186,6 +201,7 @@ export class BehaviorRuntime {
 		}
 		for (const channel of this.channels.values()) {
 			channel.behaviorIndex = 0;
+			this.initializeBehaviorSelection(channel);
 			channel.actionIndex = 0;
 			channel.phase = 0;
 			channel.waitElapsed = 0;
@@ -316,6 +332,7 @@ export class BehaviorRuntime {
 				channel.waitRecordedFor = undefined;
 				channel.attachedPayload = undefined;
 				channel.placedPayload = undefined;
+				channel.robotPlacePath = undefined;
 			}
 			const requirements = this.numberRecord(actorRoot.userData.stationBehaviorRequirements);
 			const counts = this.numberRecord(actorRoot.userData.stationCompletedGroupCounts);
@@ -336,7 +353,7 @@ export class BehaviorRuntime {
 				if (counts[stationGroup] >= (requirements[stationGroup] || 1) && !completedGroups.includes(stationGroup)) completedGroups.push(stationGroup);
 				actorRoot.userData.stationCompletedGroups = completedGroups;
 				actorRoot.userData.stationLastCompletedBehaviorId = behavior.behaviorId;
-				channel.behaviorIndex = (channel.behaviorIndex + 1) % channel.behaviors.length;
+				channel.behaviorIndex = this.selectNextBehaviorIndex(channel);
 				channel.actionIndex = 0;
 				channel.phase = 0;
 				channel.waitElapsed = 0;
@@ -348,7 +365,7 @@ export class BehaviorRuntime {
 				channel.status = 'completed';
 				return;
 			}
-			channel.behaviorIndex = (channel.behaviorIndex + 1) % channel.behaviors.length;
+			channel.behaviorIndex = this.selectNextBehaviorIndex(channel);
 			channel.actionIndex = 0;
 			channel.phase = 0;
 			channel.waitElapsed = 0;
@@ -367,6 +384,37 @@ export class BehaviorRuntime {
 			channel.status = 'error';
 			this.reportError?.(`动作 ${action.actionId} 执行失败：${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+
+	private behaviorWeight(behavior: TwinBehaviorDefinition) {
+		const weight = Number(behavior.selectionWeight ?? 1);
+		return Number.isFinite(weight) && weight > 0 ? weight : 1;
+	}
+
+	private initializeBehaviorSelection(channel: ChannelState) {
+		channel.behaviorSelectionCredits = {};
+		if (!channel.behaviors.length) { channel.behaviorIndex = 0; return; }
+		const total = channel.behaviors.reduce((sum, behavior) => sum + this.behaviorWeight(behavior), 0);
+		for (const behavior of channel.behaviors) channel.behaviorSelectionCredits[behavior.behaviorId] = this.behaviorWeight(behavior);
+		// 首个 Behavior 保持历史顺序；把这次选择记入积分，后续进入平滑加权轮询。
+		channel.behaviorSelectionCredits[channel.behaviors[0].behaviorId] -= total;
+		channel.behaviorIndex = 0;
+	}
+
+	private selectNextBehaviorIndex(channel: ChannelState) {
+		if (channel.behaviors.length <= 1) return 0;
+		const total = channel.behaviors.reduce((sum, behavior) => sum + this.behaviorWeight(behavior), 0);
+		let selectedIndex = 0;
+		let bestCredit = Number.NEGATIVE_INFINITY;
+		for (let index = 0; index < channel.behaviors.length; index += 1) {
+			const behavior = channel.behaviors[index];
+			const nextCredit = Number(channel.behaviorSelectionCredits[behavior.behaviorId] || 0) + this.behaviorWeight(behavior);
+			channel.behaviorSelectionCredits[behavior.behaviorId] = nextCredit;
+			if (nextCredit > bestCredit) { bestCredit = nextCredit; selectedIndex = index; }
+		}
+		const selected = channel.behaviors[selectedIndex];
+		channel.behaviorSelectionCredits[selected.behaviorId] -= total;
+		return selectedIndex;
 	}
 
 	private executeAction(channel: ChannelState, behavior: TwinBehaviorDefinition, action: TwinBehaviorActionDefinition, actorRoot: THREE.Object3D, deltaSeconds: number) {
@@ -388,8 +436,11 @@ export class BehaviorRuntime {
 			}
 			case 'home': {
 				channel.status = 'moving';
-				if (action.poseId) return this.movePose(actorRoot, this.requirePose(action), deltaSeconds, speedRatio);
-				return this.moveActorHome(behavior.actorObjectId, actorRoot, deltaSeconds, speedRatio);
+				const done = action.poseId
+					? this.movePose(actorRoot, this.requirePose(action), deltaSeconds, speedRatio)
+					: this.moveActorHome(behavior.actorObjectId, actorRoot, deltaSeconds, speedRatio);
+				if (done && actorRoot.getObjectByName('RobotGridGripper-2x6')) this.setRobotGridGripperSpread(actorRoot, 0);
+				return done;
 			}
 			case 'axisMove': {
 				channel.status = 'moving';
@@ -438,6 +489,9 @@ export class BehaviorRuntime {
 			}
 			case 'place': {
 				const workPoint = this.requireWorkPoint(action);
+				if (actorRoot.getObjectByName('Robot-Axis-1') && !action.actorNodePath && !channel.actorNodePath && action.toolFrameId) {
+					return this.executeRobotPlacePath(channel, actorRoot, workPoint, action, deltaSeconds, speedRatio);
+				}
 				channel.status = channel.phase === 2 ? 'acting' : 'moving';
 				if (channel.phase === 0) {
 					if (!this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio)) return false;
@@ -496,6 +550,7 @@ export class BehaviorRuntime {
 		channel.waitElapsed = 0;
 		channel.waitRecordedFor = undefined;
 		channel.startedActionKey = undefined;
+		channel.robotPlacePath = undefined;
 		channel.status = 'acting';
 	}
 
@@ -661,6 +716,16 @@ export class BehaviorRuntime {
 		if (workPoint.materialSlotId) {
 			const slot = this.materialSlots.get(workPoint.materialSlotId);
 			if (!slot) throw new Error(`工作点 ${workPoint.workPointId} 引用了不存在的物料槽位 ${workPoint.materialSlotId}`);
+			if (slot.runtimeOwnerSelection === 'station-batch' && slot.distributePayloadAcrossRuntimeOwners) {
+				const palletIds = this.getStationPalletIds(this.getObjectRoot(slot.objectId));
+				const anchors = palletIds
+					.map((palletId) => this.resolveMaterialSlotAnchor(slot, palletId).world)
+					.filter((position) => Number.isFinite(position.x) && Number.isFinite(position.y) && Number.isFinite(position.z));
+				if (anchors.length) {
+					const center = anchors.reduce((total, position) => total.add(position), new THREE.Vector3()).multiplyScalar(1 / anchors.length);
+					return center.add(vector(workPoint.localPosition)).add(vector(offset));
+				}
+			}
 			const resolved = this.resolveMaterialSlotAnchor(slot, this.preferredRuntimeOwnerId(slot));
 			return resolved.anchor.localToWorld(resolved.baseLocal.clone().add(vector(workPoint.localPosition)).add(vector(offset)));
 		}
@@ -673,10 +738,114 @@ export class BehaviorRuntime {
 		return anchor.localToWorld(local);
 	}
 
+	private executeRobotPlacePath(channel: ChannelState, actorRoot: THREE.Object3D, workPoint: TwinWorkPointDefinition, action: TwinBehaviorActionDefinition, deltaSeconds: number, speedRatio: number) {
+		const toolFrame = action.toolFrameId ? this.toolFrames.get(action.toolFrameId) : undefined;
+		const attachNode = toolFrame ? this.findNode(actorRoot, toolFrame.nodePath) : undefined;
+		if (!toolFrame || !attachNode) throw new Error(`机器人放料动作 ${action.actionId} 缺少有效 TCP`);
+		actorRoot.updateMatrixWorld(true);
+		if (!channel.robotPlacePath) {
+			const tcpWorld = attachNode.localToWorld(vector(toolFrame.localPosition));
+			const palletCenter = this.resolveWorkPointWorld(workPoint);
+			const halfDepth = this.resolveStationPayloadHalfDepth(workPoint, 0.21);
+			const place = palletCenter.clone().add(new THREE.Vector3(0, halfDepth, 0));
+			const base = actorRoot.getWorldPosition(new THREE.Vector3());
+			const towardBase = new THREE.Vector3(base.x - tcpWorld.x, 0, base.z - tcpWorld.z);
+			if (towardBase.lengthSq() < 0.000001) towardBase.set(1, 0, 0); else towardBase.normalize();
+			const withdraw = tcpWorld.clone().add(towardBase.multiplyScalar(1.25));
+			const safeY = Math.max(4.05, tcpWorld.y + 1.35, place.y + 1.55);
+			const safeOutsidePick = withdraw.clone(); safeOutsidePick.y = safeY;
+			const fromBase = new THREE.Vector3(safeOutsidePick.x - base.x, 0, safeOutsidePick.z - base.z);
+			const toBase = new THREE.Vector3(place.x - base.x, 0, place.z - base.z);
+			if (fromBase.lengthSq() < 0.000001) fromBase.set(1, 0, 0); else fromBase.normalize();
+			if (toBase.lengthSq() < 0.000001) toBase.set(1, 0, 0); else toBase.normalize();
+			const swingRadius = 3.65;
+			const swingStart = new THREE.Vector3(base.x + fromBase.x * swingRadius, safeY, base.z + fromBase.z * swingRadius);
+			const swingEnd = new THREE.Vector3(base.x + toBase.x * swingRadius, safeY, base.z + toBase.z * swingRadius);
+			const abovePlace = new THREE.Vector3(place.x, safeY, place.z);
+			channel.robotPlacePath = { withdraw, safeOutsidePick, swingStart, swingEnd, abovePlace, place, safeY };
+			this.captureRobotSilkPayloadPickupLayout(channel);
+		}
+		const path = channel.robotPlacePath;
+		const setPhase = (name: string, spread: number) => {
+			actorRoot.userData.robotPlaceMotionPhase = name;
+			actorRoot.userData.robotPlaceSpread = spread;
+			this.setRobotGridGripperSpread(actorRoot, spread);
+			this.spreadAttachedSilkPayload(channel, spread);
+		};
+		channel.status = channel.phase === 6 ? 'acting' : 'moving';
+		if (channel.phase === 0) { setPhase('withdraw', 0); if (!this.moveRobotToWorld(actorRoot, path.withdraw, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 1; }
+		if (channel.phase === 1) { setPhase('lift', 0.15); if (!this.moveRobotToWorld(actorRoot, path.safeOutsidePick, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 2; }
+		if (channel.phase === 2) { setPhase('swing-start', 0.35); if (!this.moveRobotToWorld(actorRoot, path.swingStart, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 3; }
+		if (channel.phase === 3) { setPhase('transfer', 0.70); if (!this.moveRobotToWorld(actorRoot, path.swingEnd, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 4; }
+		if (channel.phase === 4) { setPhase('above-place', 1); if (!this.moveRobotToWorld(actorRoot, path.abovePlace, deltaSeconds, speedRatio, toolFrame, true)) return false; channel.phase = 5; }
+		if (channel.phase === 5) { setPhase('descend', 1); if (!this.moveRobotToWorld(actorRoot, path.place, deltaSeconds, speedRatio, toolFrame, true) || !this.isToolFrameAtWorldTarget(actorRoot, toolFrame, path.place, 0.12)) return false; channel.phase = 6; }
+		if (channel.phase === 6) {
+			setPhase('place', 1);
+			if (!this.detachPayload(channel, workPoint, action)) return false;
+			channel.phase = 7;
+		}
+		if (channel.phase === 7) { setPhase('retract', 1); if (!this.moveRobotToWorld(actorRoot, path.abovePlace, deltaSeconds, speedRatio, toolFrame, true)) return false; channel.phase = 8; }
+		if (channel.phase >= 8) actorRoot.userData.robotPlaceMotionPhase = 'placed';
+		return channel.phase >= 8;
+	}
+
+	private resolveStationPayloadHalfDepth(workPoint: TwinWorkPointDefinition, fallback: number) {
+		const slot = workPoint.materialSlotId ? this.materialSlots.get(workPoint.materialSlotId) : undefined;
+		if (!slot || slot.runtimeOwnerSelection !== 'station-batch') return fallback;
+		const firstPalletId = this.getStationPalletIds(this.getObjectRoot(slot.objectId))[0];
+		if (!firstPalletId) return fallback;
+		const resolved = this.resolveMaterialSlotAnchor(slot, firstPalletId);
+		const depth = Number(resolved.owner.userData?.silkCakeAxialDepth);
+		return Number.isFinite(depth) && depth > 0 ? depth / 2 : fallback;
+	}
+
+	private captureRobotSilkPayloadPickupLayout(channel: ChannelState) {
+		for (const material of channel.attachedPayload?.children || []) {
+			if (material.userData?.materialEntity !== true || material.userData?.payloadType !== 'silk-cake') continue;
+			material.userData.robotPickupLocalPosition = material.position.toArray();
+		}
+	}
+
+	private spreadAttachedSilkPayload(channel: ChannelState, progress: number) {
+		const t = clamp01(progress);
+		for (const material of channel.attachedPayload?.children || []) {
+			if (material.userData?.materialEntity !== true || material.userData?.payloadType !== 'silk-cake') continue;
+			const row = Math.max(1, Math.min(2, Number(material.userData.materialGridRow || 1)));
+			const column = Math.max(1, Math.min(6, Number(material.userData.materialGridColumn || 1)));
+			const source = Array.isArray(material.userData.robotPickupLocalPosition) ? vector(material.userData.robotPickupLocalPosition as TwinVector3) : material.position.clone();
+			const targetX = (column - 3.5) * 1.55;
+			const targetZ = (row - 1.5) * 1.9;
+			material.position.x = THREE.MathUtils.lerp(source.x, targetX, t);
+			material.position.z = THREE.MathUtils.lerp(source.z, targetZ, t);
+		}
+	}
+
+	private setRobotGridGripperSpread(actorRoot: THREE.Object3D, progress: number) {
+		const gripper = actorRoot.getObjectByName('RobotGridGripper-2x6');
+		if (!gripper) return;
+		const t = clamp01(progress);
+		for (let index = 1; index <= 12; index += 1) {
+			const head = gripper.getObjectByName(`RobotGripperHead-${index}`);
+			if (!head) continue;
+			const row = Number(head.userData.row || (index <= 6 ? 1 : 2));
+			const column = Number(head.userData.column || ((index - 1) % 6 + 1));
+			head.position.x = THREE.MathUtils.lerp((column - 3.5) * 1.1, (column - 3.5) * 1.55, t);
+			head.position.z = THREE.MathUtils.lerp((row - 1.5) * 1.15, (row - 1.5) * 1.9, t);
+		}
+		for (const row of [1, 2]) {
+			const rail = gripper.getObjectByName(`RobotGridGripperRail-R${row}`);
+			if (rail) rail.scale.x = THREE.MathUtils.lerp(1, 1.55 / 1.1, t);
+		}
+	}
+
 	private moveActorToWorkPoint(actorRoot: THREE.Object3D, actorNodePath: string | undefined, workPoint: TwinWorkPointDefinition, offset: TwinVector3 | undefined, deltaSeconds: number, speedRatio: number) {
 		const targetWorld = this.resolveWorkPointWorld(workPoint, offset);
 		// 六轴机械臂 IK 是内置组件运动学能力，不包含任何具体产线工艺；正式工程优先使用设计器示教 Pose。
-		if (actorRoot.getObjectByName('Robot-Axis-1') && !actorNodePath) return this.moveRobotToWorld(actorRoot, targetWorld, deltaSeconds, speedRatio);
+		if (actorRoot.getObjectByName('Robot-Axis-1') && !actorNodePath) {
+			const toolFrame = workPoint.toolFrameId ? this.toolFrames.get(workPoint.toolFrameId) : undefined;
+			if (!this.moveRobotToWorld(actorRoot, targetWorld, deltaSeconds, speedRatio, toolFrame, workPoint.role === 'place')) return false;
+			return toolFrame ? this.isToolFrameAtWorldTarget(actorRoot, toolFrame, targetWorld, 0.12) : true;
+		}
 		const node = actorNodePath ? this.findNode(actorRoot, actorNodePath) : actorRoot;
 		if (!node || node === actorRoot) return true;
 		actorRoot.updateMatrixWorld(true);
@@ -684,7 +853,7 @@ export class BehaviorRuntime {
 		return this.moveVector(node.position, targetLocal, deltaSeconds * 2.5 * speedRatio);
 	}
 
-	private moveRobotToWorld(actorRoot: THREE.Object3D, targetWorld: THREE.Vector3, deltaSeconds: number, speedRatio: number) {
+	private moveRobotToWorld(actorRoot: THREE.Object3D, targetWorld: THREE.Vector3, deltaSeconds: number, speedRatio: number, toolFrame?: TwinToolFrameDefinition, preferToolDown = false) {
 		actorRoot.updateMatrixWorld(true);
 		const target = actorRoot.worldToLocal(targetWorld.clone());
 		const axis1 = actorRoot.getObjectByName('Robot-Axis-1');
@@ -694,32 +863,73 @@ export class BehaviorRuntime {
 		if (!axis1 || !axis2 || !axis3) return true;
 		const properties = (actorRoot.userData?.properties || {}) as Record<string, unknown>;
 		const upperArm = Math.max(0.4, Number(properties.upperArmLength || 1.65));
-		const forearm = Math.max(0.4, Number(properties.forearmLength || 1.45));
+		const forearm = Math.max(0.4, Number(properties.forearmLength || 1.45)) + Math.max(0, Number(axis5?.position.y || 0));
 		const horizontal = Math.max(0.05, Math.hypot(target.x, target.z));
 		const shoulderY = axis1.position.y + axis2.position.y;
-		let vertical = target.y - shoulderY;
-		let radial = horizontal;
-		const maxReach = Math.max(0.25, upperArm + forearm - 0.04);
-		const distance = Math.hypot(radial, vertical);
-		if (distance > maxReach) {
-			const scale = maxReach / distance;
-			radial *= scale;
-			vertical *= scale;
+		const vertical = target.y - shoulderY;
+		let toolTail = 0;
+		const frameNode = toolFrame ? this.findNode(actorRoot, toolFrame.nodePath) : undefined;
+		if (axis5 && frameNode) {
+			let cursor: THREE.Object3D | null = frameNode;
+			while (cursor && cursor !== axis5) {
+				toolTail += Math.max(0, Number(cursor.position.y || 0));
+				cursor = cursor.parent;
+			}
+			if (cursor === axis5) toolTail += Number(toolFrame?.localPosition?.[1] || 0);
+			else toolTail = 0;
 		}
-		const d2 = radial * radial + vertical * vertical;
-		const cosElbow = THREE.MathUtils.clamp((d2 - upperArm * upperArm - forearm * forearm) / (2 * upperArm * forearm), -1, 1);
-		const elbow = Math.acos(cosElbow);
-		const shoulderFromX = Math.atan2(vertical, radial) - Math.atan2(forearm * Math.sin(elbow), upperArm + forearm * Math.cos(elbow));
+		const currentPhi = (axis2.rotation.z || 0) + (axis3.rotation.z || 0) + (axis5?.rotation.z || 0);
+		const desiredPhi = preferToolDown ? Math.PI : currentPhi;
+		let solution: { j1: number; j2: number; j3: number; j5: number; score: number } | undefined;
+		const sampleCount = toolTail > 0 ? 240 : 1;
+		const baseAzimuth = Math.atan2(-target.z, target.x);
+		// 六轴机器人同一 TCP 往往存在“正径向伸展”和“负径向折叠”两套等价基座解。
+		// 只搜索正径向会让 J1 为了西侧目标白白旋转约 180°；示教 Pose 则可以保持 J1≈0，
+		// 由 J2/J3 折叠到另一侧。两套都搜索，并把 J1 位移纳入总代价，选择连续且最短的关节解。
+		for (const radialSign of [1, -1] as const) {
+			const j1 = baseAzimuth + (radialSign < 0 ? Math.PI : 0);
+			for (let sample = 0; sample <= sampleCount; sample += 1) {
+				const phi = toolTail > 0 ? -Math.PI + sample / sampleCount * Math.PI * 2 : currentPhi;
+				const radial = radialSign * horizontal + toolTail * Math.sin(phi);
+				const wristVertical = vertical - toolTail * Math.cos(phi);
+				const d2 = radial * radial + wristVertical * wristVertical;
+				const cosElbow = (d2 - upperArm * upperArm - forearm * forearm) / (2 * upperArm * forearm);
+				if (cosElbow < -1.000001 || cosElbow > 1.000001) continue;
+				for (const elbowSign of [1, -1]) {
+					const j3 = elbowSign * Math.acos(THREE.MathUtils.clamp(cosElbow, -1, 1));
+					const shoulderFromX = Math.atan2(wristVertical, radial) - Math.atan2(forearm * Math.sin(j3), upperArm + forearm * Math.cos(j3));
+					const j2 = shoulderFromX - Math.PI / 2;
+					const j5 = Math.atan2(Math.sin(phi - j2 - j3), Math.cos(phi - j2 - j3));
+					if (j2 < -2.6 || j2 > 1.4 || j3 < -2.8 || j3 > 2.8 || (axis5 && (j5 < -2.2 || j5 > 2.2))) continue;
+					const orientationError = Math.abs(normalizedAngleDelta(phi, desiredPhi));
+					const movement = Math.abs(normalizedAngleDelta(axis1.rotation.y, j1))
+						+ Math.abs(normalizedAngleDelta(axis2.rotation.z, j2)) + Math.abs(normalizedAngleDelta(axis3.rotation.z, j3))
+						+ (axis5 ? Math.abs(normalizedAngleDelta(axis5.rotation.z, j5)) : 0);
+					const score = orientationError * (preferToolDown ? 5 : 1) + movement * 0.04;
+					if (!solution || score < solution.score) solution = { j1, j2, j3, j5, score };
+				}
+			}
+		}
+		if (!solution) return false;
 		const targets = [
-			[axis1, Math.atan2(-target.z, target.x), 'y'],
-			[axis2, shoulderFromX - Math.PI / 2, 'z'],
-			[axis3, elbow, 'z'],
-			...(axis5 ? [[axis5, -(shoulderFromX - Math.PI / 2 + elbow), 'z']] : []),
+			[axis1, solution.j1, 'y'],
+			[axis2, solution.j2, 'z'],
+			[axis3, solution.j3, 'z'],
+			...(axis5 ? [[axis5, solution.j5, 'z']] : []),
 		] as Array<[THREE.Object3D, number, 'x' | 'y' | 'z']>;
 		const maxStep = deltaSeconds * 1.8 * speedRatio;
 		let done = true;
 		for (const [node, targetAngle, axis] of targets) if (!this.moveAngle(node.rotation, axis, targetAngle, maxStep)) done = false;
+		if (done) actorRoot.updateMatrixWorld(true);
 		return done;
+	}
+
+	private isToolFrameAtWorldTarget(actorRoot: THREE.Object3D, toolFrame: TwinToolFrameDefinition, targetWorld: THREE.Vector3, tolerance: number) {
+		const attachNode = this.findNode(actorRoot, toolFrame.nodePath);
+		if (!attachNode) return false;
+		actorRoot.updateMatrixWorld(true);
+		const tcpWorld = attachNode.localToWorld(vector(toolFrame.localPosition));
+		return tcpWorld.distanceTo(targetWorld) <= Math.max(0.01, tolerance);
 	}
 
 	private moveActorHome(actorObjectId: string, actorRoot: THREE.Object3D, deltaSeconds: number, speedRatio: number) {
@@ -772,8 +982,10 @@ export class BehaviorRuntime {
 	private moveAngle(rotation: THREE.Euler, axis: 'x' | 'y' | 'z', target: number, maxStep: number) {
 		const current = rotation[axis];
 		const delta = normalizedAngleDelta(current, target);
+		// target 可能是 [-π,π] 中的等价表示；保持连续角，禁止在到位帧产生约 360° 数值跳变。
+		const continuousTarget = current + delta;
 		if (Math.abs(delta) <= Math.max(0.001, maxStep)) {
-			rotation[axis] = target;
+			rotation[axis] = continuousTarget;
 			return true;
 		}
 		rotation[axis] = current + Math.sign(delta) * maxStep;
@@ -858,6 +1070,15 @@ export class BehaviorRuntime {
 		if (!payload) return true;
 		const targetSlotId = action.targetSlotId || workPoint?.materialSlotId;
 		const targetSlot = targetSlotId ? this.materialSlots.get(targetSlotId) : undefined;
+		if (workPoint?.role === 'place' && action.toolFrameId) {
+			const actorRoot = this.getObjectRoot(channel.actorObjectId);
+			const toolFrame = this.toolFrames.get(action.toolFrameId);
+			const targetWorld = channel.robotPlacePath?.place || this.resolveWorkPointWorld(workPoint);
+			if (!actorRoot?.getObjectByName('Robot-Axis-1') || !toolFrame || !this.isToolFrameAtWorldTarget(actorRoot, toolFrame, targetWorld, 0.14)) {
+				channel.status = 'waiting-contact';
+				return false;
+			}
+		}
 		if (targetSlot?.distributePayloadAcrossRuntimeOwners) {
 			if (!this.distributePayloadAcrossStationPallets(channel, payload, targetSlot)) return false;
 		} else if (targetSlot?.stackPattern) {
@@ -903,6 +1124,7 @@ export class BehaviorRuntime {
 				material.position.set(0, 0, 0);
 				const placedRotation = slot.localRotation || [0, 0, 0];
 				material.rotation.set(placedRotation[0], placedRotation[1], placedRotation[2]);
+				this.settleMaterialOnRuntimeOwner(material, resolved.owner);
 				delete material.userData.materialAttachedBy;
 				material.userData.runtimeOwnerEntityId = palletIds[index];
 				material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
@@ -928,6 +1150,7 @@ export class BehaviorRuntime {
 			material.position.copy(itemOffset.clone().multiplyScalar(level));
 			const placedRotation = slot.localRotation || [0, 0, 0];
 			material.rotation.set(placedRotation[0], placedRotation[1], placedRotation[2]);
+			this.settleMaterialOnRuntimeOwner(material, resolved.owner);
 			delete material.userData.materialAttachedBy;
 			material.userData.runtimeOwnerEntityId = palletIds[palletIndex];
 			material.userData.runtimeOwnerType = resolved.owner.userData?.transportUnitType;
@@ -937,6 +1160,20 @@ export class BehaviorRuntime {
 		}
 		payload.removeFromParent();
 		return true;
+	}
+
+	private settleMaterialOnRuntimeOwner(material: THREE.Object3D, runtimeOwner: THREE.Object3D) {
+		const supportSurfaceY = Number(runtimeOwner.userData?.smallPalletSupportSurfaceY);
+		if (!Number.isFinite(supportSurfaceY)) return;
+		runtimeOwner.updateMatrixWorld(true);
+		material.updateMatrixWorld(true);
+		const supportWorldY = runtimeOwner.localToWorld(new THREE.Vector3(0, supportSurfaceY, 0)).y;
+		const bounds = new THREE.Box3().setFromObject(material);
+		if (bounds.isEmpty()) return;
+		const clearance = 0.008;
+		const correction = supportWorldY + clearance - bounds.min.y;
+		if (Number.isFinite(correction) && Math.abs(correction) > 0.0001) material.position.y += correction;
+		material.userData.runtimeOwnerSupportClearance = clearance;
 	}
 
 	private placeStackPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
@@ -1066,7 +1303,7 @@ export class BehaviorRuntime {
 		const center = this.resolveMaterialSlotAnchor(slot).world;
 		const slotOwner = this.getObjectRoot(slot.objectId);
 		const entityGroup = String(slot.metadata?.entityGroup || slotOwner?.userData?.activeMaterialGroup || '');
-		const candidates: Array<{ node: THREE.Object3D; distance: number }> = [];
+		const candidates: Array<{ node: THREE.Object3D; distance: number; gridRow: number; gridColumn: number }> = [];
 		const searchRoot: THREE.Object3D = !slot.runtimeOwnerType && slotOwner ? slotOwner : this.scene;
 		searchRoot.traverse((node) => {
 			if (node.userData?.materialEntity !== true) return;
@@ -1075,9 +1312,17 @@ export class BehaviorRuntime {
 			if (payloadEntityId && node.userData?.twinEntityId !== payloadEntityId) return;
 			if (entityGroup && String(node.userData?.materialSlotGroup || '') !== entityGroup) return;
 			const position = node.getWorldPosition(new THREE.Vector3());
-			candidates.push({ node, distance: position.distanceTo(center) });
+			candidates.push({
+				node,
+				distance: position.distanceTo(center),
+				gridRow: Number(node.userData?.materialGridRow || Number.MAX_SAFE_INTEGER),
+				gridColumn: Number(node.userData?.materialGridColumn || Number.MAX_SAFE_INTEGER),
+			});
 		});
-		return candidates.sort((left, right) => left.distance - right.distance).slice(0, count).map((item) => item.node);
+		const gridRowMajor = slot.metadata?.selectionOrder === 'grid-row-major';
+		return candidates.sort((left, right) => gridRowMajor
+			? left.gridRow - right.gridRow || left.gridColumn - right.gridColumn || left.distance - right.distance
+			: left.distance - right.distance).slice(0, count).map((item) => item.node);
 	}
 
 	private resolveAttachNode(actorRoot: THREE.Object3D, actorNodePath?: string, toolFrameId?: string) {

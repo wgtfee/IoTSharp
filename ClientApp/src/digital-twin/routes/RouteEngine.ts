@@ -65,6 +65,27 @@ const matchesRule = (actual: unknown, operator: string, expected: unknown) => {
 
 const isSignalTrue = (value: unknown) => value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
 
+const stableUnitHash = (value: string) => {
+	let hash = 2166136261;
+	for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); }
+	// FNV 对 P1/P2/... 这类连续短 ID 的高位分布有明显相关性；增加 avalanche，
+	// 保留稳定可复现特性，同时让连续托盘 ID 也能按配置权重均匀落桶。
+	hash ^= hash >>> 16; hash = Math.imul(hash, 0x85ebca6b);
+	hash ^= hash >>> 13; hash = Math.imul(hash, 0xc2b2ae35);
+	hash ^= hash >>> 16;
+	return (hash >>> 0) / 0x100000000;
+};
+
+const chooseWeightedRule = <T extends { weight?: number }>(rules: T[], seed: string) => {
+	const total = rules.reduce((sum, rule) => sum + Math.max(0.0001, Number(rule.weight || 1)), 0);
+	let cursor = stableUnitHash(seed) * total;
+	for (const rule of rules) {
+		cursor -= Math.max(0.0001, Number(rule.weight || 1));
+		if (cursor < 0) return rule;
+	}
+	return rules[rules.length - 1];
+};
+
 const getEdgeUnavailableReason = (edge: TwinRouteEdgeDefinition, context: TwinRouteRoutingContext): TwinRouteEngineSnapshot['waitingReason'] | undefined => {
 	const staleBindingIds = new Set(context.staleBindingIds || []);
 	const routeSignalStale = Boolean(
@@ -116,12 +137,22 @@ export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRoute
 		if (candidates.length === 0) break;
 		const currentPoint = pointsById.get(currentPointId);
 		const decisionMode = currentPoint?.decisionMode || (route.routingMode === 'automatic' ? 'simulation' : 'manual');
-		const matchedRule = decisionMode !== 'manual'
+		const matchingRules = decisionMode !== 'manual'
 			? (route.decisionRules || [])
 				.filter((rule) => rule.enabled !== false && rule.junctionPointId === currentPointId && (decisionMode !== 'plc' || rule.source === 'binding') && candidates.some((candidate) => candidate.edge.edgeId === rule.edgeId) && !(rule.source === 'binding' && rule.bindingId && staleBindingIds.has(rule.bindingId)))
+				.filter((rule) => matchesRule(rule.source === 'binding' ? context.bindingValues?.[rule.bindingId || ''] : readPayloadValue(context.payload, rule.payloadKey), rule.operator, rule.matchValue))
 				.sort((left, right) => (right.priority || 0) - (left.priority || 0) || left.ruleId.localeCompare(right.ruleId))
-				.find((rule) => matchesRule(rule.source === 'binding' ? context.bindingValues?.[rule.bindingId || ''] : readPayloadValue(context.payload, rule.payloadKey), rule.operator, rule.matchValue))
-			: undefined;
+			: [];
+		let matchedRule = matchingRules[0];
+		if (decisionMode === 'simulation' && matchedRule) {
+			const highestPriority = Number(matchedRule.priority || 0);
+			const weightedPeers = matchingRules.filter((rule) => Number(rule.priority || 0) === highestPriority);
+			// 只有显式配置过 weight 才改变旧版“同优先级取第一条”的行为。
+			if (weightedPeers.length > 1 && weightedPeers.some((rule) => rule.weight !== undefined)) {
+				const payloadKey = String(context.payload?.palletId ?? context.payload?.entityId ?? JSON.stringify(context.payload || {}));
+				matchedRule = chooseWeightedRule(weightedPeers, currentPointId + '|' + payloadKey);
+			}
+		}
 		if (decisionMode === 'plc' && !matchedRule) {
 			return { points: pointPath, edgeIds: edgePath, closed: false, unavailableEdgeIds: [...unavailableEdgeIds], unresolvedJunctionPointId: currentPointId, edgeEntryGuards };
 		}

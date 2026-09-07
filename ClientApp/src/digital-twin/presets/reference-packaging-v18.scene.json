@@ -1,6 +1,6 @@
 {
   "schemaVersion": "iotsharp-twin-scene/v1",
-  "sceneId": "scene-c714ee1a-0470-4cf3-af67-5e448623431e",
+  "sceneId": "scene-c9cf7c49-10e2-4e3b-9a3a-5a8034e5fcab",
   "name": "参考图双套袋环形包装产线 V18",
   "description": "V18 标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；外检、套袋、缠膜、贴标使用组件内部时间轴；木托从2×3×8码垛、隔板、天盖一直运行到缠膜、贴标和成品出库。",
   "rootAssetId": null,
@@ -198,7 +198,8 @@
         "rotationNodePath": "RotatingDeck",
         "minimumBatch": 1,
         "simulationReplenish": true,
-        "simulationReplenishLimit": 2
+        "simulationReplenishLimit": 2,
+        "selectionOrder": "grid-row-major"
       },
       "contactNormalLocal": [
         0,
@@ -231,7 +232,8 @@
         "rotationNodePath": "RotatingDeck",
         "minimumBatch": 1,
         "simulationReplenish": true,
-        "simulationReplenishLimit": 2
+        "simulationReplenishLimit": 2,
+        "selectionOrder": "grid-row-major"
       },
       "contactNormalLocal": [
         0,
@@ -960,18 +962,18 @@
           "minimumPayloadCount": 1
         },
         {
-          "actionId": "west-place-pose",
-          "kind": "movePose",
-          "poseId": "reference-robot-place-small-pallet",
-          "speedRatio": 0.7
-        },
-        {
           "actionId": "west-detach",
-          "kind": "detach",
+          "kind": "place",
           "workPointId": "reference-v12-loading-robot-place",
           "targetSlotId": "reference-robot-small-pallet-target",
           "toolFrameId": "reference-robot-tcp",
-          "payloadType": "silk-cake"
+          "payloadType": "silk-cake",
+          "approachOffset": [
+            0,
+            0.65,
+            0
+          ],
+          "speedRatio": 0.55
         },
         {
           "actionId": "west-grip-open",
@@ -1022,18 +1024,18 @@
           "minimumPayloadCount": 1
         },
         {
-          "actionId": "east-place-pose",
-          "kind": "movePose",
-          "poseId": "reference-robot-place-small-pallet",
-          "speedRatio": 0.7
-        },
-        {
           "actionId": "east-detach",
-          "kind": "detach",
+          "kind": "place",
           "workPointId": "reference-v12-loading-robot-place",
           "targetSlotId": "reference-robot-small-pallet-target",
           "toolFrameId": "reference-robot-tcp",
-          "payloadType": "silk-cake"
+          "payloadType": "silk-cake",
+          "approachOffset": [
+            0,
+            0.65,
+            0
+          ],
+          "speedRatio": 0.55
         },
         {
           "actionId": "east-grip-open",
@@ -1398,7 +1400,7 @@
         "position": [
           13,
           0,
-          9.8
+          10.05
         ],
         "rotation": [
           0,
@@ -1417,7 +1419,7 @@
         "generator": "roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 6.000000000000001,
+          "length": 6.500000000000001,
           "width": 1.55,
           "height": 0.9,
           "rollerDiameter": 0.14,
@@ -2197,7 +2199,7 @@
         "position": [
           -14.6,
           0,
-          -1.5
+          -1.25
         ],
         "rotation": [
           0,
@@ -2216,7 +2218,7 @@
         "generator": "roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 32.4,
+          "length": 32.9,
           "width": 1.55,
           "height": 0.9,
           "rollerDiameter": 0.14,
@@ -2244,7 +2246,7 @@
         "position": [
           -12.7,
           0,
-          14.7
+          15.2
         ],
         "rotation": [
           0,
@@ -2291,7 +2293,7 @@
         "position": [
           0,
           0,
-          13.75
+          14.25
         ],
         "rotation": [
           0,
@@ -2336,9 +2338,9 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
-          -7.599999999999998
+          -7.6
         ],
         "rotation": [
           0,
@@ -2357,7 +2359,7 @@
         "generator": "roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 6.800000000000001,
+          "length": 6.8,
           "width": 2.4,
           "height": 0.82,
           "rollerDiameter": 0.18,
@@ -2383,7 +2385,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -17.1
         ],
@@ -2430,9 +2432,9 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
-          -29.45
+          -29.450000000000003
         ],
         "rotation": [
           0,
@@ -2451,7 +2453,7 @@
         "generator": "roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 12.5,
+          "length": 12.500000000000004,
           "width": 2.4,
           "height": 0.82,
           "rollerDiameter": 0.18,
@@ -2477,7 +2479,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -41.45
         ],
@@ -2524,7 +2526,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -52.95
         ],
@@ -2761,7 +2763,7 @@
         "position": [
           1.1,
           0,
-          13.75
+          14.25
         ],
         "rotation": [
           0,
@@ -2809,7 +2811,6 @@
               "tapId": "robot-return",
               "lane": "B",
               "localX": -1.1,
-              "terminal": true,
               "side": "negative"
             }
           ],
@@ -3245,12 +3246,59 @@
       }
     },
     {
+      "objectId": "reference-bottom-b-to-inspection-merge",
+      "name": "底部 B 排上料后合流短辊道",
+      "kind": "component",
+      "transform": {
+        "position": [
+          13,
+          0,
+          14.25
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.9,
+          "width": 1.55,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "referenceDrawingLine": true,
+          "componentOwnedRoute": true
+        },
+        "sectionId": "ref-bottom-b-to-inspection-merge",
+        "routeEdgeId": "component-edge-reference-bottom-b-to-inspection-merge-main-through"
+      }
+    },
+    {
       "objectId": "reference-stacking-gantry",
       "name": "码垛桁架和暂存台",
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -11
         ],
@@ -3272,7 +3320,7 @@
         "generatorVersion": 1,
         "properties": {
           "length": 7.2,
-          "width": 15,
+          "width": 17.5,
           "height": 7.2,
           "referenceDrawingLine": true,
           "componentOwnedRoute": false
@@ -3282,17 +3330,17 @@
     },
     {
       "objectId": "reference-stacking-pallet",
-      "name": "码垛位木托盘",
+      "name": "码垛位木托工位",
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0.82,
           -11
         ],
         "rotation": [
           0,
-          0,
+          1.5707963267948966,
           0
         ],
         "scale": [
@@ -3308,12 +3356,13 @@
         "generatorVersion": 1,
         "properties": {
           "palletType": "wooden-pallet",
-          "length": 4,
-          "width": 3.4,
+          "length": 4.5,
+          "width": 2.1,
           "height": 0.18,
           "routeManagedExternally": true,
           "referenceDrawingLine": true,
-          "componentOwnedRoute": false
+          "componentOwnedRoute": false,
+          "semanticOnly": true
         },
         "sectionId": "ref-large-stack-pallet"
       }
@@ -3324,7 +3373,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -23.2
         ],
@@ -3360,7 +3409,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -35.7
         ],
@@ -3396,7 +3445,7 @@
       "kind": "component",
       "transform": {
         "position": [
-          -15.7,
+          -19,
           0,
           -47.2
         ],
@@ -3457,7 +3506,7 @@
           "upperArmLength": 2.4,
           "forearmLength": 2.2,
           "toolType": "silk-grid-2x6",
-          "gripperSpan": 6.2,
+          "gripperSpan": 6.6,
           "gripperRowSpacing": 1.15,
           "axis1HomeYaw": 0,
           "axis2HomePitch": -0.48,
@@ -3553,106 +3602,12 @@
         "sectionId": "ref-turntable-east",
         "routeEdgeId": "component-edge-reference-turntable-east-deck-input-center"
       }
-    },
-    {
-      "objectId": "reference-conveyor-ref-empty-return-top",
-      "name": "小辊道 · 外检后空托直回流横接",
-      "kind": "component",
-      "transform": {
-        "position": [
-          -12.05,
-          0,
-          6.8
-        ],
-        "rotation": [
-          0,
-          3.141592653589793,
-          0
-        ],
-        "scale": [
-          1,
-          1,
-          1
-        ]
-      },
-      "component": {
-        "resourceKey": "builtin-small-roller-conveyor",
-        "componentType": "roller-conveyor",
-        "generator": "roller-conveyor-v1",
-        "generatorVersion": 1,
-        "properties": {
-          "length": 2.5,
-          "width": 1.55,
-          "height": 0.9,
-          "rollerDiameter": 0.14,
-          "rollerPitch": 0.55,
-          "frameHeight": 0.16,
-          "frameThickness": 0.1,
-          "supportSpacing": 2,
-          "conveyorSizeClass": "small",
-          "transportUnitType": "plastic-pallet",
-          "capacity": 3,
-          "speedLimit": 1.2,
-          "occupancyMode": "simulation",
-          "referenceDrawingLine": true,
-          "componentOwnedRoute": true
-        },
-        "sectionId": "ref-empty-return-top",
-        "routeEdgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through"
-      }
-    },
-    {
-      "objectId": "reference-conveyor-ref-empty-return-down",
-      "name": "小辊道 · 外检后空托直回流长段",
-      "kind": "component",
-      "transform": {
-        "position": [
-          -13.3,
-          0,
-          -5.45
-        ],
-        "rotation": [
-          0,
-          1.5707963267948966,
-          0
-        ],
-        "scale": [
-          1,
-          1,
-          1
-        ]
-      },
-      "component": {
-        "resourceKey": "builtin-small-roller-conveyor",
-        "componentType": "roller-conveyor",
-        "generator": "roller-conveyor-v1",
-        "generatorVersion": 1,
-        "properties": {
-          "length": 24.5,
-          "width": 1.55,
-          "height": 0.9,
-          "rollerDiameter": 0.14,
-          "rollerPitch": 0.55,
-          "frameHeight": 0.16,
-          "frameThickness": 0.1,
-          "supportSpacing": 2,
-          "conveyorSizeClass": "small",
-          "transportUnitType": "plastic-pallet",
-          "capacity": 14,
-          "speedLimit": 1.2,
-          "occupancyMode": "simulation",
-          "referenceDrawingLine": true,
-          "componentOwnedRoute": true
-        },
-        "sectionId": "ref-empty-return-down",
-        "routeEdgeId": "component-edge-reference-conveyor-ref-empty-return-down-main-through"
-      }
     }
   ],
   "bindings": [],
   "routes": [
     {
-      "routeId": "component-route-ce25b0ad",
+      "routeId": "component-route-d045206d",
       "name": "参考图小托盘完整工艺闭环（机器人→外检→套袋→桁架→空托回流）",
       "type": "conveyor",
       "curveKind": "line",
@@ -3742,6 +3697,30 @@
           ],
           "kind": "buffer",
           "componentObjectId": "reference-bagging-b",
+          "componentPortId": "output"
+        },
+        {
+          "pointId": "component-point-5ca78ed4",
+          "name": "底部 B 排上料后合流短辊道.入口 ↔ 底部横向双排小辊道.B排出口",
+          "position": [
+            13,
+            0.9,
+            15.2
+          ],
+          "kind": "buffer",
+          "componentObjectId": "reference-bottom-b-to-inspection-merge",
+          "componentPortId": "input"
+        },
+        {
+          "pointId": "component-point-8ac8353f",
+          "name": "底部 B 排上料后合流短辊道.出口 ↔ 小辊道 · 外检右侧进料纵段.入口 ↔ 底部横向双排小辊道.A排出口",
+          "position": [
+            13,
+            0.9,
+            13.3
+          ],
+          "kind": "buffer",
+          "componentObjectId": "reference-bottom-b-to-inspection-merge",
           "componentPortId": "output"
         },
         {
@@ -3841,18 +3820,6 @@
           "componentPortId": "output"
         },
         {
-          "pointId": "component-point-5ebdec18",
-          "name": "小辊道 · 外检右侧进料纵段.入口 ↔ 底部横向双排小辊道.A排出口",
-          "position": [
-            13,
-            0.9,
-            12.8
-          ],
-          "kind": "buffer",
-          "componentObjectId": "reference-conveyor-ref-edge-inspection-right-rise",
-          "componentPortId": "input"
-        },
-        {
           "pointId": "component-point-2b17da5a",
           "name": "小辊道 · 外检左出至一分二.入口 ↔ 外检机.出口",
           "position": [
@@ -3906,8 +3873,8 @@
               "separator"
             ],
             "behaviorCompletionRequirements": {
-              "yarn": 1,
-              "separator": 1
+              "yarn": 2,
+              "separator": 2
             }
           },
           "componentObjectId": "reference-stacking-gantry",
@@ -4003,7 +3970,7 @@
           "position": [
             -14.599999999999998,
             0.9,
-            14.7
+            15.2
           ],
           "kind": "buffer",
           "componentObjectId": "reference-conveyor-ref-return-edge-bottom-in",
@@ -4015,7 +3982,7 @@
           "position": [
             -10.8,
             0.9,
-            14.7
+            15.2
           ],
           "kind": "buffer",
           "componentObjectId": "reference-conveyor-ref-return-edge-bottom-in",
@@ -4039,11 +4006,32 @@
           "position": [
             -1.0547118733938979e-16,
             0.9,
-            14.7
+            15.2
           ],
-          "kind": "buffer",
-          "componentObjectId": "reference-conveyor-ref-return-edge-robot-cross",
-          "componentPortId": "input"
+          "kind": "processStation",
+          "process": {
+            "type": "robot-loading",
+            "cycleSeconds": 2,
+            "batchSize": 12,
+            "batchLayout": {
+              "rows": 1,
+              "columns": 6,
+              "rowSpacingMeters": 0,
+              "columnSpacingMeters": 1.55,
+              "rowAxis": "z",
+              "columnAxis": "x"
+            },
+            "physicalLane": "B",
+            "behaviorCompletionGroups": [
+              "load"
+            ],
+            "behaviorCompletionRequirements": {
+              "load": 1
+            }
+          },
+          "componentObjectId": "reference-loading-robot",
+          "componentPortId": "input",
+          "decisionMode": "simulation"
         },
         {
           "pointId": "component-point-cddb2b64",
@@ -4051,13 +4039,22 @@
           "position": [
             1.0547118733938979e-16,
             0.9,
-            12.8
+            13.3
           ],
           "kind": "processStation",
           "process": {
             "type": "robot-loading",
             "cycleSeconds": 2,
             "batchSize": 12,
+            "batchLayout": {
+              "rows": 1,
+              "columns": 6,
+              "rowSpacingMeters": 0,
+              "columnSpacingMeters": 1.55,
+              "rowAxis": "z",
+              "columnAxis": "x"
+            },
+            "physicalLane": "A",
             "behaviorCompletionGroups": [
               "load"
             ],
@@ -4074,23 +4071,11 @@
           "position": [
             -10.8,
             0.9,
-            12.8
+            13.3
           ],
           "kind": "buffer",
           "componentObjectId": "reference-double-small-bottom",
           "componentPortId": "a-input"
-        },
-        {
-          "pointId": "component-point-6d1283e2",
-          "name": "底部横向双排小辊道.B排出口",
-          "position": [
-            13,
-            0.9,
-            14.7
-          ],
-          "kind": "buffer",
-          "componentObjectId": "reference-double-small-bottom",
-          "componentPortId": "b-output"
         },
         {
           "pointId": "component-point-7fd53097",
@@ -4276,20 +4261,7 @@
             6.8
           ],
           "kind": "diverter",
-          "componentObjectId": "reference-inspection-diverter",
-          "decisionMode": "simulation"
-        },
-        {
-          "pointId": "component-point-reference-empty-return-top",
-          "name": "外检后空托直回流 · 转接点",
-          "position": [
-            -13.3,
-            0.9,
-            6.8
-          ],
-          "kind": "buffer",
-          "componentObjectId": "reference-conveyor-ref-empty-return-top",
-          "componentPortId": "output"
+          "componentObjectId": "reference-inspection-diverter"
         }
       ],
       "edges": [
@@ -4425,6 +4397,25 @@
           "conveyorObjectId": "reference-bagging-b",
           "componentObjectId": "reference-bagging-b",
           "sectionId": "ref-bag-b"
+        },
+        {
+          "edgeId": "component-edge-reference-bottom-b-to-inspection-merge-main-through",
+          "fromPointId": "component-point-5ca78ed4",
+          "toPointId": "component-point-8ac8353f",
+          "name": "辊道内部输送",
+          "bidirectional": false,
+          "enabled": true,
+          "priority": 0,
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "reservationTimeoutSeconds": 30,
+          "speedLimit": 1.2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "reference-bottom-b-to-inspection-merge",
+          "componentObjectId": "reference-bottom-b-to-inspection-merge",
+          "sectionId": "ref-bottom-b-to-inspection-merge"
         },
         {
           "edgeId": "component-edge-reference-conveyor-ref-edge-a-bag-up-main-through",
@@ -4580,7 +4571,7 @@
         },
         {
           "edgeId": "component-edge-reference-conveyor-ref-edge-inspection-right-rise-main-through",
-          "fromPointId": "component-point-5ebdec18",
+          "fromPointId": "component-point-8ac8353f",
           "toPointId": "component-point-7349a180",
           "name": "辊道内部输送",
           "bidirectional": false,
@@ -4828,7 +4819,7 @@
         {
           "edgeId": "component-edge-reference-double-small-bottom-lane-a-segment-2",
           "fromPointId": "component-point-cddb2b64",
-          "toPointId": "component-point-5ebdec18",
+          "toPointId": "component-point-8ac8353f",
           "name": "底部横向双排小辊道 · A排内置路线",
           "bidirectional": false,
           "enabled": true,
@@ -4845,9 +4836,28 @@
           "sectionId": "ref-double-bottom"
         },
         {
-          "edgeId": "component-edge-reference-double-small-bottom-lane-b-through",
+          "edgeId": "component-edge-reference-double-small-bottom-lane-b-segment-1",
           "fromPointId": "component-point-02e9dc78",
           "toPointId": "component-point-96f0d382",
+          "name": "底部横向双排小辊道 · B排内置路线",
+          "bidirectional": false,
+          "enabled": true,
+          "priority": 0,
+          "capacity": 12,
+          "occupancyMode": "simulation",
+          "reservationTimeoutSeconds": 30,
+          "speedLimit": 1.2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "reference-double-small-bottom",
+          "componentObjectId": "reference-double-small-bottom",
+          "sectionId": "ref-double-bottom"
+        },
+        {
+          "edgeId": "component-edge-reference-double-small-bottom-lane-b-segment-2",
+          "fromPointId": "component-point-96f0d382",
+          "toPointId": "component-point-5ca78ed4",
           "name": "底部横向双排小辊道 · B排内置路线",
           "bidirectional": false,
           "enabled": true,
@@ -5128,44 +5138,6 @@
           "conveyorObjectId": "reference-inspection-diverter",
           "componentObjectId": "reference-inspection-diverter",
           "sectionId": "ref-inspection-diverter"
-        },
-        {
-          "edgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through",
-          "fromPointId": "component-point-reference-inspection-diverter-diverter-junction",
-          "toPointId": "component-point-reference-empty-return-top",
-          "name": "外检后空托直回流 · 横向接出",
-          "bidirectional": false,
-          "enabled": true,
-          "priority": 0,
-          "capacity": 3,
-          "occupancyMode": "simulation",
-          "reservationTimeoutSeconds": 30,
-          "speedLimit": 1.2,
-          "conveyorSizeClass": "small",
-          "transportUnitType": "plastic-pallet",
-          "transportUnitResourceKey": "builtin-small-pallet",
-          "conveyorObjectId": "reference-conveyor-ref-empty-return-top",
-          "componentObjectId": "reference-conveyor-ref-empty-return-top",
-          "sectionId": "ref-empty-return-top"
-        },
-        {
-          "edgeId": "component-edge-reference-conveyor-ref-empty-return-down-main-through",
-          "fromPointId": "component-point-reference-empty-return-top",
-          "toPointId": "component-point-63a46013",
-          "name": "外检后空托直回流 · 直达桁架后汇流",
-          "bidirectional": false,
-          "enabled": true,
-          "priority": 0,
-          "capacity": 14,
-          "occupancyMode": "simulation",
-          "reservationTimeoutSeconds": 30,
-          "speedLimit": 1.2,
-          "conveyorSizeClass": "small",
-          "transportUnitType": "plastic-pallet",
-          "transportUnitResourceKey": "builtin-small-pallet",
-          "conveyorObjectId": "reference-conveyor-ref-empty-return-down",
-          "componentObjectId": "reference-conveyor-ref-empty-return-down",
-          "sectionId": "ref-empty-return-down"
         }
       ],
       "startPointId": "component-point-cddb2b64",
@@ -5173,44 +5145,32 @@
       "routingMode": "automatic",
       "decisionRules": [
         {
-          "ruleId": "reference-empty-return-rule",
-          "name": "空托外检后直接回流",
-          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
-          "edgeId": "component-edge-reference-conveyor-ref-empty-return-top-main-through",
+          "ruleId": "reference-bottom-lane-b-forward",
+          "name": "B排托盘保持B排前行",
+          "junctionPointId": "component-point-96f0d382",
+          "edgeId": "component-edge-reference-double-small-bottom-lane-b-segment-2",
           "source": "payload",
-          "payloadKey": "materialCount",
+          "payloadKey": "physicalLane",
           "operator": "equals",
-          "matchValue": 0,
+          "matchValue": "B",
           "priority": 100,
           "enabled": true
         },
         {
-          "ruleId": "reference-loaded-route-a-rule",
-          "name": "有料托盘进入 A 套袋线",
-          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
-          "edgeId": "component-edge-reference-inspection-diverter-diverter-junction-to-b",
+          "ruleId": "reference-bottom-lane-a-return-cross",
+          "name": "A排回流托盘经真实横移辊道回A排",
+          "junctionPointId": "component-point-96f0d382",
+          "edgeId": "component-edge-reference-conveyor-ref-return-edge-robot-cross-main-through",
           "source": "payload",
-          "payloadKey": "routeCode",
+          "payloadKey": "physicalLane",
           "operator": "equals",
           "matchValue": "A",
-          "priority": 50,
-          "enabled": true
-        },
-        {
-          "ruleId": "reference-loaded-route-b-rule",
-          "name": "有料托盘进入 B 套袋线",
-          "junctionPointId": "component-point-reference-inspection-diverter-diverter-junction",
-          "edgeId": "component-edge-reference-inspection-diverter-diverter-junction-to-a",
-          "source": "payload",
-          "payloadKey": "routeCode",
-          "operator": "equals",
-          "matchValue": "B",
-          "priority": 50,
+          "priority": 100,
           "enabled": true
         }
       ],
       "generatedBy": "component-connections",
-      "componentNetworkId": "component-network-ce25b0ad"
+      "componentNetworkId": "component-network-d045206d"
     },
     {
       "routeId": "component-route-68147065",
@@ -5225,7 +5185,7 @@
           "pointId": "component-point-3819adee",
           "name": "大辊道 · 满托到天盖.入口 ↔ 大辊道 · 空木托到码垛位.出口",
           "position": [
-            -15.7,
+            -19,
             0.82,
             -11
           ],
@@ -5242,9 +5202,9 @@
           "pointId": "component-point-7f8db235",
           "name": "大辊道 · 满托到天盖.出口 ↔ 大辊道 · 天盖后到缠膜.入口",
           "position": [
-            -15.7,
+            -19,
             0.82,
-            -23.2
+            -23.200000000000003
           ],
           "kind": "processStation",
           "process": {
@@ -5259,7 +5219,7 @@
           "pointId": "component-point-0e449fbc",
           "name": "大辊道 · 空木托到码垛位.入口",
           "position": [
-            -15.7,
+            -19,
             0.82,
             -4.199999999999999
           ],
@@ -5271,7 +5231,7 @@
           "pointId": "component-point-88276e1c",
           "name": "大辊道 · 缠膜后到贴标.入口 ↔ 大辊道 · 天盖后到缠膜.出口",
           "position": [
-            -15.7,
+            -19,
             0.82,
             -35.7
           ],
@@ -5288,7 +5248,7 @@
           "pointId": "component-point-0797b724",
           "name": "大辊道 · 缠膜后到贴标.出口 ↔ 大辊道 · 贴标后成品出库.入口",
           "position": [
-            -15.7,
+            -19,
             0.82,
             -47.2
           ],
@@ -5305,7 +5265,7 @@
           "pointId": "component-point-eaaff950",
           "name": "大辊道 · 贴标后成品出库.出口",
           "position": [
-            -15.7,
+            -19,
             0.82,
             -58.7
           ],
@@ -6301,20 +6261,22 @@
     "maxPixelRatio": 2,
     "showGrid": true,
     "referencePackagingLayoutVersion": 18,
-    "primarySmallPalletRouteId": "component-route-ce25b0ad",
+    "primarySmallPalletRouteId": "component-route-d045206d",
     "primaryWoodenPalletRouteId": "component-route-68147065",
     "routePalletInitializers": [
       {
-        "routeId": "component-route-ce25b0ad",
-        "telemetryKey": "PalletSlots.component-route-ce25b0ad",
+        "routeId": "component-route-d045206d",
+        "telemetryKey": "PalletSlots.component-route-d045206d",
         "simulationDefaultCount": 12,
         "emptyValue": 0
       },
       {
         "routeId": "component-route-68147065",
         "telemetryKey": "PalletSlots.component-route-68147065",
-        "simulationDefaultCount": 3,
-        "emptyValue": 0
+        "simulationDefaultCount": 0,
+        "emptyValue": 0,
+        "simulationAutoFeed": true,
+        "simulationAutoFeedMaxActive": 1
       }
     ]
   },
@@ -6929,6 +6891,38 @@
       "metadata": {
         "topologyBridge": true,
         "source": "reference-layout-scaffold"
+      }
+    },
+    {
+      "connectionId": "reference-physical-bottom-b-output-to-merge",
+      "from": {
+        "objectId": "reference-double-small-bottom",
+        "portId": "b-output"
+      },
+      "to": {
+        "objectId": "reference-bottom-b-to-inspection-merge",
+        "portId": "input"
+      },
+      "autoGenerated": true,
+      "metadata": {
+        "topologyBridge": true,
+        "source": "reference-physical-lane"
+      }
+    },
+    {
+      "connectionId": "reference-physical-bottom-b-merge-to-inspection",
+      "from": {
+        "objectId": "reference-bottom-b-to-inspection-merge",
+        "portId": "output"
+      },
+      "to": {
+        "objectId": "reference-conveyor-ref-edge-inspection-right-rise",
+        "portId": "input"
+      },
+      "autoGenerated": true,
+      "metadata": {
+        "topologyBridge": true,
+        "source": "reference-physical-lane"
       }
     },
     {

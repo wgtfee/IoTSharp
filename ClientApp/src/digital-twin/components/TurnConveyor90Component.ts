@@ -22,6 +22,7 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		root.name = definition.name;
 		const frameMaterial = createMaterial(0x334155, { roughness: 0.62, metalness: 0.7 });
 		const rollerMaterial = createMaterial(0x94a3b8, { roughness: 0.34, metalness: 0.86 });
+		const supportMaterial = createMaterial(0x475569, { roughness: 0.64, metalness: 0.62 });
 		const railRadiusInner = Math.max(0.25, radius - width / 2);
 		const railRadiusOuter = radius + width / 2;
 		const start = direction > 0 ? -Math.PI / 2 : Math.PI / 2;
@@ -59,6 +60,17 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		}
 		rollers.instanceMatrix.needsUpdate = true;
 		root.add(rollers);
+		// 转弯辊道也必须从辊面落到地面；旧实现只有高位框架/滚筒，视觉上像整段悬空。
+		const supportHeight = Math.max(0.1, rollerCenterY - 0.10);
+		for (const [index, t] of [0.08, 0.38, 0.68, 0.92].entries()) {
+			const angle = start + (end - start) * t;
+			for (const [side, railRadius] of [['Inner', railRadiusInner + 0.12], ['Outer', railRadiusOuter - 0.12]] as const) {
+				const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, supportHeight, 0.12), supportMaterial);
+				leg.name = 'TurnSupport-' + (index + 1) + '-' + side;
+				leg.position.set(Math.cos(angle) * railRadius, supportHeight / 2, Math.sin(angle) * railRadius);
+				root.add(leg);
+			}
+		}
 		const inputAngle = start;
 		const outputAngle = end;
 		const inputDirection: [number, number, number] = direction > 0 ? [-1, 0, 0] : [-1, 0, 0];

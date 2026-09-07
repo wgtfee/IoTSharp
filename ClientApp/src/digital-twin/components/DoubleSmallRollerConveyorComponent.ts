@@ -28,7 +28,20 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 		const capacityPerLane = Math.max(1, Math.round(resolveNumber(props, 'capacityPerLane', 4, 1, 999)));
 		const laneAReverse = props.laneAReverse === true;
 		const laneBReverse = props.laneBReverse === true;
-		const routeTaps = Array.isArray(props.routeTaps) ? props.routeTaps as Array<Record<string, unknown>> : [];
+		// Workbench 的 Manifest 由 Vue ref/reactive 持有，嵌套数组可能是 Proxy。
+		// 浏览器 structuredClone(Proxy) 会直接抛 DataCloneError，因此组件边界必须先把
+		// routeTaps 收敛成只包含 JSON primitive/普通数组的 DTO，再参与几何和 userData。
+		const routeTaps = (Array.isArray(props.routeTaps) ? props.routeTaps as Array<Record<string, unknown>> : [])
+			.map((tap) => ({
+				tapId: String(tap?.tapId || ''),
+				lane: String(tap?.lane || '').toUpperCase(),
+				localX: Number(tap?.localX),
+				terminal: tap?.terminal === true,
+				side: tap?.side === 'negative' ? 'negative' : 'positive',
+				localDirection: Array.isArray(tap?.localDirection) && tap.localDirection.length === 3
+					? tap.localDirection.map((value) => Number(value)) as [number, number, number]
+					: undefined,
+			}));
 
 		const root = new THREE.Group();
 		root.name = definition.name;
@@ -163,7 +176,10 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 			capacityPerLane,
 			laneAReverse,
 			laneBReverse,
-			routeTaps: structuredClone(routeTaps),
+			routeTaps: routeTaps.map((tap) => ({
+				...tap,
+				localDirection: tap.localDirection ? [...tap.localDirection] : undefined,
+			})),
 			conveyorSizeClass: 'small',
 			transportUnitType: 'plastic-pallet',
 		};

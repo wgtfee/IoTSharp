@@ -69,6 +69,15 @@ export interface TwinRuntimeMetrics extends TwinRouteEngineSnapshot {
 	triangles: number;
 	geometries: number;
 	textures: number;
+	routeSlots?: {
+		total: number;
+		visible: number;
+		uniquePositions: number;
+		plasticPallets: number;
+		visiblePlasticPallets: number;
+		uniquePlasticPositions: number;
+		woodenPallets: number;
+	};
 	silkLine?: {
 		onlinePallets: number;
 		loadedPallets: number;
@@ -318,6 +327,21 @@ export class TwinRuntime {
 		this.routeEngine.setSpeed(speed);
 		this.packagingLine?.setSpeed(speed);
 		this.emitRouteChange();
+	}
+
+	focusSimulationPallets() {
+		const box = this.routeSlotArrayRuntime.getTransportUnitBounds('plastic-pallet');
+		if (!box) return false;
+		const sphere = box.getBoundingSphere(new THREE.Sphere());
+		const distance = Math.max(8, sphere.radius * 2.35);
+		const direction = new THREE.Vector3(0.72, 0.82, 1).normalize();
+		this.orbitControls.target.copy(sphere.center);
+		this.camera.position.copy(sphere.center).add(direction.multiplyScalar(distance));
+		this.camera.near = Math.max(0.01, distance / 200);
+		this.camera.far = Math.max(1000, distance * 100);
+		this.camera.updateProjectionMatrix();
+		this.orbitControls.update();
+		return true;
 	}
 
 	resetRoute() {
@@ -629,6 +653,7 @@ export class TwinRuntime {
 			const memory = this.renderer.info.memory;
 			const render = this.renderer.info.render;
 			const silkSnapshot = this.packagingLine?.getSnapshot();
+			const routeSlotDiagnostics = this.routeSlotArrayRuntime.getDiagnostics();
 			this.events.onMetrics?.({
 				...this.routeEngine.getSnapshot(),
 				fps: Math.round(this.frameCounter / elapsedSeconds),
@@ -636,6 +661,7 @@ export class TwinRuntime {
 				triangles: render.triangles,
 				geometries: memory.geometries,
 				textures: memory.textures,
+				routeSlots: routeSlotDiagnostics,
 				silkLine: silkSnapshot ? {
 					onlinePallets: silkSnapshot.plasticPallets.total - silkSnapshot.plasticPallets.sourceQueue,
 					loadedPallets: silkSnapshot.plasticPallets.loaded,

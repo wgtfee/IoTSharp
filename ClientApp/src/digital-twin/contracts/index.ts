@@ -79,11 +79,28 @@ export type TwinTransportUnitType = 'plastic-pallet' | 'wooden-pallet' | 'carton
 /** 工位分类仅用于显示、诊断和模板复用；运行时不得按具体业务类型分支。 */
 export type TwinProcessType = string;
 
+export interface TwinProcessBatchLayoutDefinition {
+	rows: number;
+	columns: number;
+	rowSpacingMeters: number;
+	columnSpacingMeters: number;
+	rowAxis?: 'x' | 'z';
+	columnAxis?: 'x' | 'z';
+	/** 以工位 RoutePoint 为基准的世界坐标偏移。 */
+	centerOffset?: TwinVector3;
+	/** 双排输送时可按 routingContext.routeCode(A/B) 固定到对应行。 */
+	routeCodeRows?: boolean;
+}
+
 export interface TwinProcessDefinition {
 	type: TwinProcessType;
 	cycleSeconds?: number;
 	/** 工位一次必须到齐的运输单元数量。 */
 	batchSize?: number;
+	/** simulation 工位批次的物理排布；所有坐标必须落在真实输送设备表面。 */
+	batchLayout?: TwinProcessBatchLayoutDefinition;
+	/** 可选物理通道约束；Simulation 只允许同 lane 的运输单元进入该工位。 */
+	physicalLane?: string;
 	/** simulation 下只有这些 Behavior 完成组全部回写后，工位才允许放行。 */
 	behaviorCompletionGroups?: string[];
 	/** 每个 Behavior 完成组在一次工位批次中要求完成的次数。 */
@@ -150,6 +167,8 @@ export interface TwinRouteDecisionRule {
 	matchValue?: string | number | boolean;
 	/** 选中该出口后，分流机构到位信号必须等于此值才能放行。 */
 	expectedActuatorValue?: string | number | boolean;
+	/** 同优先级且同时命中的 Simulation 规则之间的分流权重；未配置时保持旧版首条规则行为。 */
+	weight?: number;
 	priority: number;
 	enabled: boolean;
 }
@@ -192,6 +211,10 @@ export interface TwinRoutePalletInitializerDefinition {
 	/** PLC/Telemetry 侧建议使用的语义键；实际 deviceId 仍由场景绑定配置。 */
 	telemetryKey: string;
 	simulationDefaultCount: number;
+	/** Simulation 初始数量可以为 0；启动后按工艺需要自动补入运输单元。 */
+	simulationAutoFeed?: boolean;
+	/** 自动补料时同时处于未完成状态的最大运输单元数量，默认 1。 */
+	simulationAutoFeedMaxActive?: number;
 	emptyValue?: string | number | boolean | null;
 }
 
@@ -395,6 +418,8 @@ export interface TwinBehaviorDefinition {
 	stationCompletionGroup?: string;
 	/** 当前工位批次需要该 Behavior 完整执行的次数；默认 1。 */
 	stationRequiredCycles?: number;
+	/** 同一执行通道存在多个 Behavior 时的确定性调度权重；默认 1。 */
+	selectionWeight?: number;
 	enabled?: boolean;
 	/** false 表示执行一次后停在 completed；默认循环用于离线仿真。 */
 	loop?: boolean;
@@ -1047,6 +1072,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (!behavior.behaviorId?.trim() || behaviorIds.has(behavior.behaviorId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.id.invalid', message: '动作编排 ID 为空或重复。', path: `behaviors[${behaviorIndex}].behaviorId` });
 		behaviorIds.add(behavior.behaviorId);
 		if (!objectIds.has(behavior.actorObjectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actor.invalid', message: '动作编排引用的执行对象不存在。', path: `behaviors[${behaviorIndex}].actorObjectId` });
+		if (behavior.selectionWeight !== undefined && (!Number.isFinite(behavior.selectionWeight) || behavior.selectionWeight <= 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.selection-weight.invalid', message: '动作编排调度权重必须大于 0。', path: `behaviors[${behaviorIndex}].selectionWeight` });
 		for (const [actionIndex, action] of (behavior.actions || []).entries()) {
 			if (!action.actionId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.required', message: '动作步骤必须有 actionId。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
 			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
@@ -1207,6 +1233,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (!allowedRuleOperators.includes(rule.operator)) diagnostics.push({ severity: 'error', code: 'twin.route.rule.operator.invalid', message: '自动选路规则操作符不受支持。', path: `${rulePath}.operator` });
 			if (rule.source === 'payload' && !rule.payloadKey?.trim()) diagnostics.push({ severity: 'error', code: 'twin.route.rule.payload-key.required', message: '物料属性规则必须填写属性 Key。', path: `${rulePath}.payloadKey` });
 			if (rule.source === 'binding' && (!rule.bindingId || !routeBindingIds.has(rule.bindingId))) diagnostics.push({ severity: 'error', code: 'twin.route.rule.binding.invalid', message: '设备信号规则必须引用 routeEvent 数据绑定。', path: `${rulePath}.bindingId` });
+			if (rule.weight !== undefined && (!Number.isFinite(rule.weight) || rule.weight <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.rule.weight.invalid', message: '自动选路规则权重必须大于 0。', path: `${rulePath}.weight` });
 		}
 	}
 
@@ -1249,6 +1276,7 @@ export const createRouteDecisionRule = (junctionPointId: string, edgeId: string,
 	payloadKey: 'sku',
 	operator: 'equals',
 	matchValue: '',
+	weight: 1,
 	priority: 0,
 	enabled: true,
 });
