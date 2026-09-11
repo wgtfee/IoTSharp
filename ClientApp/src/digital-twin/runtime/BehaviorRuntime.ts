@@ -14,16 +14,6 @@ import type {
 
 type ChannelStatus = 'paused' | 'moving' | 'acting' | 'waiting-station' | 'waiting-material' | 'waiting-contact' | 'waiting-interlock' | 'waiting-signal' | 'waiting-signal-stale' | 'completed' | 'error';
 
-interface RobotPlacePathState {
-	withdraw: THREE.Vector3;
-	safeOutsidePick: THREE.Vector3;
-	swingStart: THREE.Vector3;
-	swingEnd: THREE.Vector3;
-	abovePlace: THREE.Vector3;
-	place: THREE.Vector3;
-	safeY: number;
-}
-
 interface ChannelState {
 	channelKey: string;
 	actorObjectId: string;
@@ -35,6 +25,7 @@ interface ChannelState {
 	waitElapsed: number;
 	waitRecordedFor?: string;
 	startedActionKey?: string;
+	actionEffectComplete?: boolean;
 	status: ChannelStatus;
 	cycleCount: number;
 	completedActions: number;
@@ -42,7 +33,6 @@ interface ChannelState {
 	stationBatchToken?: string;
 	attachedPayload?: THREE.Object3D;
 	placedPayload?: THREE.Object3D;
-	robotPlacePath?: RobotPlacePathState;
 	/** 平滑加权轮询积分；仅影响同一 actor/channel 下 Behavior 的下一次选择。 */
 	behaviorSelectionCredits: Record<string, number>;
 }
@@ -84,6 +74,9 @@ export interface BehaviorRuntimeSnapshot {
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const vector = (value?: TwinVector3) => new THREE.Vector3(value?.[0] || 0, value?.[1] || 0, value?.[2] || 0);
 const normalizedAngleDelta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+// BehaviorRuntime 只在 simulation 模式执行；老场景的码垛闭环可持续数千秒。
+// 未显式配置时仍给出有限上限，但不用设备级 300 秒默认值误杀长周期仿真。
+const DEFAULT_SIMULATION_BLOCKING_ACTION_TIMEOUT_SECONDS = 7200;
 
 /**
  * 声明式设备动作执行器。
@@ -115,6 +108,7 @@ export class BehaviorRuntime {
 		private readonly scene: THREE.Scene,
 		private readonly getObjectRoot: (objectId: string) => THREE.Object3D | undefined,
 		private readonly reportError?: (message: string) => void,
+		private readonly applyActuatorCommand?: (actuatorId: string, value: number | boolean) => boolean,
 	) {
 		this.manifest = structuredClone(manifest);
 		this.setManifest(manifest);
@@ -207,6 +201,7 @@ export class BehaviorRuntime {
 			channel.waitElapsed = 0;
 			channel.waitRecordedFor = undefined;
 			channel.startedActionKey = undefined;
+			channel.actionEffectComplete = undefined;
 			channel.status = this.running && (!this.actorFilter || channel.actorObjectId === this.actorFilter) ? 'acting' : 'paused';
 			channel.cycleCount = 0;
 			channel.completedActions = 0;
@@ -332,7 +327,8 @@ export class BehaviorRuntime {
 				channel.waitRecordedFor = undefined;
 				channel.attachedPayload = undefined;
 				channel.placedPayload = undefined;
-				channel.robotPlacePath = undefined;
+				channel.startedActionKey = undefined;
+				channel.actionEffectComplete = undefined;
 			}
 			const requirements = this.numberRecord(actorRoot.userData.stationBehaviorRequirements);
 			const counts = this.numberRecord(actorRoot.userData.stationCompletedGroupCounts);
@@ -370,16 +366,45 @@ export class BehaviorRuntime {
 			channel.phase = 0;
 			channel.waitElapsed = 0;
 			channel.waitRecordedFor = undefined;
+			channel.startedActionKey = undefined;
+			channel.actionEffectComplete = undefined;
 			channel.status = 'acting';
 			return;
 		}
 		try {
+			const blockedInterlockId = (behavior.interlockIds || []).find((interlockId) => !this.isInterlockSatisfied(interlockId));
+			if (blockedInterlockId) {
+				channel.status = 'waiting-interlock';
+				channel.waitElapsed += deltaSeconds;
+				const waitKey = `behavior:${behavior.behaviorId}:${blockedInterlockId}`;
+				if (channel.waitRecordedFor !== waitKey) {
+					channel.interlockWaitCount += 1;
+					channel.waitRecordedFor = waitKey;
+				}
+				this.throwIfActionTimedOut(channel, action, `动作编排联锁 ${blockedInterlockId}`, true);
+				return;
+			}
 			const actionKey = `${behavior.behaviorId}:${action.actionId}`;
 			if (channel.startedActionKey !== actionKey) {
 				this.applyStateAssignments(action.onStartState);
 				channel.startedActionKey = actionKey;
+				channel.actionEffectComplete = false;
+				channel.waitElapsed = 0;
+				channel.waitRecordedFor = undefined;
 			}
-			if (this.executeAction(channel, behavior, action, actorRoot, deltaSeconds)) this.completeAction(channel, action);
+			channel.waitElapsed += deltaSeconds;
+			if (!channel.actionEffectComplete) channel.actionEffectComplete = this.executeAction(channel, behavior, action, actorRoot, deltaSeconds);
+			if (!channel.actionEffectComplete) {
+				this.throwIfActionTimedOut(channel, action, `动作 ${action.actionId}`);
+				return;
+			}
+			const minimumDuration = Math.max(0, Number(action.durationSeconds || 0));
+			if (channel.waitElapsed < minimumDuration) {
+				channel.status = 'acting';
+				this.throwIfActionTimedOut(channel, action, `动作 ${action.actionId}`);
+				return;
+			}
+			this.completeAction(channel, action);
 		} catch (error) {
 			channel.status = 'error';
 			this.reportError?.(`动作 ${action.actionId} 执行失败：${error instanceof Error ? error.message : String(error)}`);
@@ -439,7 +464,6 @@ export class BehaviorRuntime {
 				const done = action.poseId
 					? this.movePose(actorRoot, this.requirePose(action), deltaSeconds, speedRatio)
 					: this.moveActorHome(behavior.actorObjectId, actorRoot, deltaSeconds, speedRatio);
-				if (done && actorRoot.getObjectByName('RobotGridGripper-2x6')) this.setRobotGridGripperSpread(actorRoot, 0);
 				return done;
 			}
 			case 'axisMove': {
@@ -456,15 +480,12 @@ export class BehaviorRuntime {
 			case 'waitSignal': {
 				const bindingId = action.signalBindingId?.trim();
 				if (!bindingId) throw new Error(`动作 ${action.actionId} 未配置 signalBindingId`);
-				channel.waitElapsed += deltaSeconds;
 				if (this.staleBindingIds.has(bindingId)) {
 					channel.status = 'waiting-signal-stale';
-					this.throwIfSignalTimedOut(channel, action, bindingId);
 					return false;
 				}
 				if (!this.isSignalSatisfied(action, this.bindingValues.get(bindingId))) {
 					channel.status = 'waiting-signal';
-					this.throwIfSignalTimedOut(channel, action, bindingId);
 					return false;
 				}
 				channel.status = 'acting';
@@ -489,9 +510,6 @@ export class BehaviorRuntime {
 			}
 			case 'place': {
 				const workPoint = this.requireWorkPoint(action);
-				if (actorRoot.getObjectByName('Robot-Axis-1') && !action.actorNodePath && !channel.actorNodePath && action.toolFrameId) {
-					return this.executeRobotPlacePath(channel, actorRoot, workPoint, action, deltaSeconds, speedRatio);
-				}
 				channel.status = channel.phase === 2 ? 'acting' : 'moving';
 				if (channel.phase === 0) {
 					if (!this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio)) return false;
@@ -504,6 +522,9 @@ export class BehaviorRuntime {
 				if (channel.phase === 2) {
 					if (!this.detachPayload(channel, workPoint, action)) return false;
 					channel.phase = action.approachOffset ? 3 : 4;
+					// 放料与回撤必须跨两个 fixed tick：释放物料的这一帧保持 TCP 在接触点，
+					// 下一帧才开始回撤。该规则属于通用 Place 语义，不依赖机器人或产线类型。
+					return false;
 				}
 				if (channel.phase === 3) {
 					if (!this.moveActorToWorkPoint(actorRoot, action.actorNodePath || channel.actorNodePath, workPoint, action.approachOffset, deltaSeconds, speedRatio)) return false;
@@ -523,7 +544,6 @@ export class BehaviorRuntime {
 				}
 				channel.status = 'acting';
 				channel.waitRecordedFor = undefined;
-				channel.waitElapsed += deltaSeconds;
 				return channel.waitElapsed >= Math.max(0, Number(action.waitSeconds ?? 0));
 			}
 			case 'prepareSlot': {
@@ -550,7 +570,7 @@ export class BehaviorRuntime {
 		channel.waitElapsed = 0;
 		channel.waitRecordedFor = undefined;
 		channel.startedActionKey = undefined;
-		channel.robotPlacePath = undefined;
+		channel.actionEffectComplete = undefined;
 		channel.status = 'acting';
 	}
 
@@ -596,6 +616,7 @@ export class BehaviorRuntime {
 	}
 
 	private setActuatorValue(actorRoot: THREE.Object3D, actuator: TwinActuatorDefinition, value: number | boolean, deltaSeconds: number, speedRatio: number) {
+		if (this.applyActuatorCommand) return this.applyActuatorCommand(actuator.actuatorId, value);
 		const node = this.findNode(actorRoot, actuator.nodePath);
 		if (!node) throw new Error(`执行机构 ${actuator.actuatorId} 找不到节点 ${actuator.nodePath}`);
 		if (actuator.kind === 'gripper') {
@@ -629,9 +650,11 @@ export class BehaviorRuntime {
 		}
 	}
 
-	private throwIfSignalTimedOut(channel: ChannelState, action: TwinBehaviorActionDefinition, bindingId: string) {
-		const timeout = Number(action.timeoutSeconds || 0);
-		if (timeout > 0 && channel.waitElapsed >= timeout) throw new Error(`等待信号 ${bindingId} 超时`);
+	private throwIfActionTimedOut(channel: ChannelState, action: TwinBehaviorActionDefinition, label: string, blockingInterlock = false) {
+		const configured = Number(action.timeoutSeconds);
+		const needsSafeDefault = blockingInterlock || action.kind === 'waitSignal' || Boolean(action.waitForInterlockId);
+		const timeout = Number.isFinite(configured) && configured > 0 ? configured : needsSafeDefault ? DEFAULT_SIMULATION_BLOCKING_ACTION_TIMEOUT_SECONDS : 0;
+		if (timeout > 0 && channel.waitElapsed >= timeout) throw new Error(`${label} 等待超过 ${timeout} 秒`);
 	}
 
 	private prepareMaterialSlot(slot: TwinMaterialSlotDefinition, deltaSeconds: number) {
@@ -736,106 +759,6 @@ export class BehaviorRuntime {
 		if (workPoint.nodePath) anchor = this.findNode(owner, workPoint.nodePath) || owner;
 		const local = vector(workPoint.localPosition).add(vector(offset));
 		return anchor.localToWorld(local);
-	}
-
-	private executeRobotPlacePath(channel: ChannelState, actorRoot: THREE.Object3D, workPoint: TwinWorkPointDefinition, action: TwinBehaviorActionDefinition, deltaSeconds: number, speedRatio: number) {
-		const toolFrame = action.toolFrameId ? this.toolFrames.get(action.toolFrameId) : undefined;
-		const attachNode = toolFrame ? this.findNode(actorRoot, toolFrame.nodePath) : undefined;
-		if (!toolFrame || !attachNode) throw new Error(`机器人放料动作 ${action.actionId} 缺少有效 TCP`);
-		actorRoot.updateMatrixWorld(true);
-		if (!channel.robotPlacePath) {
-			const tcpWorld = attachNode.localToWorld(vector(toolFrame.localPosition));
-			const palletCenter = this.resolveWorkPointWorld(workPoint);
-			const halfDepth = this.resolveStationPayloadHalfDepth(workPoint, 0.21);
-			const place = palletCenter.clone().add(new THREE.Vector3(0, halfDepth, 0));
-			const base = actorRoot.getWorldPosition(new THREE.Vector3());
-			const towardBase = new THREE.Vector3(base.x - tcpWorld.x, 0, base.z - tcpWorld.z);
-			if (towardBase.lengthSq() < 0.000001) towardBase.set(1, 0, 0); else towardBase.normalize();
-			const withdraw = tcpWorld.clone().add(towardBase.multiplyScalar(1.25));
-			const safeY = Math.max(4.05, tcpWorld.y + 1.35, place.y + 1.55);
-			const safeOutsidePick = withdraw.clone(); safeOutsidePick.y = safeY;
-			const fromBase = new THREE.Vector3(safeOutsidePick.x - base.x, 0, safeOutsidePick.z - base.z);
-			const toBase = new THREE.Vector3(place.x - base.x, 0, place.z - base.z);
-			if (fromBase.lengthSq() < 0.000001) fromBase.set(1, 0, 0); else fromBase.normalize();
-			if (toBase.lengthSq() < 0.000001) toBase.set(1, 0, 0); else toBase.normalize();
-			const swingRadius = 3.65;
-			const swingStart = new THREE.Vector3(base.x + fromBase.x * swingRadius, safeY, base.z + fromBase.z * swingRadius);
-			const swingEnd = new THREE.Vector3(base.x + toBase.x * swingRadius, safeY, base.z + toBase.z * swingRadius);
-			const abovePlace = new THREE.Vector3(place.x, safeY, place.z);
-			channel.robotPlacePath = { withdraw, safeOutsidePick, swingStart, swingEnd, abovePlace, place, safeY };
-			this.captureRobotSilkPayloadPickupLayout(channel);
-		}
-		const path = channel.robotPlacePath;
-		const setPhase = (name: string, spread: number) => {
-			actorRoot.userData.robotPlaceMotionPhase = name;
-			actorRoot.userData.robotPlaceSpread = spread;
-			this.setRobotGridGripperSpread(actorRoot, spread);
-			this.spreadAttachedSilkPayload(channel, spread);
-		};
-		channel.status = channel.phase === 6 ? 'acting' : 'moving';
-		if (channel.phase === 0) { setPhase('withdraw', 0); if (!this.moveRobotToWorld(actorRoot, path.withdraw, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 1; }
-		if (channel.phase === 1) { setPhase('lift', 0.15); if (!this.moveRobotToWorld(actorRoot, path.safeOutsidePick, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 2; }
-		if (channel.phase === 2) { setPhase('swing-start', 0.35); if (!this.moveRobotToWorld(actorRoot, path.swingStart, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 3; }
-		if (channel.phase === 3) { setPhase('transfer', 0.70); if (!this.moveRobotToWorld(actorRoot, path.swingEnd, deltaSeconds, speedRatio, toolFrame, false)) return false; channel.phase = 4; }
-		if (channel.phase === 4) { setPhase('above-place', 1); if (!this.moveRobotToWorld(actorRoot, path.abovePlace, deltaSeconds, speedRatio, toolFrame, true)) return false; channel.phase = 5; }
-		if (channel.phase === 5) { setPhase('descend', 1); if (!this.moveRobotToWorld(actorRoot, path.place, deltaSeconds, speedRatio, toolFrame, true) || !this.isToolFrameAtWorldTarget(actorRoot, toolFrame, path.place, 0.12)) return false; channel.phase = 6; }
-		if (channel.phase === 6) {
-			setPhase('place', 1);
-			if (!this.detachPayload(channel, workPoint, action)) return false;
-			channel.phase = 7;
-		}
-		if (channel.phase === 7) { setPhase('retract', 1); if (!this.moveRobotToWorld(actorRoot, path.abovePlace, deltaSeconds, speedRatio, toolFrame, true)) return false; channel.phase = 8; }
-		if (channel.phase >= 8) actorRoot.userData.robotPlaceMotionPhase = 'placed';
-		return channel.phase >= 8;
-	}
-
-	private resolveStationPayloadHalfDepth(workPoint: TwinWorkPointDefinition, fallback: number) {
-		const slot = workPoint.materialSlotId ? this.materialSlots.get(workPoint.materialSlotId) : undefined;
-		if (!slot || slot.runtimeOwnerSelection !== 'station-batch') return fallback;
-		const firstPalletId = this.getStationPalletIds(this.getObjectRoot(slot.objectId))[0];
-		if (!firstPalletId) return fallback;
-		const resolved = this.resolveMaterialSlotAnchor(slot, firstPalletId);
-		const depth = Number(resolved.owner.userData?.silkCakeAxialDepth);
-		return Number.isFinite(depth) && depth > 0 ? depth / 2 : fallback;
-	}
-
-	private captureRobotSilkPayloadPickupLayout(channel: ChannelState) {
-		for (const material of channel.attachedPayload?.children || []) {
-			if (material.userData?.materialEntity !== true || material.userData?.payloadType !== 'silk-cake') continue;
-			material.userData.robotPickupLocalPosition = material.position.toArray();
-		}
-	}
-
-	private spreadAttachedSilkPayload(channel: ChannelState, progress: number) {
-		const t = clamp01(progress);
-		for (const material of channel.attachedPayload?.children || []) {
-			if (material.userData?.materialEntity !== true || material.userData?.payloadType !== 'silk-cake') continue;
-			const row = Math.max(1, Math.min(2, Number(material.userData.materialGridRow || 1)));
-			const column = Math.max(1, Math.min(6, Number(material.userData.materialGridColumn || 1)));
-			const source = Array.isArray(material.userData.robotPickupLocalPosition) ? vector(material.userData.robotPickupLocalPosition as TwinVector3) : material.position.clone();
-			const targetX = (column - 3.5) * 1.55;
-			const targetZ = (row - 1.5) * 1.9;
-			material.position.x = THREE.MathUtils.lerp(source.x, targetX, t);
-			material.position.z = THREE.MathUtils.lerp(source.z, targetZ, t);
-		}
-	}
-
-	private setRobotGridGripperSpread(actorRoot: THREE.Object3D, progress: number) {
-		const gripper = actorRoot.getObjectByName('RobotGridGripper-2x6');
-		if (!gripper) return;
-		const t = clamp01(progress);
-		for (let index = 1; index <= 12; index += 1) {
-			const head = gripper.getObjectByName(`RobotGripperHead-${index}`);
-			if (!head) continue;
-			const row = Number(head.userData.row || (index <= 6 ? 1 : 2));
-			const column = Number(head.userData.column || ((index - 1) % 6 + 1));
-			head.position.x = THREE.MathUtils.lerp((column - 3.5) * 1.1, (column - 3.5) * 1.55, t);
-			head.position.z = THREE.MathUtils.lerp((row - 1.5) * 1.15, (row - 1.5) * 1.9, t);
-		}
-		for (const row of [1, 2]) {
-			const rail = gripper.getObjectByName(`RobotGridGripperRail-R${row}`);
-			if (rail) rail.scale.x = THREE.MathUtils.lerp(1, 1.55 / 1.1, t);
-		}
 	}
 
 	private moveActorToWorkPoint(actorRoot: THREE.Object3D, actorNodePath: string | undefined, workPoint: TwinWorkPointDefinition, offset: TwinVector3 | undefined, deltaSeconds: number, speedRatio: number) {
@@ -1032,11 +955,39 @@ export class BehaviorRuntime {
 			carrier.userData.payloadType = payloadType;
 			carrier.userData.payloadEntityIds = realEntities.map((item) => item.userData.twinEntityId);
 			attachNode.add(carrier);
-			carrier.position.copy(vector(toolFrame?.localPosition));
-			const toolRotation = toolFrame?.localRotation || [0, 0, 0];
-			carrier.rotation.set(toolRotation[0], toolRotation[1], toolRotation[2]);
-			for (const entity of realEntities) {
-				carrier.attach(entity);
+			carrier.position.set(0, 0, 0);
+			carrier.rotation.set(0, 0, 0);
+			const gridGripper = payloadType === 'silk-cake' ? actorRoot.getObjectByName('RobotGridGripper-2x6') : undefined;
+			for (const [entityIndex, entity] of realEntities.entries()) {
+				if (gridGripper && attachNode === gridGripper) {
+					const row = Math.max(1, Math.min(2, Number(entity.userData.materialGridRow || (entityIndex < 6 ? 1 : 2))));
+					const column = Math.max(1, Math.min(6, Number(entity.userData.materialGridColumn || (entityIndex % 6 + 1))));
+					const anchorIndex = (row - 1) * 6 + column;
+					const referenceAnchor = gridGripper.getObjectByName(`RobotPayloadAnchor-${anchorIndex}`);
+					if (!referenceAnchor) throw new Error(`2×6 机器人夹具缺少抓位锚点 RobotPayloadAnchor-${anchorIndex}`);
+					const fixedAnchor = new THREE.Group();
+					fixedAnchor.name = `BehaviorRobotPayloadAnchor-${anchorIndex}`;
+					gridGripper.updateMatrixWorld(true);
+					referenceAnchor.updateMatrixWorld(true);
+					fixedAnchor.position.copy(carrier.worldToLocal(referenceAnchor.getWorldPosition(new THREE.Vector3())));
+					const worldQuaternion = referenceAnchor.getWorldQuaternion(new THREE.Quaternion());
+					const parentQuaternion = carrier.getWorldQuaternion(new THREE.Quaternion()).invert();
+					fixedAnchor.quaternion.copy(parentQuaternion.multiply(worldQuaternion));
+					fixedAnchor.userData.robotPayloadAnchor = true;
+					fixedAnchor.userData.anchorIndex = anchorIndex;
+					fixedAnchor.userData.row = row;
+					fixedAnchor.userData.column = column;
+					carrier.add(fixedAnchor);
+					fixedAnchor.add(entity);
+					entity.position.set(0, 0, 0);
+					entity.rotation.set(0, 0, 0);
+					entity.scale.set(1, 1, 1);
+					entity.userData.robotGripperAnchorIndex = anchorIndex;
+					entity.userData.robotGripperAnchorRow = row;
+					entity.userData.robotGripperAnchorColumn = column;
+				} else {
+					carrier.attach(entity);
+				}
 				entity.userData.materialAttachedBy = channel.channelKey;
 				delete entity.userData.runtimeOwnerEntityId;
 				delete entity.userData.runtimeOwnerType;
@@ -1065,6 +1016,12 @@ export class BehaviorRuntime {
 		return true;
 	}
 
+	private getPayloadMaterials(payload: THREE.Object3D) {
+		const materials: THREE.Object3D[] = [];
+		payload.traverse((item) => { if (item.userData?.materialEntity === true) materials.push(item); });
+		return materials;
+	}
+
 	private detachPayload(channel: ChannelState, workPoint: TwinWorkPointDefinition | undefined, action: TwinBehaviorActionDefinition) {
 		const payload = channel.attachedPayload;
 		if (!payload) return true;
@@ -1073,8 +1030,11 @@ export class BehaviorRuntime {
 		if (workPoint?.role === 'place' && action.toolFrameId) {
 			const actorRoot = this.getObjectRoot(channel.actorObjectId);
 			const toolFrame = this.toolFrames.get(action.toolFrameId);
-			const targetWorld = channel.robotPlacePath?.place || this.resolveWorkPointWorld(workPoint);
-			if (!actorRoot?.getObjectByName('Robot-Axis-1') || !toolFrame || !this.isToolFrameAtWorldTarget(actorRoot, toolFrame, targetWorld, 0.14)) {
+			const targetWorld = this.resolveWorkPointWorld(workPoint);
+			// Place/Detach 的接触确认属于 ToolFrame/TCP 语义，而不是六轴机器人专属逻辑。
+			// 丝锭桁架、隔板桁架和天盖桁架同样通过声明式 ToolFrame 执行放料；
+			// 如果强制要求 Robot-Axis-1，这些设备永远只能停在 waiting-contact，最终超时为 error。
+			if (!actorRoot || !toolFrame || !this.isToolFrameAtWorldTarget(actorRoot, toolFrame, targetWorld, 0.14)) {
 				channel.status = 'waiting-contact';
 				return false;
 			}
@@ -1109,7 +1069,7 @@ export class BehaviorRuntime {
 
 	private distributePayloadAcrossStationPallets(channel: ChannelState, payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
 		const palletIds = this.getStationPalletIds(this.getObjectRoot(channel.actorObjectId));
-		const materials = payload.children.filter((item) => item.userData?.materialEntity === true);
+		const materials = this.getPayloadMaterials(payload);
 		const distributionMode = slot.runtimeOwnerDistributionMode || 'balanced';
 		if (distributionMode === 'one-per-owner') {
 			const allowPartial = slot.allowPartialRuntimeOwnerDistribution === true;
@@ -1179,7 +1139,7 @@ export class BehaviorRuntime {
 	private placeStackPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
 		const pattern = slot.stackPattern!;
 		const resolved = this.resolveMaterialSlotAnchor(slot, this.preferredRuntimeOwnerId(slot));
-		const materials = payload.children.filter((item) => item.userData?.materialEntity === true);
+		const materials = this.getPayloadMaterials(payload);
 		const perLayer = Math.max(1, pattern.columns * pattern.rows);
 		const capacity = perLayer * pattern.layers;
 		const current = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackItemCount || 0)));
@@ -1226,7 +1186,7 @@ export class BehaviorRuntime {
 		if (!patternSlot?.stackPattern) return false;
 		const pattern = patternSlot.stackPattern;
 		const resolved = this.resolveMaterialSlotAnchor(patternSlot, this.preferredRuntimeOwnerId(patternSlot));
-		const material = payload.children.find((item) => item.userData?.materialEntity === true);
+		const material = this.getPayloadMaterials(payload)[0];
 		if (!material) return false;
 		const perLayer = Math.max(1, pattern.columns * pattern.rows);
 		const itemCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackItemCount || 0)));
@@ -1445,7 +1405,10 @@ export class BehaviorRuntime {
 			if (field === 'itemCount') return Number(resolved.anchor.userData.stackItemCount || 0);
 			return Number(resolved.anchor.userData.stackLayerMaterialCount || 0);
 		}
-		return this.semanticState.get(source);
+		if (this.semanticState.has(source)) return this.semanticState.get(source);
+		const bindingId = source.startsWith('binding:') ? source.slice('binding:'.length) : source;
+		if (this.staleBindingIds.has(bindingId)) return undefined;
+		return this.bindingValues.get(bindingId);
 	}
 
 	private applyStateAssignments(assignments?: TwinBehaviorActionDefinition['onStartState']) {

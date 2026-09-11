@@ -1,3 +1,6 @@
+﻿import type { TwinActionFlowDefinitionV2 } from '../action-flow/contracts/action-flow-v2';
+import { validateActionFlows } from '../action-flow/validation/ActionFlowValidator';
+
 export const twinSceneSchemaVersion = 'iotsharp-twin-scene/v1' as const;
 
 export type TwinVector3 = [number, number, number];
@@ -24,7 +27,7 @@ export interface TwinModelResourceReference {
 export type TwinEquipmentType = 'loading-robot' | 'silk-cart-turntable' | 'gantry-stacker' | 'cover-applicator' | 'labeler' | 'wrapper' | 'inbound-lift';
 
 export type TwinBindingSourceKind = 'telemetry' | 'attribute' | 'alarm' | 'connectivity' | 'commandFeedback' | 'constant' | 'simulation';
-export type TwinBindingTargetKind = 'visible' | 'color' | 'emissive' | 'opacity' | 'text' | 'number' | 'position' | 'rotation' | 'scale' | 'animation' | 'routeProgress' | 'routeDistance' | 'customProperty';
+export type TwinBindingTargetKind = 'visible' | 'color' | 'emissive' | 'opacity' | 'text' | 'number' | 'position' | 'rotation' | 'scale' | 'animation' | 'routeProgress' | 'routeDistance' | 'customProperty' | 'actuator';
 
 export interface TwinObjectBindingDefinition {
 	bindingId: string;
@@ -41,6 +44,7 @@ export interface TwinObjectBindingDefinition {
 		kind: TwinBindingTargetKind;
 		property?: string;
 		path?: string;
+		actuatorId?: string;
 	};
 	transform: {
 		kind: 'identity' | 'booleanVisibility' | 'booleanColor' | 'rangeColor' | 'numberScale' | 'numberRotation' | 'enumMap' | 'formatText' | 'alarmSeverityStyle' | 'booleanAnimation' | 'routeProgress' | 'routeDistance' | 'routeEvent' | 'routeSlotArray';
@@ -71,6 +75,48 @@ export interface TwinSceneObjectDefinition {
 }
 
 export type TwinRoutePointKind = 'waypoint' | 'junction' | 'station' | 'diverter' | 'merger' | 'buffer' | 'processStation' | 'sensor';
+export type TwinRouteAuthoringMode = 'generated' | 'manual';
+export interface TwinRoutePointAuthoringDefinition {
+	mode: TwinRouteAuthoringMode;
+	sourceObjectId?: string;
+	sourcePortId?: string;
+	generatedKey?: string;
+	locked?: boolean;
+}
+export interface TwinRouteEndpointAttachment {
+	objectId: string;
+	portId: string;
+	/** entry = Component Output → Manual Route；exit = Manual Route → Component Input。 */
+	role: 'entry' | 'exit';
+	snapMode: 'hard' | 'soft';
+}
+export interface TwinRouteEdgeAuthoringDefinition {
+	mode: TwinRouteAuthoringMode;
+	sourceObjectId?: string;
+	sourceInternalFlowId?: string;
+	generatedKey?: string;
+	locked?: boolean;
+	convertedFromGenerated?: boolean;
+}
+export interface TwinRouteSectionDefinition {
+	sectionId: string;
+	name: string;
+	enabled?: boolean;
+}
+export interface TwinRouteGraphSourceMapEntryDefinition {
+	runtimeEdgeId: string;
+	authoringMode: TwinRouteAuthoringMode;
+	sourceRouteId?: string;
+	objectId?: string;
+	internalFlowId?: string;
+	manualEdgeId?: string;
+}
+export interface TwinCompiledRouteGraphDefinition {
+	compilerVersion: 1;
+	routes: TwinRouteDefinition[];
+	sourceMap: TwinRouteGraphSourceMapEntryDefinition[];
+	routeAliases: Record<string, string>;
+}
 export type TwinRouteRuleOperator = 'equals' | 'notEquals' | 'greaterThan' | 'greaterThanOrEqual' | 'lessThan' | 'lessThanOrEqual' | 'contains' | 'truthy' | 'falsy';
 export type TwinSectionOccupancyMode = 'calculated' | 'simulation' | 'live';
 export type TwinJunctionDecisionMode = 'plc' | 'simulation' | 'manual';
@@ -99,6 +145,10 @@ export interface TwinProcessDefinition {
 	batchSize?: number;
 	/** simulation 工位批次的物理排布；所有坐标必须落在真实输送设备表面。 */
 	batchLayout?: TwinProcessBatchLayoutDefinition;
+	/** Simulation 运输单元进入该 Route 时优先从此工位开始；同一物理 lane 最多配置一个。 */
+	simulationEntry?: boolean;
+	/** 批次工位物理离站时优先采用的出边；未配置时才使用第一条可用出边。 */
+	releaseEdgeId?: string;
 	/** 可选物理通道约束；Simulation 只允许同 lane 的运输单元进入该工位。 */
 	physicalLane?: string;
 	/** simulation 下只有这些 Behavior 完成组全部回写后，工位才允许放行。 */
@@ -106,8 +156,12 @@ export interface TwinProcessDefinition {
 	/** 每个 Behavior 完成组在一次工位批次中要求完成的次数。 */
 	behaviorCompletionRequirements?: Record<string, number>;
 	readyBindingId?: string;
+	/** PLC 已接收本次工艺命令；未配置时保持旧场景兼容。 */
+	ackBindingId?: string;
 	busyBindingId?: string;
 	completeBindingId?: string;
+	/** PLC 工艺周期/命令关联号，用于拒绝上一周期残留的完成高电平。 */
+	cycleIdBindingId?: string;
 	resultBindingId?: string;
 	faultBindingId?: string;
 	timeoutSeconds?: number;
@@ -127,6 +181,10 @@ export interface TwinRoutePointDefinition {
 	sensorBindingId?: string;
 	/** 正式工艺定义随 Manifest 入库；3D 设备只负责显示，不作为流程权威状态。 */
 	process?: TwinProcessDefinition;
+	/** 仅用于设计态追踪路线来源；RouteEngine 不依赖此字段。 */
+	authoring?: TwinRoutePointAuthoringDefinition;
+	/** 手工路线端点与组件 Port 的设计态连接。 */
+	attachment?: TwinRouteEndpointAttachment;
 }
 
 export interface TwinRouteEdgeDefinition {
@@ -150,9 +208,17 @@ export interface TwinRouteEdgeDefinition {
 	/** 同一物流类型可使用不同物理载具模型，例如绿色小托盘与蓝色塑料母托盘。 */
 	transportUnitResourceKey?: string;
 	conveyorObjectId?: string;
+	/** Live 放行许可：配置后必须为 true 才允许进入该边。Simulation 忽略该 PLC 信号。 */
+	releasePermitBindingId?: string;
+	/** Live 下游就绪：配置后必须为 true 才允许进入该边。Simulation 忽略该 PLC 信号。 */
+	readyBindingId?: string;
 	occupancyBindingId?: string;
 	fullBindingId?: string;
 	blockedBindingId?: string;
+	/** 稳定语义区段 ID；显示名称保存在 Route.sections。 */
+	sectionId?: string;
+	/** 仅用于设计态追踪路线来源；RouteEngine 不依赖此字段。 */
+	authoring?: TwinRouteEdgeAuthoringDefinition;
 }
 
 export interface TwinRouteDecisionRule {
@@ -188,12 +254,15 @@ export interface TwinRouteDefinition {
 	junctionDecisions: Record<string, string>;
 	routingMode: 'manual' | 'automatic';
 	decisionRules: TwinRouteDecisionRule[];
+	sections?: TwinRouteSectionDefinition[];
 }
 
 export interface TwinRuntimeDefinition {
 	dataMode: 'simulation' | 'live';
 	maxPixelRatio: number;
 	showGrid: boolean;
+	/** Live Snapshot 刷新周期；执行机构在客户端 fixed-step 中继续平滑插值。 */
+	telemetryRefreshMs?: number;
 	/** 丝饼 V7 基础设施迁移版本。达到当前版本后，用户删除的迁移组件不得再次自动补回。 */
 	silkV7InfrastructureMigrationVersion?: number;
 	/** 用户参考图双套袋包装产线布局版本；V12 支持已组件化 V11 场景继续迁移并统一辊面。 */
@@ -210,6 +279,8 @@ export interface TwinRoutePalletInitializerDefinition {
 	routeId: string;
 	/** PLC/Telemetry 侧建议使用的语义键；实际 deviceId 仍由场景绑定配置。 */
 	telemetryKey: string;
+	/** Live 模式使用的 routeSlotArray Binding；未配置时兼容旧场景，接受该路线唯一的 routeSlotArray Binding。 */
+	liveBindingId?: string;
 	simulationDefaultCount: number;
 	/** Simulation 初始数量可以为 0；启动后按工艺需要自动补入运输单元。 */
 	simulationAutoFeed?: boolean;
@@ -328,6 +399,12 @@ export interface TwinActuatorDefinition {
 	homeValue?: number;
 	speed?: number;
 	bindings?: TwinActuatorBindingDefinition;
+	telemetryInterpolation?: {
+		enabled: boolean;
+		mode: 'linear' | 'shortest-angle';
+		maxLagMs?: number;
+		snapThreshold?: number;
+	};
 }
 
 export interface TwinPoseTargetDefinition {
@@ -489,7 +566,7 @@ export interface SilkCakeDefinition {
 	};
 }
 
-export type SilkProcessWaitingReason = 'PROCESS_NOT_READY' | 'PROCESS_NOT_COMPLETED' | 'PROCESS_SIGNAL_STALE' | 'INSPECTION_NG_HOLD' | 'NO_SILK_CAKE' | 'NO_EMPTY_PALLET' | 'ROBOT_BUSY' | 'GANTRY_BUSY' | 'STACK_FULL' | 'CART_EMPTY' | 'DOWNSTREAM_FULL' | 'FAULT';
+export type SilkProcessWaitingReason = 'PROCESS_NOT_READY' | 'PROCESS_NOT_ACKNOWLEDGED' | 'PROCESS_NOT_BUSY' | 'PROCESS_NOT_COMPLETED' | 'PROCESS_SIGNAL_STALE' | 'PROCESS_TIMEOUT' | 'INSPECTION_NG_HOLD' | 'NO_SILK_CAKE' | 'NO_EMPTY_PALLET' | 'ROBOT_BUSY' | 'GANTRY_BUSY' | 'STACK_FULL' | 'CART_EMPTY' | 'DOWNSTREAM_FULL' | 'FAULT';
 
 export interface PlasticPalletDefinition {
 	palletId: string;
@@ -583,6 +660,8 @@ export interface TwinSceneManifest {
 	objects: TwinSceneObjectDefinition[];
 	bindings: TwinObjectBindingDefinition[];
 	routes: TwinRouteDefinition[];
+	/** 保存草稿时由 RouteAuthoringCompiler 固化；发布版本 Runtime 直接使用，不依赖组件库临时重建。 */
+	routeGraph?: TwinCompiledRouteGraphDefinition;
 	/** 设备语义工作点、动作编排和联锁均为声明式配置；运行时不得执行任意脚本。 */
 	workPoints?: TwinWorkPointDefinition[];
 	materialSlots?: TwinMaterialSlotDefinition[];
@@ -590,6 +669,8 @@ export interface TwinSceneManifest {
 	actuators?: TwinActuatorDefinition[];
 	poses?: TwinPoseDefinition[];
 	behaviors?: TwinBehaviorDefinition[];
+	/** Action Flow V2 图定义；Behavior V1 长期保留兼容读取和一键迁移。 */
+	actionFlows?: TwinActionFlowDefinitionV2[];
 	interlocks?: TwinInterlockDefinition[];
 	runtime: TwinRuntimeDefinition;
 	editorExtension: {
@@ -912,6 +993,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 	const allowedConveyorSizeClasses: TwinConveyorSizeClass[] = ['small', 'large'];
 	const allowedTransportUnitTypes: TwinTransportUnitType[] = ['plastic-pallet', 'wooden-pallet', 'carton'];
 	const allowedProcessTypes: TwinProcessType[] = ['robot-loading', 'external-inspection', 'bagging', 'gantry-stacking', 'scan'];
+	const allowedBehaviorActionKinds: TwinBehaviorActionKind[] = ['moveTo', 'movePose', 'jointMove', 'axisMove', 'pick', 'place', 'gripOpen', 'gripClose', 'waitSignal', 'wait', 'prepareSlot', 'home', 'attach', 'detach'];
 	const allowedEquipmentTypes: TwinEquipmentType[] = ['loading-robot', 'silk-cart-turntable', 'gantry-stacker', 'cover-applicator', 'labeler', 'wrapper', 'inbound-lift'];
 	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'];
 	if (manifest.schemaVersion !== twinSceneSchemaVersion) {
@@ -1039,6 +1121,32 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (actuator.minValue !== undefined && actuator.maxValue !== undefined && actuator.minValue > actuator.maxValue) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.range.invalid', message: '执行机构最小值不能大于最大值。', path: `actuators[${index}]` });
 		if (actuator.speed !== undefined && (!Number.isFinite(actuator.speed) || actuator.speed <= 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.speed.invalid', message: '执行机构速度必须大于 0。', path: `actuators[${index}].speed` });
 	}
+	const actuatorBindingClaims = new Map<string, string[]>();
+	for (const [bindingIndex, binding] of (manifest.bindings || []).entries()) {
+		if (binding.enabled === false || binding.target.kind !== 'actuator') continue;
+		const actuatorId = String(binding.target.actuatorId || binding.target.property || binding.target.path || '').trim();
+		if (!actuatorId || !actuatorIds.has(actuatorId)) {
+			diagnostics.push({ severity: 'error', code: 'twin.actuator.binding.actuator.invalid', message: '执行机构 Binding 必须引用当前场景中存在的 Actuator。', path: `bindings[${bindingIndex}].target.actuatorId` });
+			continue;
+		}
+		if (actuatorObjectIds.get(actuatorId) !== binding.objectId) diagnostics.push({ severity: 'error', code: 'twin.actuator.binding.object.mismatch', message: '执行机构 Binding 的 objectId 必须与 Actuator 所属对象一致。', path: `bindings[${bindingIndex}].objectId` });
+		const claims = actuatorBindingClaims.get(actuatorId) || [];
+		claims.push(binding.bindingId);
+		actuatorBindingClaims.set(actuatorId, claims);
+	}
+	for (const [actuatorId, claims] of actuatorBindingClaims) {
+		if (claims.length > 1) diagnostics.push({ severity: 'error', code: 'twin.actuator.binding.conflict', message: `执行机构 ${actuatorId} 同时存在多个实时位置 Binding：${claims.join(', ')}。`, path: 'bindings' });
+	}
+	for (const [index, actuator] of (manifest.actuators || []).entries()) {
+		const bindingId = actuator.bindings?.positionBindingId;
+		if (!bindingId) continue;
+		const binding = manifest.bindings.find((item) => item.bindingId === bindingId);
+		if (!binding || binding.target.kind !== 'actuator' || binding.target.actuatorId !== actuator.actuatorId) diagnostics.push({ severity: 'error', code: 'twin.actuator.binding.reference.invalid', message: 'Actuator.positionBindingId 必须指向该执行机构自己的 actuator Binding。', path: `actuators[${index}].bindings.positionBindingId` });
+		if (manifest.runtime.dataMode === 'live') {
+			const behaviorOwnsAxis = (manifest.behaviors || []).some((behavior) => behavior.enabled !== false && behavior.actions.some((action) => action.actuatorId === actuator.actuatorId && ['jointMove', 'axisMove', 'gripOpen', 'gripClose'].includes(action.kind)));
+			if (behaviorOwnsAxis) diagnostics.push({ severity: 'warning', code: 'twin.actuator.live-control.conflict', message: `Live 模式下 ${actuator.name} 已由 Telemetry Feedback 接管；Behavior 的轴动作只作为流程意图，不得覆盖真实位置。`, path: `actuators[${index}]` });
+		}
+	}
 	const poseIds = new Set<string>();
 	const poseObjectIds = new Map<string, string>();
 	for (const [index, pose] of (manifest.poses || []).entries()) {
@@ -1073,8 +1181,12 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		behaviorIds.add(behavior.behaviorId);
 		if (!objectIds.has(behavior.actorObjectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actor.invalid', message: '动作编排引用的执行对象不存在。', path: `behaviors[${behaviorIndex}].actorObjectId` });
 		if (behavior.selectionWeight !== undefined && (!Number.isFinite(behavior.selectionWeight) || behavior.selectionWeight <= 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.selection-weight.invalid', message: '动作编排调度权重必须大于 0。', path: `behaviors[${behaviorIndex}].selectionWeight` });
+		if (!behavior.actions?.length) diagnostics.push({ severity: 'error', code: 'twin.behavior.actions.empty', message: '动作编排至少需要一个动作步骤。', path: `behaviors[${behaviorIndex}].actions` });
+		const actionIds = new Set<string>();
 		for (const [actionIndex, action] of (behavior.actions || []).entries()) {
-			if (!action.actionId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.required', message: '动作步骤必须有 actionId。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
+			if (!action.actionId?.trim() || actionIds.has(action.actionId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.id.invalid', message: '动作步骤 actionId 不能为空且在同一编排内必须唯一。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].actionId` });
+			actionIds.add(action.actionId);
+			if (!allowedBehaviorActionKinds.includes(action.kind)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.kind.invalid', message: '动作步骤类型不受支持。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].kind` });
 			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
 			if (action.workPointId && !workPointIds.has(action.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint-reference.invalid', message: '动作引用的工作点不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
 			if (action.sourceSlotId && !materialSlotIds.has(action.sourceSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.source-slot.invalid', message: '动作引用的来源 MaterialSlot 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].sourceSlotId` });
@@ -1092,8 +1204,12 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (action.kind === 'waitSignal' && !action.signalBindingId?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.signal.required', message: 'waitSignal 必须引用 PLC/Telemetry Binding。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].signalBindingId` });
 			if (action.kind === 'waitSignal' && action.signalBindingId && !manifest.bindings.some((binding) => binding.bindingId === action.signalBindingId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.signal.invalid', message: 'waitSignal 引用的 PLC/Telemetry Binding 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].signalBindingId` });
 			if (action.timeoutSeconds !== undefined && (!Number.isFinite(action.timeoutSeconds) || action.timeoutSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.timeout.invalid', message: '动作超时秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].timeoutSeconds` });
+			if ((action.kind === 'waitSignal' || action.waitForInterlockId) && !(Number(action.timeoutSeconds) > 0)) diagnostics.push({ severity: 'warning', code: 'twin.behavior.action.timeout.default', message: '阻塞动作未配置业务超时，长周期仿真将使用 7200 秒兼容上限；建议按设备节拍显式配置。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].timeoutSeconds` });
 			if (action.waitForInterlockId && !interlockIds.has(action.waitForInterlockId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.interlock.invalid', message: '等待动作引用的联锁不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitForInterlockId` });
 			if (action.waitSeconds !== undefined && (!Number.isFinite(action.waitSeconds) || action.waitSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.wait.invalid', message: '等待秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].waitSeconds` });
+			if (action.durationSeconds !== undefined && (!Number.isFinite(action.durationSeconds) || action.durationSeconds < 0)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.duration.invalid', message: '动作最短持续秒数不能小于 0。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].durationSeconds` });
+			if (action.approachOffset && !isFiniteVector(action.approachOffset)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.approach-offset.invalid', message: '动作接近偏移必须是三个有限数值。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].approachOffset` });
+			if (action.liftOffset && !isFiniteVector(action.liftOffset)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.lift-offset.invalid', message: '动作提升偏移必须是三个有限数值。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].liftOffset` });
 			if (action.kind === 'prepareSlot' && (!action.sourceSlotId || !materialSlotIds.has(action.sourceSlotId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.prepare-slot.invalid', message: 'prepareSlot 必须引用有效来源 MaterialSlot。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].sourceSlotId` });
 			for (const [stateIndex, state] of (action.onStartState || []).entries()) if (!state.source?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.state-source.required', message: '动作开始状态必须配置状态源。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].onStartState[${stateIndex}].source` });
 			for (const [stateIndex, state] of (action.onCompleteState || []).entries()) if (!state.source?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.state-source.required', message: '动作完成状态必须配置状态源。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].onCompleteState[${stateIndex}].source` });
@@ -1104,6 +1220,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 
 	const bindingIds = new Set<string>();
 	const routeBindingIds = new Set<string>();
+	const routeSlotBindingRouteIds = new Map<string, string>();
 	for (const [bindingIndex, binding] of manifest.bindings.entries()) {
 		if (!binding.bindingId?.trim() || bindingIds.has(binding.bindingId)) {
 			diagnostics.push({ severity: 'error', code: 'twin.binding.id.invalid', message: '绑定 ID 为空或重复。', path: `bindings[${bindingIndex}].bindingId` });
@@ -1118,6 +1235,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (binding.source.kind !== 'telemetry') diagnostics.push({ severity: 'error', code: 'twin.binding.route-slot.source.invalid', message: '托盘位置数组只能绑定 Telemetry 数据源。', path: `bindings[${bindingIndex}].source.kind` });
 			const routeId = String((binding.transform as Record<string, unknown>).routeId || '').trim() || String(binding.target.property || '').replace(/^routeSlots:/, '');
 			if (!routeId || !manifest.routes.some((item) => item.routeId === routeId)) diagnostics.push({ severity: 'error', code: 'twin.binding.route-slot.route.invalid', message: '托盘位置数组必须引用当前场景中存在的目标路线。', path: `bindings[${bindingIndex}].transform.routeId` });
+			else routeSlotBindingRouteIds.set(binding.bindingId, routeId);
 		}
 		if (binding.transform.kind === 'routeDistance') {
 			if (binding.source.kind !== 'telemetry') diagnostics.push({ severity: 'error', code: 'twin.binding.route-distance.source.invalid', message: '路线实际位置只能绑定 Telemetry 数据源。', path: `bindings[${bindingIndex}].source.kind` });
@@ -1153,6 +1271,9 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 				if (point.kind !== 'processStation') diagnostics.push({ severity: 'error', code: 'twin.route.point.process-kind.invalid', message: '只有加工工位节点可以配置工艺定义。', path: `routes[${routeIndex}].points[${pointIndex}].process` });
 				if (!allowedProcessTypes.includes(point.process.type)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-type.invalid', message: '工位类型不受支持。', path: `routes[${routeIndex}].points[${pointIndex}].process.type` });
 				if (point.process.cycleSeconds !== undefined && (!Number.isFinite(point.process.cycleSeconds) || point.process.cycleSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-cycle.invalid', message: '工位仿真节拍必须大于 0 秒。', path: `routes[${routeIndex}].points[${pointIndex}].process.cycleSeconds` });
+				if (point.process.timeoutSeconds !== undefined && (!Number.isFinite(point.process.timeoutSeconds) || point.process.timeoutSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-timeout.invalid', message: '工位超时必须大于 0 秒。', path: `routes[${routeIndex}].points[${pointIndex}].process.timeoutSeconds` });
+				if (manifest.runtime.dataMode === 'live' && !point.process.completeBindingId) diagnostics.push({ severity: 'warning', code: 'twin.route.point.process-complete-binding.missing', message: 'Live 工位没有完成信号，运行时不会自行假定完成。', path: `routes[${routeIndex}].points[${pointIndex}].process.completeBindingId` });
+				if (manifest.runtime.dataMode === 'live' && !(Number(point.process.timeoutSeconds) > 0)) diagnostics.push({ severity: 'warning', code: 'twin.route.point.process-timeout.default', message: 'Live 工位未配置超时，将使用运行时 300 秒安全默认值。', path: `routes[${routeIndex}].points[${pointIndex}].process.timeoutSeconds` });
 			}
 		}
 		if (route.startPointId && !pointIds.has(route.startPointId)) {
@@ -1185,7 +1306,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'wooden-pallet') diagnostics.push({ severity: 'error', code: 'twin.route.edge.transport-unit-size.invalid', message: '小辊道不允许输送木托盘。', path: `routes[${routeIndex}].edges[${index}].transportUnitType` });
 			if (edge.conveyorSizeClass === 'large' && edge.transportUnitType === 'plastic-pallet') diagnostics.push({ severity: 'error', code: 'twin.route.edge.transport-unit-size.invalid', message: '大辊道不允许输送塑料托盘。', path: `routes[${routeIndex}].edges[${index}].transportUnitType` });
 			if (edge.occupancyMode === 'live' && !edge.occupancyBindingId && !edge.fullBindingId) diagnostics.push({ severity: 'warning', code: 'twin.route.edge.live-binding.missing', message: 'Live 占用模式至少应配置占用数量或满位信号。', path: `routes[${routeIndex}].edges[${index}]` });
-			for (const [property, bindingId] of [['occupancyBindingId', edge.occupancyBindingId], ['fullBindingId', edge.fullBindingId], ['blockedBindingId', edge.blockedBindingId]] as const) {
+			for (const [property, bindingId] of [['releasePermitBindingId', edge.releasePermitBindingId], ['readyBindingId', edge.readyBindingId], ['occupancyBindingId', edge.occupancyBindingId], ['fullBindingId', edge.fullBindingId], ['blockedBindingId', edge.blockedBindingId]] as const) {
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.binding.invalid', message: '输送段必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].edges[${index}].${property}` });
 			}
 			if (edge.conveyorObjectId && !objectIds.has(edge.conveyorObjectId)) diagnostics.push({ severity: 'error', code: 'twin.route.edge.object.invalid', message: '输送段引用的场景对象不存在。', path: `routes[${routeIndex}].edges[${index}].conveyorObjectId` });
@@ -1216,7 +1337,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			for (const [property, bindingId] of [['actuatorBindingId', point.actuatorBindingId], ['sensorBindingId', point.sensorBindingId]] as const) {
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.point.binding.invalid', message: '路线节点必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].points[${pointIndex}].${property}` });
 			}
-			for (const property of ['readyBindingId', 'busyBindingId', 'completeBindingId', 'resultBindingId', 'faultBindingId'] as const) {
+			for (const property of ['readyBindingId', 'ackBindingId', 'busyBindingId', 'completeBindingId', 'cycleIdBindingId', 'resultBindingId', 'faultBindingId'] as const) {
 				const bindingId = point.process?.[property];
 				if (bindingId && !routeBindingIds.has(bindingId)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-binding.invalid', message: '工位信号必须引用 routeEvent 数据绑定。', path: `routes[${routeIndex}].points[${pointIndex}].process.${property}` });
 			}
@@ -1237,7 +1358,27 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		}
 	}
 
-	if (manifest.resources.some((resource) => resource.status === 'local-poc')) {
+	for (const [initializerIndex, initializer] of (manifest.runtime.routePalletInitializers || []).entries()) {
+		const initializerPath = `runtime.routePalletInitializers[${initializerIndex}]`;
+		if (!routeIds.has(initializer.routeId)) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.route.invalid', message: '托盘初始化必须引用当前场景中存在的路线。', path: `${initializerPath}.routeId` });
+		if (!Number.isInteger(initializer.simulationDefaultCount) || initializer.simulationDefaultCount < 0) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.count.invalid', message: 'Simulation 初始化托盘数量必须是大于等于 0 的整数。', path: `${initializerPath}.simulationDefaultCount` });
+		if (initializer.liveBindingId) {
+			const bindingRouteId = routeSlotBindingRouteIds.get(initializer.liveBindingId);
+			if (!bindingRouteId) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.live-binding.invalid', message: 'Live 托盘数组必须引用 routeSlotArray Telemetry Binding。', path: `${initializerPath}.liveBindingId` });
+			else if (bindingRouteId !== initializer.routeId) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.live-binding-route.mismatch', message: 'Live 托盘数组 Binding 与初始化配置的路线不一致。', path: `${initializerPath}.liveBindingId` });
+		}
+	}
+
+	for (const flowDiagnostic of validateActionFlows(manifest.actionFlows || [], manifest)) {
+		const flowIndex = (manifest.actionFlows || []).findIndex((item) => item.flowId === flowDiagnostic.flowId);
+		const basePath = flowIndex >= 0 ? `actionFlows[${flowIndex}]` : 'actionFlows';
+		diagnostics.push({
+			severity: flowDiagnostic.severity,
+			code: flowDiagnostic.code,
+			message: flowDiagnostic.suggestion ? `${flowDiagnostic.message} 寤鸿锛?{flowDiagnostic.suggestion}` : flowDiagnostic.message,
+			path: flowDiagnostic.propertyPath ? `${basePath}.${flowDiagnostic.propertyPath}` : basePath,
+		});
+	}	if (manifest.resources.some((resource) => resource.status === 'local-poc')) {
 		diagnostics.push({ severity: 'warning', code: 'twin.resource.local', message: '场景包含仅在当前浏览器有效的本地模型，发布前需要上传到 IoTSharp 模型资源中心。' });
 	}
 	return diagnostics;
@@ -1250,6 +1391,7 @@ export const createRoutePoint = (position: TwinVector3, index: number): TwinRout
 	name: `控制点 ${index + 1}`,
 	position,
 	kind: 'waypoint',
+	authoring: { mode: 'manual', locked: false },
 });
 
 export const createRouteEdge = (fromPointId: string, toPointId: string, index: number): TwinRouteEdgeDefinition => ({
@@ -1265,6 +1407,7 @@ export const createRouteEdge = (fromPointId: string, toPointId: string, index: n
 	reservationTimeoutSeconds: 30,
 	conveyorSizeClass: 'small',
 	transportUnitType: 'plastic-pallet',
+	authoring: { mode: 'manual', locked: false },
 });
 
 export const createRouteDecisionRule = (junctionPointId: string, edgeId: string, index: number): TwinRouteDecisionRule => ({
@@ -1290,6 +1433,11 @@ export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinit
 			: 'manual';
 		return {
 			...point,
+			authoring: point.authoring
+				? { ...point.authoring, mode: point.authoring.mode === 'manual' ? 'manual' : 'generated' }
+				: (route.generatedBy === 'component-connections' || Boolean(point.componentObjectId) || Boolean(point.componentPortId))
+					? { mode: 'generated' as const, sourceObjectId: point.componentObjectId, sourcePortId: point.componentPortId, locked: true }
+					: { mode: 'manual' as const, locked: false },
 			kind: point.kind || 'waypoint',
 			decisionMode: isJunction ? point.decisionMode || inferredDecisionMode : point.decisionMode,
 			decisionTimeoutSeconds: isJunction ? point.decisionTimeoutSeconds ?? 10 : point.decisionTimeoutSeconds,
@@ -1299,17 +1447,26 @@ export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinit
 	const edges = configuredEdges.length > 0
 		? configuredEdges.map((edge) => ({
 			...edge,
+			authoring: edge.authoring
+				? { ...edge.authoring, mode: edge.authoring.mode === 'manual' ? 'manual' : 'generated' }
+				: (route.generatedBy === 'component-connections' || Boolean(edge.componentObjectId) || Boolean(edge.conveyorObjectId))
+					? { mode: 'generated' as const, sourceObjectId: edge.componentObjectId || edge.conveyorObjectId, locked: true }
+					: { mode: 'manual' as const, locked: false },
 			bidirectional: edge.bidirectional === true,
 			enabled: edge.enabled !== false,
 			priority: edge.priority ?? 0,
 			capacity: edge.capacity ?? 1,
-			occupancyMode: edge.occupancyMode || (edge.occupancyBindingId || edge.fullBindingId ? 'live' : 'calculated'),
+			occupancyMode: edge.occupancyMode || (edge.releasePermitBindingId || edge.readyBindingId || edge.occupancyBindingId || edge.fullBindingId || edge.blockedBindingId ? 'live' : 'calculated'),
 			reservationTimeoutSeconds: edge.reservationTimeoutSeconds ?? 30,
 			conveyorSizeClass: edge.conveyorSizeClass || 'small',
 			transportUnitType: edge.transportUnitType || 'plastic-pallet',
 		}))
-		: points.slice(1).map((point, index) => createRouteEdge(points[index].pointId, point.pointId, index));
-	if (configuredEdges.length === 0 && route.loop && points.length > 2) edges.push(createRouteEdge(points[points.length - 1].pointId, points[0].pointId, edges.length));
+		: points.slice(1).map((point, index) => ({ ...createRouteEdge(points[index].pointId, point.pointId, index), authoring: { mode: 'manual' as const, locked: false } }));
+	if (configuredEdges.length === 0 && route.loop && points.length > 2) edges.push({ ...createRouteEdge(points[points.length - 1].pointId, points[0].pointId, edges.length), authoring: { mode: 'manual', locked: false } });
+	const sections = (route.sections || []).map((section) => ({ ...section, enabled: section.enabled !== false }));
+	for (const sectionId of [...new Set(edges.map((edge) => edge.sectionId).filter((value): value is string => Boolean(value)))]) {
+		if (!sections.some((section) => section.sectionId === sectionId)) sections.push({ sectionId, name: sectionId, enabled: true });
+	}
 	return {
 		...route,
 		points,
@@ -1318,6 +1475,7 @@ export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinit
 		junctionDecisions: { ...(route.junctionDecisions || {}) },
 		routingMode: route.routingMode || 'manual',
 		decisionRules: (route.decisionRules || []).map((rule) => ({ ...rule, enabled: rule.enabled !== false, priority: rule.priority ?? 0 })),
+		sections,
 	};
 };
 
@@ -1327,3 +1485,4 @@ export const createLocalModelResourceReference = (fileName: string): TwinModelRe
 	sourceFileName: fileName,
 	status: 'local-poc',
 });
+

@@ -114,8 +114,13 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		const props = definition.properties;
 		const diameter = resolveNumber(props, 'diameter', 1.48, 0.8, 2.4);
 		const baseHeight = resolveNumber(props, 'baseHeight', 0.12, 0.06, 0.3);
-		const columnHeight = resolveNumber(props, 'columnHeight', 0.92, 0.3, 1.5);
-		const columnDiameter = resolveNumber(props, 'columnDiameter', 0.48, 0.18, 0.8);
+		const supportSeatHeight = resolveNumber(props, 'supportSeatHeight', 0.57, 0.18, 0.9);
+		const supportSeatDiameter = resolveNumber(props, 'supportSeatDiameter', 0.72, 0.58, 1.05);
+		const silkCakeInnerHoleDiameter = resolveNumber(props, 'silkCakeInnerHoleDiameter', 0.56, 0.28, 0.9);
+		const locatingPostClearance = resolveNumber(props, 'locatingPostClearance', 0.02, 0.005, 0.08);
+		const defaultLocatingPostDiameter = Math.max(0.12, silkCakeInnerHoleDiameter - locatingPostClearance * 2);
+		const locatingPostDiameter = resolveNumber(props, 'locatingPostDiameter', defaultLocatingPostDiameter, 0.12, Math.max(0.13, silkCakeInnerHoleDiameter - 0.002));
+		const locatingPostHeight = resolveNumber(props, 'locatingPostHeight', 0.34, 0.12, 0.8);
 		const radius = diameter / 2;
 		const root = new THREE.Group();
 		root.name = definition.name;
@@ -148,19 +153,21 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 			root.add(holder);
 		}
 
-		const column = new THREE.Mesh(new THREE.CylinderGeometry(columnDiameter * 0.48, columnDiameter * 0.52, columnHeight, 28), green);
-		column.name = 'SmallPallet-CenterColumn';
-		column.position.y = baseHeight + columnHeight / 2;
-		column.userData.locatingPost = true;
-		root.add(column);
-		const core = new THREE.Mesh(new THREE.CylinderGeometry(columnDiameter * 0.29, columnDiameter * 0.29, columnHeight * 0.5, 24), darkGreen);
-		core.name = 'SmallPallet-Core';
-		core.position.y = baseHeight + columnHeight * 0.75;
-		root.add(core);
+		// 两级中心结构：大承托中心座承担丝锭底面载荷，小定位柱只穿入中孔做径向定位。
+		const supportSeat = new THREE.Mesh(new THREE.CylinderGeometry(supportSeatDiameter * 0.48, supportSeatDiameter * 0.5, supportSeatHeight, 32), green);
+		supportSeat.name = 'SmallPallet-SupportSeat';
+		supportSeat.position.y = baseHeight + supportSeatHeight / 2;
+		supportSeat.userData.supportSeat = true;
+		root.add(supportSeat);
+		const supportSurfaceY = Math.max(baseRingSurfaceY, baseHeight + supportSeatHeight);
+		const locatingPost = new THREE.Mesh(new THREE.CylinderGeometry(locatingPostDiameter / 2, locatingPostDiameter / 2, locatingPostHeight, 28), darkGreen);
+		locatingPost.name = 'SmallPallet-LocatingPost';
+		locatingPost.position.y = supportSurfaceY + locatingPostHeight / 2;
+		locatingPost.userData.locatingPost = true;
+		locatingPost.userData.fitBoreDiameter = silkCakeInnerHoleDiameter;
+		root.add(locatingPost);
 
-		// 与 V6 保持同一机械语义：丝锭套住中央定位柱，整体位于小托盘上方。
-		// 默认几何下丝锭底面约 0.69m、中心约 0.90m；定位柱穿过丝锭中孔负责径向定位。
-		const supportSurfaceY = Math.max(baseRingSurfaceY, baseHeight + columnHeight * 0.62);
+		// 丝锭底面严格由大承托中心座顶面承托；小定位柱从承托面向上进入中心孔。
 		const cakeCenterY = supportSurfaceY + silkCakeAxialDepth / 2;
 		const cakeAnchor = new THREE.Group();
 		cakeAnchor.name = 'SilkCakeAnchor';
@@ -177,10 +184,11 @@ export class SmallPalletComponent implements TwinComponentGenerator {
 		root.userData.smallPalletSupportSurfaceY = supportSurfaceY;
 		root.userData.smallPalletBaseRingSurfaceY = baseRingSurfaceY;
 		root.userData.smallPalletCakeCenterY = cakeCenterY;
-		root.userData.smallPalletLocatingPost = { nodePath: 'SmallPallet-CenterColumn', diameter: columnDiameter, height: columnHeight };
+		root.userData.smallPalletSupportSeat = { nodePath: 'SmallPallet-SupportSeat', diameter: supportSeatDiameter, height: supportSeatHeight, topY: supportSurfaceY };
+		root.userData.smallPalletLocatingPost = { nodePath: 'SmallPallet-LocatingPost', diameter: locatingPostDiameter, height: locatingPostHeight, boreDiameter: silkCakeInnerHoleDiameter, clearance: silkCakeInnerHoleDiameter - locatingPostDiameter };
 		root.userData.silkCakeAxialDepth = silkCakeAxialDepth;
 		root.userData.materialSlots = [{ slotId: 'silk-place', name: '小托盘放丝位', role: 'target', nodePath: 'SilkCakeAnchor', localPosition: [0, 0, 0], localRotation: [-Math.PI / 2, 0, 0], payloadType: 'silk-cake', capacity: 12 }];
-		root.userData.properties = { ...props, diameter, baseHeight, columnHeight, columnDiameter, routeManagedExternally: true };
+		root.userData.properties = { ...props, diameter, baseHeight, supportSeatHeight, supportSeatDiameter, silkCakeInnerHoleDiameter, locatingPostClearance, locatingPostDiameter, locatingPostHeight, routeManagedExternally: true };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, []);
 	}

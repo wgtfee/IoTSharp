@@ -636,6 +636,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 			process: kind.process ? { ...kind.process } : undefined,
 			componentObjectId: sourceMember?.objectId,
 			componentPortId: sourceMember?.portId,
+			authoring: { mode: 'generated', sourceObjectId: sourceMember?.objectId, sourcePortId: sourceMember?.portId, generatedKey: pointId, locked: true },
 		};
 		const source = objects.find((item) => item.objectId === sourceMember?.objectId);
 		if (point.process && source) {
@@ -665,6 +666,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 							kind: internalPoint.kind || 'buffer',
 							componentObjectId: object.objectId,
 							componentPortId: internalPoint.portId,
+							authoring: { mode: 'generated', sourceObjectId: object.objectId, sourcePortId: internalPoint.portId, generatedKey: routePointId, locked: true },
 						};
 						if (internalPoint.processType) {
 							routePoint.kind = 'processStation';
@@ -681,8 +683,9 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 					if (!fromPointId || !toPointId || fromPointId === toPointId) continue;
 					const conveyorSizeClass = flow.conveyorSizeClass || (properties.conveyorSizeClass === 'large' ? 'large' : 'small');
 					const transportUnitType = flow.transportUnitType || (properties.transportUnitType === 'wooden-pallet' ? 'wooden-pallet' : properties.transportUnitType === 'carton' ? 'carton' : 'plastic-pallet');
+					const generatedEdgeId = `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(flow.flowId)}-${safeIdPart(internalEdge.edgeId)}`;
 					edges.push({
-						edgeId: `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(flow.flowId)}-${safeIdPart(internalEdge.edgeId)}`,
+						edgeId: generatedEdgeId,
 						fromPointId,
 						toPointId,
 						name: internalEdge.name || `${object.name} · ${flow.name}`,
@@ -699,6 +702,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 						conveyorObjectId: object.objectId,
 						componentObjectId: object.objectId,
 						sectionId: object.component.sectionId || `section-${object.objectId}`,
+						authoring: { mode: 'generated', sourceObjectId: object.objectId, sourceInternalFlowId: flow.flowId, generatedKey: generatedEdgeId, locked: true },
 					});
 				}
 			}
@@ -709,8 +713,9 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 			const fromPointId = pointIdByPort.get(portKey(object.objectId, pair.fromPortId));
 			const toPointId = pointIdByPort.get(portKey(object.objectId, pair.toPortId));
 			if (!fromPointId || !toPointId || fromPointId === toPointId) continue;
+			const generatedEdgeId = `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(pair.fromPortId)}-${safeIdPart(pair.toPortId)}`;
 			edges.push({
-				edgeId: `component-edge-${safeIdPart(object.objectId)}-${safeIdPart(pair.fromPortId)}-${safeIdPart(pair.toPortId)}`,
+				edgeId: generatedEdgeId,
 				fromPointId, toPointId,
 				name: `${object.name} · ${pair.fromPortId} → ${pair.toPortId}`,
 				bidirectional: pair.bidirectional === true,
@@ -724,6 +729,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 				conveyorObjectId: object.objectId,
 				componentObjectId: object.objectId,
 				sectionId: object.component.sectionId || `section-${object.objectId}`,
+				authoring: { mode: 'generated', sourceObjectId: object.objectId, sourceInternalFlowId: `${pair.fromPortId}->${pair.toPortId}`, generatedKey: generatedEdgeId, locked: true },
 			});
 		}
 	}
@@ -754,13 +760,46 @@ export const upsertGeneratedComponentRoutes = (manifest: TwinSceneManifest): Twi
 		if (!isComponentSceneObject(item) || item.component.properties?.routeManagedExternally === true) return false;
 		return getBuiltInComponentTemplate(item.component.resourceKey)?.capabilities.includes('material-flow') === true;
 	});
+	const previousGeneratedRoutes = manifest.routes.filter((item) => item.generatedBy === 'component-connections' || item.routeId === LEGACY_GENERATED_ROUTE_ID);
 	const retainedRoutes = manifest.routes.filter((item) => item.generatedBy !== 'component-connections' && item.routeId !== LEGACY_GENERATED_ROUTE_ID);
 	if (!components.length) { manifest.routes = retainedRoutes; return []; }
 	const results = buildComponentGraphRoutes(manifest);
+	for (const result of results) {
+		const previous = previousGeneratedRoutes.find((item) => item.routeId === result.route.routeId || (item.componentNetworkId && item.componentNetworkId === result.route.componentNetworkId));
+		if (!previous) continue;
+		const pointIds = new Set(result.route.points.map((item) => item.pointId));
+		for (const point of previous.points.filter((item) => item.authoring?.mode === 'manual')) {
+			const generatedIndex = result.route.points.findIndex((item) => item.pointId === point.pointId);
+			if (generatedIndex >= 0) result.route.points.splice(generatedIndex, 1, structuredClone(point));
+		}
+		const manualPoints = previous.points.filter((item) => item.authoring?.mode === 'manual' && !pointIds.has(item.pointId));
+		for (const point of manualPoints) { result.route.points.push(structuredClone(point)); pointIds.add(point.pointId); }
+		const edgeIds = new Set(result.route.edges.map((item) => item.edgeId));
+		for (const edge of previous.edges.filter((item) => item.authoring?.mode === 'manual' && item.authoring.convertedFromGenerated === true)) {
+			const generatedIndex = result.route.edges.findIndex((item) => item.edgeId === edge.edgeId);
+			if (generatedIndex >= 0) result.route.edges.splice(generatedIndex, 1, structuredClone(edge));
+		}
+		const manualEdges = previous.edges.filter((item) => item.authoring?.mode === 'manual' && !edgeIds.has(item.edgeId));
+		for (const edge of manualEdges) if (pointIds.has(edge.fromPointId) && pointIds.has(edge.toPointId)) { result.route.edges.push(structuredClone(edge)); edgeIds.add(edge.edgeId); }
+		const manualEdgeIds = new Set(manualEdges.map((item) => item.edgeId));
+		for (const rule of previous.decisionRules || []) if (manualEdgeIds.has(rule.edgeId) && !result.route.decisionRules.some((item) => item.ruleId === rule.ruleId)) result.route.decisionRules.push(structuredClone(rule));
+		for (const [pointId, edgeId] of Object.entries(previous.junctionDecisions || {})) if (manualEdgeIds.has(edgeId) && pointIds.has(pointId)) result.route.junctionDecisions[pointId] = edgeId;
+	}
 	const generatedRoutes = results.map((item) => item.route);
 	manifest.routes = asV7Objects(manifest).some((item) => item.kind === 'procedural')
 		? [...retainedRoutes, ...generatedRoutes]
 		: [...generatedRoutes, ...retainedRoutes];
+	// Manual Route 的 hard Attachment 只跟随吸附的组件 Port；中间手工点保持世界坐标不变。
+	const componentById = new Map(components.map((item) => [item.objectId, item]));
+	for (const route of manifest.routes) for (const point of route.points) {
+		const attachment = point.attachment;
+		if (!attachment || attachment.snapMode !== 'hard') continue;
+		const object = componentById.get(attachment.objectId);
+		if (!object) continue; // 组件删除后保留手工 Point/Attachment，后续 Validator 负责标红。
+		const port = resolveComponentPorts(object).find((item) => item.portId === attachment.portId);
+		if (!port) continue;
+		point.position = [port.worldPosition.x, port.worldPosition.y, port.worldPosition.z];
+	}
 	for (const object of components) {
 		const firstEdge = results.flatMap((item) => item.route.edges).find((edge) => edge.componentObjectId === object.objectId);
 		object.component.sectionId ||= `section-${object.objectId}`;

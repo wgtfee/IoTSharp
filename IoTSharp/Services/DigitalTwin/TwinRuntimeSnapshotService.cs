@@ -3,6 +3,7 @@ using IoTSharp.Contracts;
 using IoTSharp.Data;
 using IoTSharp.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,8 +18,13 @@ namespace IoTSharp.Services.DigitalTwin;
 public sealed class TwinRuntimeSnapshotService
 {
     private readonly ApplicationDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public TwinRuntimeSnapshotService(ApplicationDbContext context) => _context = context;
+    public TwinRuntimeSnapshotService(ApplicationDbContext context, IMemoryCache cache)
+    {
+        _context = context;
+        _cache = cache;
+    }
 
     /// <summary>
     /// 获取场景绑定快照。草稿绑定不会进入运行态，指定版本时读取对应不可变绑定副本。
@@ -43,12 +49,17 @@ public sealed class TwinRuntimeSnapshotService
         }
         if (versionId == Guid.Empty) throw new TwinOperationException(ApiCode.CantFindObject, "场景尚未发布或版本不存在。");
 
-        var bindings = await _context.TwinObjectBindings.AsNoTracking()
-            .Where(item => !item.Deleted && item.Enabled && item.SceneId == scene.Id && item.SceneVersionId == versionId &&
-                           item.TenantId == profile.Tenant && item.CustomerId == profile.Customer &&
-                           item.SourceKind != TwinBindingSourceKind.Resource)
-            .OrderBy(item => item.Priority)
-            .ToListAsync(cancellationToken);
+        var bindingCacheKey = $"twin-runtime-bindings:{profile.Tenant}:{profile.Customer}:{scene.Id}:{versionId}";
+        if (!_cache.TryGetValue(bindingCacheKey, out List<TwinObjectBinding>? bindings) || bindings == null)
+        {
+            bindings = await _context.TwinObjectBindings.AsNoTracking()
+                .Where(item => !item.Deleted && item.Enabled && item.SceneId == scene.Id && item.SceneVersionId == versionId &&
+                               item.TenantId == profile.Tenant && item.CustomerId == profile.Customer &&
+                               item.SourceKind != TwinBindingSourceKind.Resource)
+                .OrderBy(item => item.Priority)
+                .ToListAsync(cancellationToken);
+            _cache.Set(bindingCacheKey, bindings, TimeSpan.FromMinutes(5));
+        }
         var now = DateTime.UtcNow;
         var updates = new List<TwinDataUpdateDto>(bindings.Count);
 
@@ -83,6 +94,15 @@ public sealed class TwinRuntimeSnapshotService
                     updates.Add(ToMissingUpdate(binding));
                     break;
             }
+        }
+
+        if (request.SinceTimestamp.HasValue)
+        {
+            var since = EnsureUtc(request.SinceTimestamp.Value);
+            updates = updates.Where(update => update.Stale ||
+                string.Equals(update.Quality, "missing", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(update.Quality, "bad", StringComparison.OrdinalIgnoreCase) ||
+                EnsureUtc(update.SourceTimestamp) > since).ToList();
         }
 
         return new TwinRuntimeSnapshotDto { SceneId = scene.Id, ServerTimestamp = now, Updates = updates };

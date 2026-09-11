@@ -391,7 +391,7 @@ export function setTransformControls(scene, camera, renderer, orbitControl) {
 
     transformControls.addEventListener('change', () => {
 
-        if (!transformControls.box3Helper) return
+        if (transformControls.disableBox3Helper || !transformControls.box3Helper) return
 
         if (['Group', 'Mesh'].includes(transformControls?.object?.type)) {
 
@@ -1611,7 +1611,9 @@ export function disposeScene(scene) {
 
     scene.EnvBackground?.dispose()
 
-    scene.background?.dispose()
+    // background may be a THREE.Color in the professional editor, while
+    // texture/cube-texture backgrounds expose dispose(). Teardown must support both.
+    scene.background?.dispose?.()
 
     scene.children.length = 0
 

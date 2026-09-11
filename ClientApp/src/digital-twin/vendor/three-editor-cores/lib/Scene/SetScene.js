@@ -46,12 +46,60 @@ export function initScene(DOM, initParams, sceneParams, saveScene) {
 
     // 帧率控制
     const renderFps = setFpsClock(initParams.fps)
+    const demandRender = initParams.performanceMode === true
+    const preferComposerWhenIdle = initParams.preferComposerWhenIdle === true
+    // Preserve upstream behavior unless a professional engineering editor opts out.
+    const continuousAnimation = initParams.continuousAnimation !== false
+    const hasContinuousAnimation = () => MixerList.length > 0 || ShaderList.length > 0 || CommonFrameList.length > 0
 
-    // 渲染id
     let RENDER_ID = null
+    let destroyed = false
+    let lastControlsChanged = false
+    let viewportInteracting = false
 
-    // 渲染
-    render()
+    function requestRender() {
+
+        if (destroyed || RENDER_ID !== null) return
+
+        RENDER_ID = requestAnimationFrame(render)
+
+    }
+
+    function handleViewChange() {
+
+        requestRender()
+
+    }
+
+    function handleInteractionStart() {
+
+        viewportInteracting = true
+        requestRender()
+
+    }
+
+    function handleInteractionEnd() {
+
+        viewportInteracting = false
+        requestRender()
+
+    }
+
+    function handleTransformDraggingChanged(event) {
+
+        viewportInteracting = Boolean(event.value)
+        requestRender()
+
+    }
+
+    controls.addEventListener('change', handleViewChange)
+    controls.addEventListener('start', handleInteractionStart)
+    controls.addEventListener('end', handleInteractionEnd)
+    transformControls.addEventListener('change', handleViewChange)
+    transformControls.addEventListener('dragging-changed', handleTransformDraggingChanged)
+
+    // 初始只请求一帧；非 performanceMode 仍保持原来的连续渲染。
+    requestRender()
 
     // 窗口变化
     function renderSceneResize() {
@@ -70,12 +118,23 @@ export function initScene(DOM, initParams, sceneParams, saveScene) {
 
         CssRender.resize()
 
+        requestRender()
+
     }
 
     // 销毁场景
     function destroySceneRender() {
 
-        cancelAnimationFrame(RENDER_ID)
+        destroyed = true
+
+        if (RENDER_ID !== null) cancelAnimationFrame(RENDER_ID)
+        RENDER_ID = null
+
+        controls.removeEventListener('change', handleViewChange)
+        controls.removeEventListener('start', handleInteractionStart)
+        controls.removeEventListener('end', handleInteractionEnd)
+        transformControls.removeEventListener('change', handleViewChange)
+        transformControls.removeEventListener('dragging-changed', handleTransformDraggingChanged)
 
         disposeScene(scene)
 
@@ -90,30 +149,38 @@ export function initScene(DOM, initParams, sceneParams, saveScene) {
     // 渲染函数
     function render() {
 
+        RENDER_ID = null
+        if (destroyed) return
+        lastControlsChanged = false
+
         renderFps(() => {
 
-            Stats.update()  // 性能监控
+            if (!initParams.disableStats) Stats.update()
 
-            controls.update() // 更新控制器
+            lastControlsChanged = controls.update() === true
 
-            MixerList.forEach(mixer => mixer.mixerRender()) // 模型动画
+            MixerList.forEach(mixer => mixer.mixerRender())
 
-            ShaderList.forEach(shader => shader.ShaderAnimateRender()) //着色器动画
+            ShaderList.forEach(shader => shader.ShaderAnimateRender())
 
-            CommonFrameList.forEach(object => object.frameAnimationRender?.()) // 公共动画
+            CommonFrameList.forEach(object => object.frameAnimationRender?.())
 
-            Composer.EffectComposerRender() // 后期渲染
+            const useDirectRender = initParams.sourceRender && (!preferComposerWhenIdle || viewportInteracting || transformControls.dragging || lastControlsChanged)
+            if (useDirectRender) renderer.render(scene, camera)
+            else Composer.EffectComposerRender()
 
-            Css3Render.render(scene, camera) // Css3D渲染
-
-            CssRender.render(scene, camera) // Css2D渲染
+            if (!initParams.disableCssRender) {
+                Css3Render.render(scene, camera)
+                CssRender.render(scene, camera)
+            }
 
         })
 
-        RENDER_ID = requestAnimationFrame(render)
+        // 专业设计器静止时停止 RAF；拖动、相机阻尼、动画存在时继续。
+        if (!demandRender || lastControlsChanged || transformControls.dragging || (continuousAnimation && hasContinuousAnimation())) requestRender()
 
     }
 
-    return { scene, camera, renderer, controls, transformControls, MixerList, ShaderList, CommonFrameList, Stats, Composer, CSS3DObject, CSS2DObject, renderSceneResize, destroySceneRender, ...args }
+    return { scene, camera, renderer, controls, transformControls, MixerList, ShaderList, CommonFrameList, Stats, Composer, CSS3DObject, CSS2DObject, renderScene: requestRender, renderSceneResize, destroySceneRender, ...args }
 
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace IoTSharp.Data;
@@ -26,4 +26,6 @@ public class DigitalTwinSceneVersion : IJustMy
     public Customer Customer { get; set; }
     public ICollection<TwinObjectBinding> Bindings { get; set; } = new List<TwinObjectBinding>();
     public ICollection<TwinRoute> Routes { get; set; } = new List<TwinRoute>();
+    public ICollection<TwinActionFlow> ActionFlows { get; set; } = new List<TwinActionFlow>();
 }
+

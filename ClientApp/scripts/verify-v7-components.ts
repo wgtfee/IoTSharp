@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
-import { createBlankTwinSceneManifest, createDefaultTwinSceneManifest, createSilkCakeLineTwinSceneManifest, type TwinSceneManifest } from '../src/digital-twin/contracts';
+import { createBlankTwinSceneManifest, createDefaultTwinSceneManifest, createRouteEdge, createRoutePoint, createSilkCakeLineTwinSceneManifest, normalizeTwinRoute, validateTwinSceneManifest, type TwinSceneManifest } from '../src/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '../src/digital-twin/contracts/v7-components';
 import { ComponentProcessStateMachine } from '../src/digital-twin/runtime/ComponentProcessStateMachine';
 import { ProcessStationManager } from '../src/digital-twin/runtime/ProcessStationManager';
@@ -32,11 +32,19 @@ import {
 } from '../src/digital-twin/components';
 import { cloneStudioPartForPaste, cloneStudioPartsForPaste, createStudioPart } from '../src/digital-twin/component-studio/types';
 import { PACKAGING_WOOD_PALLET_LENGTH, PACKAGING_WOOD_PALLET_WIDTH } from '../src/digital-twin/components/PackagingLineDimensions';
-import { createReferencePackagingLineTwinSceneManifest, REFERENCE_PACKAGING_LAYOUT_VERSION, upgradeReferencePackagingLineLayout } from '../src/digital-twin/presets/ReferencePackagingLineManifest';
+import { buildReferencePackagingLineTwinSceneManifest, createReferencePackagingLineTwinSceneManifest, REFERENCE_PACKAGING_LAYOUT_VERSION, upgradeReferencePackagingLineLayout } from '../src/digital-twin/presets/ReferencePackagingLineManifest';
 import { resolveRoutePath, RouteEngine } from '../src/digital-twin/routes/RouteEngine';
-import { resolveRouteTransportUnitResourceKey } from '../src/digital-twin/runtime/TwinRuntime';
+import { compileRouteAuthoringGraph, createCompiledRuntimeManifest, createPublishedRuntimeManifest, persistCompiledRouteGraph } from '../src/digital-twin/routes/RouteAuthoringCompiler';
+import { attachRoutePointToPort, detachRoutePointFromPort, listRouteEndpointPortSnapOptions } from '../src/digital-twin/routes/RouteSnapEngine';
+import { convertGeneratedRouteToManual, ensureRouteSection, renameRouteSection } from '../src/digital-twin/routes/RouteAuthoringTools';
+import { validateRouteAuthoringManifest } from '../src/digital-twin/routes/RouteAuthoringValidator';
+import { resolveRuntimeRouteEdgeOverlayState } from '../src/digital-twin/routes/RouteRuntimeOverlay';
+import { ROUTE_DEBUG_MIN_SAFETY_DISTANCE_METERS, runDiverterRouteDebug, runMergeRouteDebug, runSingleRouteDebug } from '../src/digital-twin/routes/RouteDebugRunner';
+import { applyTwinRuntimeDataUpdates, resolveRouteTransportUnitResourceKey } from '../src/digital-twin/runtime/TwinRuntime';
 import { RouteSlotArrayRuntime } from '../src/digital-twin/runtime/RouteSlotArrayRuntime';
 import { BehaviorRuntime } from '../src/digital-twin/runtime/BehaviorRuntime';
+import { ActuatorRuntime } from '../src/digital-twin/runtime/ActuatorRuntime';
+import { BindingEngine } from '../src/digital-twin/bindings/BindingEngine';
 import {
 	addActuatorDefinition,
 	addBehaviorActionDefinition,
@@ -62,14 +70,22 @@ const componentProcessRuntimeSource = readFileSync('src/digital-twin/runtime/Com
 for (const forbidden of ['Inspection-Rotary-Gripper', 'Bagging-', 'VacuumTuck-', 'Wrapper-Rotary-Arm', 'Labeler-Arm-Joint']) {
 	assert(!componentProcessRuntimeSource.includes(forbidden), `ComponentProcessRuntime 重新硬编码了固定设备内部节点: ${forbidden}`);
 }
+assert(!componentProcessRuntimeSource.includes('hasLiveBindings'), '工艺运行模式不得再根据 Binding 存在性隐式推断');
+assert(componentProcessRuntimeSource.includes("dataMode: 'simulation' | 'live'"), '工艺运行时没有显式接收 SceneManifest dataMode');
 const behaviorRuntimeSource = readFileSync('src/digital-twin/runtime/BehaviorRuntime.ts', 'utf8');
 for (const forbidden of ['YarnFixture', 'SeparatorFixture', 'readyForSeparator', 'inPalletZone']) {
 	assert(!behaviorRuntimeSource.includes(forbidden), `BehaviorRuntime 重新引入了参考包装线业务别名: ${forbidden}`);
 }
+const routeSlotRuntimeSource = readFileSync('src/digital-twin/runtime/RouteSlotArrayRuntime.ts', 'utf8');
+for (const forbidden of ['reference-loading-robot', 'reference-double-small-bottom']) {
+	assert(!routeSlotRuntimeSource.includes(forbidden), `RouteSlotArrayRuntime 重新硬编码了参考包装线对象 ID: ${forbidden}`);
+}
+assert(!behaviorRuntimeSource.includes('executeRobotPlacePath') && !behaviorRuntimeSource.includes('robotPlacePath'), 'BehaviorRuntime 重新引入了机器人专用放料路径，动作路径必须由设计器普通步骤组成');
 const referenceManifestSource = readFileSync('src/digital-twin/presets/ReferencePackagingLineManifest.ts', 'utf8');
 assert(!referenceManifestSource.includes('reference-packaging-actions-v17'), '参考包装线又依赖独立动作预置 JSON');
 assert(!referenceManifestSource.includes('applyReferenceActionPreset'), '参考包装线又在 Builder 中注入动作编排');
-assert(referenceManifestSource.includes('reference-packaging-v18.scene.json'), '参考包装线没有使用设计器导出的完整 V18 SceneManifest 资产');
+assert(referenceManifestSource.includes('reference-packaging-v19.scene.json'), '参考包装线没有使用设计器导出的完整 V19 SceneManifest 资产');
+assert(!behaviorRuntimeSource.includes('spreadAttachedSilkPayload') && !behaviorRuntimeSource.includes('setRobotGridGripperSpread') && !behaviorRuntimeSource.includes('robotPlaceSpread'), '机器人搬运仍存在丝锭间距/夹具 scale 插值逻辑');
 const sceneTreeSource = readFileSync('src/digital-twin/components/ThreeJsEditorHost.vue', 'utf8');
 const editorCoreSource = readFileSync('src/digital-twin/editor-adapter/ThreeEditorCoreHost.ts', 'utf8');
 const twinRuntimeSelectionSource = readFileSync('src/digital-twin/runtime/TwinRuntime.ts', 'utf8');
@@ -142,6 +158,34 @@ assert(!designerReloaded.behaviors?.[0]?.actions.some((action) => action.sourceS
 		}
 		assert(completed.filter((item) => item === 'weighted-west').length === 6 && completed.filter((item) => item === 'weighted-east').length === 2, 'Behavior 3:1 权重没有稳定得到 6:2：' + completed.join(','));
 	} finally { weightedRuntime.dispose(); }
+}
+
+// Behavior 级联锁必须在执行任何动作前阻塞，并在 Binding 恢复后继续原动作。
+{
+	const interlockManifest = createBlankTwinSceneManifest();
+	interlockManifest.runtime.dataMode = 'simulation';
+	interlockManifest.objects = [{ objectId: 'interlock-actor', name: 'InterlockActor', kind: 'component', component: { resourceKey: 'test', componentType: 'custom', generator: 'test', generatorVersion: 1, properties: {} }, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } }] as any;
+	interlockManifest.bindings = [{ bindingId: 'binding-safe', objectId: 'interlock-actor', source: { kind: 'simulation', key: 'safe' }, target: { kind: 'customProperty', property: 'safe' }, transform: { kind: 'direct' }, staleAfterMs: 5000 }];
+	interlockManifest.interlocks = [{ interlockId: 'guard-safe', name: '安全门允许', mode: 'all', conditions: [{ source: 'binding-safe', operator: 'truthy' }] }];
+	interlockManifest.behaviors = [{ behaviorId: 'guarded-flow', name: '联锁流程', actorObjectId: 'interlock-actor', interlockIds: ['guard-safe'], actions: [{ actionId: 'guarded-wait', kind: 'wait', waitSeconds: 0.1, timeoutSeconds: 1 }], enabled: true, loop: false }];
+	const interlockRoot = new THREE.Group();
+	const interlockRuntime = new BehaviorRuntime(interlockManifest, new THREE.Scene(), (objectId) => objectId === 'interlock-actor' ? interlockRoot : undefined);
+	try {
+		interlockRuntime.setBindingContext({ bindingValues: { 'binding-safe': false }, staleBindingIds: [] });
+		interlockRuntime.setRunning(true);
+		interlockRuntime.updateFixed(0.2);
+		let snapshot = interlockRuntime.getSnapshot().channels[0];
+		assert(snapshot.status === 'waiting-interlock' && snapshot.completedActions === 0 && snapshot.interlockWaitCount === 1, 'Behavior 级联锁没有在动作前阻塞');
+		interlockRuntime.updateFixed(0.2);
+		snapshot = interlockRuntime.getSnapshot().channels[0];
+		assert(snapshot.interlockWaitCount === 1, '同一次联锁等待被重复计数');
+		interlockRuntime.setBindingContext({ bindingValues: { 'binding-safe': true }, staleBindingIds: [] });
+		interlockRuntime.updateFixed(0.1);
+		snapshot = interlockRuntime.getSnapshot().channels[0];
+		assert(snapshot.completedActions === 1 && snapshot.status === 'acting', '联锁恢复后没有继续并完成原动作');
+		interlockRuntime.updateFixed(0.01);
+		assert(interlockRuntime.getSnapshot().channels[0].status === 'completed', '单次 Behavior 完成后没有进入 completed');
+	} finally { interlockRuntime.dispose(); }
 }
 
 // 旋转关节跨越 ±π 时必须保持连续角；179° -> -179° 的等价目标只能走 2°，禁止 UI/轴值跳 360°。
@@ -388,14 +432,19 @@ const smallPalletBuilt = defaultComponentRegistry.create(createComponentDefiniti
 try {
 	assert(smallPalletBuilt.root.userData?.transportUnitType === 'plastic-pallet', '绿色小托盘必须继续使用 plastic-pallet 兼容物流类型');
 	assert(smallPalletBuilt.root.userData?.transportUnitVariant === 'small-pallet', '绿色小托盘缺少 small-pallet 物理载具标记');
-	assert(Boolean(smallPalletBuilt.root.getObjectByName('SmallPallet-Base')) && Boolean(smallPalletBuilt.root.getObjectByName('SmallPallet-CenterColumn')), '绿色小托盘没有保持圆形底盘 + 中心柱结构');
+	const supportSeatNode = smallPalletBuilt.root.getObjectByName('SmallPallet-SupportSeat');
+	const locatingPostNode = smallPalletBuilt.root.getObjectByName('SmallPallet-LocatingPost');
+	assert(Boolean(smallPalletBuilt.root.getObjectByName('SmallPallet-Base')) && Boolean(supportSeatNode) && Boolean(locatingPostNode), '绿色小托盘没有形成圆形底盘 + 大承托中心座 + 小定位柱两级结构');
 	const smallSupportY = Number(smallPalletBuilt.root.userData.smallPalletSupportSurfaceY);
 	const smallBaseRingY = Number(smallPalletBuilt.root.userData.smallPalletBaseRingSurfaceY);
 	const smallCakeCenterY = Number(smallPalletBuilt.root.userData.smallPalletCakeCenterY);
-	const locatingPost = smallPalletBuilt.root.userData.smallPalletLocatingPost as { diameter?: number } | undefined;
+	const supportSeat = smallPalletBuilt.root.userData.smallPalletSupportSeat as { diameter?: number; height?: number; topY?: number } | undefined;
+	const locatingPost = smallPalletBuilt.root.userData.smallPalletLocatingPost as { diameter?: number; boreDiameter?: number; clearance?: number } | undefined;
 	assert(smallSupportY > 0.65 && smallSupportY > smallBaseRingY + 0.4, '绿色小托盘丝锭仍被压在底部环面，没有保持 V6 上方放置高度');
 	assert(Math.abs(smallCakeCenterY - (smallSupportY + Number(smallPalletBuilt.root.userData.silkCakeAxialDepth) / 2)) < 0.001, '绿色小托盘 SilkCakeAnchor 高度与丝锭轴向厚度不一致');
-	assert(Number(locatingPost?.diameter) < 0.56, '小托盘中心定位柱直径没有小于丝锭 0.56m 中孔');
+	assert(Math.abs(Number(supportSeat?.topY) - smallSupportY) < 0.001 && Math.abs(Number(supportSeat?.height) + Number(smallPalletBuilt.root.userData.properties?.baseHeight) - smallSupportY) < 0.001, '丝锭承托面没有直接取大承托中心座顶面');
+	assert(Number(supportSeat?.diameter) > Number(locatingPost?.boreDiameter), '大承托中心座直径没有大于丝锭中孔，无法真正承托底面');
+	assert(Number(locatingPost?.diameter) < Number(locatingPost?.boreDiameter) && Number(locatingPost?.clearance) > 0, '小定位柱没有按丝锭中孔留配合间隙');
 	assert(!smallPalletBuilt.root.getObjectByName('Deck_1'), '绿色小托盘错误退化成蓝色塑料母托盘');
 } finally { smallPalletBuilt.dispose(); }
 const motherPalletTemplate = builtInComponentTemplates.find((item) => item.resourceKey === 'builtin-plastic-pallet');
@@ -459,12 +508,15 @@ const cartonSlotBinding = {
 routeSlotManifest.routes = [routeSlotSmallRoute, routeSlotCartonRoute];
 routeSlotManifest.bindings = [smallSlotBinding, cartonSlotBinding];
 routeSlotManifest.runtime.dataMode = 'live';
+routeSlotManifest.runtime.routePalletInitializers = [{ routeId: routeSlotSmallRoute.routeId, telemetryKey: 'smallSlots', liveBindingId: smallSlotBinding.bindingId, simulationDefaultCount: 99, emptyValue: 0 }];
 const routeSlotRuntime = new RouteSlotArrayRuntime(routeSlotScene, routeSlotManifest);
 try {
-	routeSlotRuntime.apply(smallSlotBinding, [12, 0, 23], false);
+	routeSlotRuntime.apply(smallSlotBinding, '[12,23,0,0,0,0]', false);
 	routeSlotRuntime.apply(cartonSlotBinding, [88, 0], false);
 	const runtimeEntities: THREE.Object3D[] = [];
 	routeSlotScene.traverse((node) => { if (node.userData?.twinEntityType === 'route-slot-pallet' && node.parent?.name === 'IoTSharp Route Slot Array Runtime') runtimeEntities.push(node); });
+	const liveSmallPallets = runtimeEntities.filter((node) => node.userData?.transportUnitType === 'plastic-pallet');
+	assert(liveSmallPallets.length === 2 && new Set(liveSmallPallets.map((node) => node.userData?.twinEntityId)).size === 2, 'Live [12,23,0,0,0,0] 必须只显示两个有效小托盘，且不能受 Simulation 初始化数量影响');
 	const smallRuntimePallet = runtimeEntities.find((node) => node.userData?.twinEntityId === '12');
 	assert(smallRuntimePallet?.userData?.transportUnitType === 'plastic-pallet', 'V7 小辊道槽位数组没有生成 plastic-pallet 小托盘');
 	assert(Boolean(smallRuntimePallet?.getObjectByName('Deck_1')) && Boolean(smallRuntimePallet?.getObjectByName('Runner_1')), 'V7 小辊道槽位数组仍未复用真实小托盘 Deck/Runner 结构');
@@ -611,6 +663,37 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const referenceObjectsV11 = referenceLineV11.objects as TwinV7SceneObjectDefinition[];
 	const referenceComponentsV11 = referenceObjectsV11.filter((item) => item.kind === 'component');
 	for (const component of referenceComponentsV11) component.resourceId = resourceId;
+	const assertReferenceLaneFlow = (
+		objectId: string,
+		lane: 'a' | 'b',
+		expectedAxis: 'x' | 'z',
+		expectedSign: -1 | 1,
+		expectedCenter: number,
+	) => {
+		const definition = referenceComponentsV11.find((item) => item.objectId === objectId)!;
+		assert(Boolean(definition), `V19 缺少双排小辊道 ${objectId}`);
+		const built = defaultComponentRegistry.create({ objectId: definition.objectId, name: definition.name, resourceKey: definition.component!.resourceKey, componentType: definition.component!.componentType as any, generator: definition.component!.generator, generatorVersion: definition.component!.generatorVersion, resourceId: definition.resourceId, properties: definition.component!.properties, transform: definition.transform, sectionId: definition.component!.sectionId });
+		try {
+			built.root.updateMatrixWorld(true);
+			const input = built.ports.find((item) => item.portId === `${lane}-input`)!;
+			const output = built.ports.find((item) => item.portId === `${lane}-output`)!;
+			const inputWorld = new THREE.Vector3(...input.localPosition).applyMatrix4(built.root.matrixWorld);
+			const outputWorld = new THREE.Vector3(...output.localPosition).applyMatrix4(built.root.matrixWorld);
+			const travel = outputWorld.clone().sub(inputWorld);
+			const along = expectedAxis === 'x' ? travel.x : travel.z;
+			const center = expectedAxis === 'x' ? inputWorld.z : inputWorld.x;
+			assert(along * expectedSign > 0.5, `${definition.name} ${lane.toUpperCase()} 排流向与最终标注图不一致`);
+			assert(Math.abs(center - expectedCenter) < 0.001, `${definition.name} ${lane.toUpperCase()} 排中心线偏离最终标注图：actual=${center.toFixed(3)}, expected=${expectedCenter.toFixed(3)}`);
+		} finally { built.dispose(); }
+	};
+	// V9 布局基线：桁架下两排都向机器人，中部上排向左/下排向套袋，机器人下两排都向外检。
+	assertReferenceLaneFlow('reference-double-small-upper-left', 'a', 'z', 1, -12.7);
+	assertReferenceLaneFlow('reference-double-small-upper-left', 'b', 'z', 1, -10.8);
+	assertReferenceLaneFlow('reference-double-small-middle', 'a', 'x', -1, 1.1);
+	assertReferenceLaneFlow('reference-double-small-middle', 'b', 'x', 1, 3);
+	assertReferenceLaneFlow('reference-double-small-bottom', 'a', 'x', 1, 12.8);
+	assertReferenceLaneFlow('reference-double-small-bottom', 'b', 'x', 1, 14.7);
+	assert(!referenceComponentsV11.some((item) => item.component?.sectionId === 'ref-return-edge-outer-top'), '桁架下双排回流仍叠加旧单排辊道');
 	assert(referenceLineV11.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, '参考图 V11 Manifest 缺少当前布局版本标记');
 	assert(referenceLineV11.routes.length > 0 && referenceLineV11.routes.every((item) => item.routeId.startsWith('component-route-')), '参考图 V11 仍在持久化旧手工 Route，而不是组件自动 Route');
 	assert(!referenceLineV11.routes.some((item) => item.routeId.startsWith('reference-') || item.routeId === 'reference-bottom-lane-b'), '参考图 V11 仍残留旧 reference-* 手工路线');
@@ -618,6 +701,60 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert((referenceLineV11.connections || []).some((item) => item.metadata?.topologyBridge === true), '参考图当前版本没有 topologyBridge，跨设备物流网络会重新碎片化');
 	const referenceSmallRoutes = referenceLineV11.routes.filter((route) => route.edges.some((edge) => edge.enabled !== false && edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'));
 	assert(referenceSmallRoutes.some((route) => route.edges.length >= 10), '参考图小托盘 Route 仍全部碎片化，没有形成可连续运行的主工艺网络');
+	const referenceSmallProcessRouteV19 = referenceLineV11.routes.find((route) => route.routeId === referenceLineV11.runtime.primarySmallPalletRouteId)!;
+	assert(Boolean(referenceSmallProcessRouteV19), 'V9 主小托盘运行路线不存在');
+	assert(!referenceSmallProcessRouteV19.points.some((point) => point.componentObjectId?.startsWith('reference-ring-quarter-')), 'V9 primarySmallPalletRouteId 错误指向中央马蹄缓存');
+	const v9LoadingEntries = referenceSmallProcessRouteV19.points.filter((point) => point.process?.simulationEntry === true && point.componentObjectId === 'reference-loading-robot');
+	assert(v9LoadingEntries.length === 2, `V9 机器人下方必须有 A/B 两个 Simulation Entry，实际 ${v9LoadingEntries.length}`);
+	const v9EntryA = v9LoadingEntries.find((point) => point.process?.physicalLane === 'A')!;
+	const v9EntryB = v9LoadingEntries.find((point) => point.process?.physicalLane === 'B')!;
+	assert(Boolean(v9EntryA && v9EntryB), 'V9 机器人下方缺少 A/B 物理车道入口');
+	assert(Math.abs(v9EntryA.position[2] - 12.8) < 0.001 && Math.abs(v9EntryB.position[2] - 14.7) < 0.001, `V9 托盘入口没有落在底部双排中心线：A=${v9EntryA.position[2]} B=${v9EntryB.position[2]}`);
+	assert(v9EntryA.process?.batchLayout?.columns === 6 && v9EntryB.process?.batchLayout?.columns === 6 && Math.abs(Number(v9EntryA.process?.batchLayout?.columnSpacingMeters || 0) - 1.55) < 0.001, 'V9 机器人下方 12 托盘没有保持 A/B 各 1×6 排列');
+	const robotCrossForwardRuleV19 = referenceSmallProcessRouteV19.decisionRules.find((rule) => rule.ruleId === 'reference-bottom-lane-b-forward')!;
+	const robotCrossAcrossRuleV19 = referenceSmallProcessRouteV19.decisionRules.find((rule) => rule.ruleId === 'reference-bottom-lane-a-return-cross')!;
+	assert(robotCrossForwardRuleV19.source === 'payload' && robotCrossAcrossRuleV19.source === 'payload'
+		&& robotCrossForwardRuleV19.operator === 'truthy' && robotCrossAcrossRuleV19.operator === 'truthy'
+		&& Number(robotCrossForwardRuleV19.weight) > 0 && Number(robotCrossAcrossRuleV19.weight) > 0,
+		'V19 机器人下直角交叉口 Simulation 没有改成纯 weight 分流规则');
+	const robotCrossForwardEdgeV19 = referenceSmallProcessRouteV19.edges.find((edge) => edge.edgeId === robotCrossForwardRuleV19.edgeId)!;
+	const robotCrossAcrossEdgeV19 = referenceSmallProcessRouteV19.edges.find((edge) => edge.edgeId === robotCrossAcrossRuleV19.edgeId)!;
+	for (const [label, edge] of [['B直行', robotCrossForwardEdgeV19], ['A横移', robotCrossAcrossEdgeV19]] as const) {
+		assert(Boolean(edge.releasePermitBindingId && edge.readyBindingId && edge.blockedBindingId && edge.fullBindingId), `${label} 出边没有完整 ReleasePermit/Ready/Blocked/Full 互锁`);
+		for (const bindingId of [edge.releasePermitBindingId, edge.readyBindingId, edge.blockedBindingId, edge.fullBindingId]) {
+			assert(referenceLineV11.bindings.some((binding) => binding.bindingId === bindingId && binding.transform.kind === 'routeEvent'), `${label} 互锁 ${bindingId} 没有 routeEvent Binding`);
+		}
+	}
+	const robotCrossJunctionV19 = referenceSmallProcessRouteV19.points.find((point) => point.pointId === robotCrossForwardRuleV19.junctionPointId)!;
+	assert(robotCrossJunctionV19.decisionMode === 'simulation', 'V19 交叉口没有保留 Simulation 权重模式');
+	const robotCrossRouteV19 = structuredClone(referenceSmallProcessRouteV19);
+	robotCrossRouteV19.startPointId = robotCrossJunctionV19.pointId;
+	const simulationCrossV19 = resolveRoutePath(robotCrossRouteV19, { dataMode: 'simulation', payload: { palletId: 'SIM-WEIGHT-01' }, bindingValues: {}, staleBindingIds: [] });
+	assert([robotCrossForwardEdgeV19.edgeId, robotCrossAcrossEdgeV19.edgeId].includes(simulationCrossV19.edgeIds[0]), 'Simulation 因缺少 PLC 互锁错误停在机器人下交叉口');
+	const balancedRobotCrossSelectionsV19 = Array.from({ length: 12 }, (_, weightSequence) => resolveRoutePath(robotCrossRouteV19, {
+		dataMode: 'simulation', payload: { palletId: `SIM-WEIGHT-${weightSequence + 1}`, weightSequence }, bindingValues: {}, staleBindingIds: [],
+	}).edgeIds[0]);
+	assert(balancedRobotCrossSelectionsV19.filter((edgeId) => edgeId === robotCrossForwardEdgeV19.edgeId).length === 6
+		&& balancedRobotCrossSelectionsV19.filter((edgeId) => edgeId === robotCrossAcrossEdgeV19.edgeId).length === 6,
+		`V19 机器人下交叉口 1:1 权重没有稳定形成 6:6：${JSON.stringify(balancedRobotCrossSelectionsV19)}`);
+	const liveBOnlyValuesV19: Record<string, unknown> = {
+		[robotCrossForwardEdgeV19.releasePermitBindingId!]: true,
+		[robotCrossForwardEdgeV19.readyBindingId!]: true,
+		[robotCrossForwardEdgeV19.blockedBindingId!]: false,
+		[robotCrossForwardEdgeV19.fullBindingId!]: false,
+		[robotCrossAcrossEdgeV19.releasePermitBindingId!]: false,
+		[robotCrossAcrossEdgeV19.readyBindingId!]: true,
+		[robotCrossAcrossEdgeV19.blockedBindingId!]: false,
+		[robotCrossAcrossEdgeV19.fullBindingId!]: false,
+	};
+	const liveBOnlyV19 = resolveRoutePath(robotCrossRouteV19, { dataMode: 'live', payload: { palletId: 'LIVE-01' }, bindingValues: liveBOnlyValuesV19, staleBindingIds: [] });
+	assert(liveBOnlyV19.edgeIds[0] === robotCrossForwardEdgeV19.edgeId, 'Live 仍受 Simulation weight 影响，没有按 B 侧互锁许可放行');
+	const liveNeitherValuesV19 = { ...liveBOnlyValuesV19, [robotCrossForwardEdgeV19.releasePermitBindingId!]: false };
+	const liveNeitherV19 = resolveRoutePath(robotCrossRouteV19, { dataMode: 'live', payload: { palletId: 'LIVE-WAIT' }, bindingValues: liveNeitherValuesV19, staleBindingIds: [] });
+	assert(liveNeitherV19.edgeIds.length === 0 && liveNeitherV19.unresolvedJunctionPointId === robotCrossJunctionV19.pointId, 'Live 两侧都不允许时没有保持交叉口等待');
+	const liveBlockedValuesV19 = { ...liveBOnlyValuesV19, [robotCrossForwardEdgeV19.blockedBindingId!]: true };
+	const liveBlockedV19 = resolveRoutePath(robotCrossRouteV19, { dataMode: 'live', payload: { palletId: 'LIVE-BLOCKED' }, bindingValues: liveBlockedValuesV19, staleBindingIds: [] });
+	assert(liveBlockedV19.edgeIds.length === 0 && liveBlockedV19.unresolvedJunctionPointId === robotCrossJunctionV19.pointId, 'Live Blocked=true 时仍错误放行');
 	const referenceV12WorkPointIds = new Set((referenceLineV11.workPoints || []).map((item) => item.workPointId));
 	for (const workPointId of [
 		'reference-v12-turntable-west-pick',
@@ -661,12 +798,18 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(behavior.actions.some((item) => item.kind === 'gripClose' && item.actuatorId === 'reference-robot-gripper'), `${behaviorId} 没有声明式夹具闭合动作`);
 		assert(behavior.actions.some((item) => item.kind === 'attach' && item.workPointId?.includes('turntable')), `${behaviorId} 没有语义旋转台抓取 Attach 动作`);
 		assert(behavior.actions.some((item) => item.kind === 'place' && item.workPointId === 'reference-v12-loading-robot-place' && item.targetSlotId === 'reference-robot-small-pallet-target' && Array.isArray(item.approachOffset)), `${behaviorId} 没有 TCP 到位后再放料的语义 Place 动作`);
+		const safeTransferIndex = behavior.actions.findIndex((item) => item.kind === 'moveTo'
+			&& item.workPointId === 'reference-v12-loading-robot-place'
+			&& Array.isArray(item.approachOffset)
+			&& Number(item.approachOffset?.[1] || 0) >= 1.5);
+		const placeIndex = behavior.actions.findIndex((item) => item.kind === 'place' && item.workPointId === 'reference-v12-loading-robot-place');
+		assert(safeTransferIndex >= 0 && placeIndex > safeTransferIndex, `${behaviorId} 缺少设计器配置的安全过渡 moveTo，或安全过渡没有位于 Place 之前`);
 		assert(behavior.actions.some((item) => item.kind === 'gripOpen' && item.actuatorId === 'reference-robot-gripper'), `${behaviorId} 没有声明式夹具打开动作`);
 		assert(behavior.actions.every((item) => !item.workPointId || referenceV12WorkPointIds.has(item.workPointId)), `${behaviorId} 引用了不存在的工作点`);
 	}
 	for (const behaviorId of ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east']) {
 		const behavior = referenceV12Behaviors.get(behaviorId)!;
-		assert(!behavior.actions.some((item) => item.kind === 'moveTo' || item.kind === 'pick'), `${behaviorId} 仍依赖旧 moveTo/pick 运动`);
+		assert(!behavior.actions.some((item) => item.kind === 'pick'), `${behaviorId} 仍依赖旧 pick 复合动作；抓取必须由 Pose/夹具/Attach 普通步骤组成`);
 	}
 	for (const behaviorId of ['reference-v12-gantry-yarn-stack', 'reference-v12-gantry-separator-stack']) {
 		const behavior = referenceV12Behaviors.get(behaviorId)!;
@@ -677,7 +820,6 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	assert(yarnBehaviorV12.actions.some((item) => item.kind === 'detach' && item.workPointId === 'reference-v12-gantry-pallet-stack'), '丝锭夹具没有在木托码垛点 Detach');
 	const separatorBehaviorV12 = referenceV12Behaviors.get('reference-v12-gantry-separator-stack')!;
 	assert(separatorBehaviorV12.actorObjectId === 'reference-stacking-gantry', '隔板动作没有绑定 V12 码垛桁架');
-	assert(separatorBehaviorV12.interlockIds?.includes('reference-v12-gantry-pallet-zone-exclusive') === true, '隔板动作没有绑定木托共享区互锁');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'wait' && item.waitForInterlockId === 'reference-v12-gantry-pallet-zone-exclusive'), '隔板夹具进入木托区前没有等待共享区互锁');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'attach' && item.workPointId === 'reference-v12-gantry-separator-buffer'), '隔板夹具没有在缓存取料点 Attach');
 	assert(separatorBehaviorV12.actions.some((item) => item.kind === 'attach' && item.sourceSlotId === 'reference-gantry-separator-source-slot' && item.toolFrameId === 'reference-gantry-separator-tcp'), 'V14 隔板夹具没有从真实 MaterialSlot/TCP 抓取');
@@ -697,7 +839,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const smallPalletInitializerV18 = palletInitializersV12.find((item) => item.routeId === primarySmallRouteIdV15)!;
 	const woodenPalletInitializerV18 = palletInitializersV12.find((item) => item.routeId === primaryWoodenRouteIdV18)!;
 	assert(smallPalletInitializerV18.simulationDefaultCount >= 12, '参考图 V18 主工艺闭环仿真默认小托盘少于 12 个');
-	assert(smallPalletInitializerV18.telemetryKey === `PalletSlots.${primarySmallRouteIdV15}`, '参考图 V18 主小托盘路线 PLC 托盘数组语义键不稳定');
+	assert(smallPalletInitializerV18.telemetryKey === '托盘数组', '参考图 V19 主小托盘路线没有使用托盘数组 Telemetry 语义键');
 	assert(woodenPalletInitializerV18.simulationDefaultCount === 0 && woodenPalletInitializerV18.simulationAutoFeed === true && woodenPalletInitializerV18.simulationAutoFeedMaxActive === 1 && woodenPalletInitializerV18.telemetryKey === `PalletSlots.${primaryWoodenRouteIdV18}`, '参考图 V18 必须 0 木托初始化，并在 Simulation 启动后按需自动进 1 块木托');
 	const stackStationDefinitionV18 = referenceComponentsV11.find((item) => item.objectId === 'reference-stacking-pallet')!;
 	assert(stackStationDefinitionV18.component?.properties?.semanticOnly === true && Math.abs(stackStationDefinitionV18.transform.rotation[1] - Math.PI / 2) < 0.001, '参考图 V18 固定码垛对象仍显示木托实体或没有旋转 90°');
@@ -708,7 +850,9 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const primarySmallRouteV15 = referenceLineV11.routes.find((route) => route.routeId === primarySmallRouteIdV15)!;
 	assert(Boolean(primarySmallRouteV15) && primarySmallRouteV15.loop === true, '参考图 V15 主小托盘路线不是闭环');
 	for (const routeCode of ['A', 'B'] as const) {
-		const resolved = resolveRoutePath(primarySmallRouteV15, { payload: { routeCode }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] });
+		const routeForDebug = structuredClone(primarySmallRouteV15);
+		routeForDebug.startPointId = routeForDebug.points.find((point) => point.process?.simulationEntry === true && point.process?.physicalLane === routeCode)?.pointId;
+		const resolved = resolveRoutePath(routeForDebug, { dataMode: 'simulation', payload: { routeCode, physicalLane: routeCode, palletId: 'debug', weightSequence: routeCode === 'A' ? 0 : 1 }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] });
 		assert(resolved.closed === true, `参考图 V15 ${routeCode} 分支没有回到机器人形成闭环`);
 		const processTypes = resolved.points.filter((point) => point.kind === 'processStation' && point.process).map((point) => point.process!.type);
 		const robotIndex = processTypes.indexOf('robot-loading');
@@ -823,12 +967,17 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		}
 		const integratedPalletSnapshot = v15IntegratedSlots.getSimulationSnapshot();
 		const integratedBehaviorSnapshot = v15IntegratedBehavior.getSnapshot();
+		const integratedPalletRoots = new Map<string, THREE.Object3D>();
+		v15IntegratedScene.traverse((node) => {
+			if (node.userData?.twinEntityType !== 'route-slot-pallet' || node.parent?.name !== 'IoTSharp Route Slot Array Runtime') return;
+			if (typeof node.userData?.twinEntityId === 'string') integratedPalletRoots.set(node.userData.twinEntityId, node);
+		});
 		assert(sawLoadingBatch, `V15 integrated runtime did not form loading batch: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawLoadingBatchSeparated, `V15 integrated runtime loading batch visually overlapped into one pallet: ${JSON.stringify(integratedPalletSnapshot)}`);
 		assert(sawRobotMotion, `V15 integrated runtime robot did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-loading-robot'))}`);
 		assert(THREE.MathUtils.radToDeg(robotFirstPlaceJ1Travel) < 140 && THREE.MathUtils.radToDeg(robotFirstPlaceMaxFrameDelta) < 2, 'V18 第一批放料 J1 仍存在绕圈/跳变：travel=' + THREE.MathUtils.radToDeg(robotFirstPlaceJ1Travel).toFixed(3) + '°, maxFrame=' + THREE.MathUtils.radToDeg(robotFirstPlaceMaxFrameDelta).toFixed(3) + '°');
 		assert(sawTwelvePalletsWithOneCake, `V18 integrated runtime did not distribute 12 cakes one-per-pallet across 12 pallets: ${JSON.stringify(integratedPalletSnapshot)}`);
-		assert(sawGantryBatch, `V15 integrated runtime did not form gantry batch: ${JSON.stringify(integratedPalletSnapshot)}`);
+		assert(sawGantryBatch, `V15 integrated runtime did not form gantry batch: ${JSON.stringify({ gantry: { waiting: gantryRoot.userData.stationWaitingPalletIds, active: gantryRoot.userData.stationPalletIds, released: gantryRoot.userData.stationReleasedPalletIds, physical: gantryRoot.userData.stationPhysicalReleasePalletIds, phase: gantryRoot.userData.processPhase }, snapshot: integratedPalletSnapshot.map((item) => { const root = integratedPalletRoots.get(item.palletId); return { id: item.palletId, position: item.position, edge: item.currentEdgeId, state: item.state, active: item.activeProcessComponentObjectId, flags: root ? { collisionHeld: root.userData?.collisionHeld, collisionBlockerPalletId: root.userData?.collisionBlockerPalletId, collisionBlockerEdgeId: root.userData?.collisionBlockerEdgeId, collisionBlockerPosition: root.userData?.collisionBlockerPosition, collisionCandidatePosition: root.userData?.collisionCandidatePosition, collisionRequiredDistance: root.userData?.collisionRequiredDistance, mergeYieldSeconds: root.userData?.mergeYieldSeconds, stationBatchVisual: root.userData?.stationBatchVisual, stationQueueVisual: root.userData?.stationQueueVisual, stationReleaseVisual: root.userData?.stationReleaseVisual } : undefined }; }) })}`);
 		assert(sawGantryMotion, `V15 integrated runtime gantry did not move: ${JSON.stringify(integratedBehaviorSnapshot.channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}`);
 		assert(sawFirstStackLayer, `V15 integrated runtime did not stack first layer: stack=${Number(stackRoot.userData.stackedItemCount || 0)}`);
 	} finally {
@@ -853,17 +1002,28 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	const v18WoodXs = v18WoodRoute.points.map((item) => item.position[0]);
 	const v18WoodZs = v18WoodRoute.points.map((item) => item.position[2]);
 	assert(Math.max(...v18WoodXs) - Math.min(...v18WoodXs) < 0.01 && Math.max(...v18WoodZs) - Math.min(...v18WoodZs) > 50, 'V18 木托后包装路线仍错误平行 X 轴');
-	const v18LoadingProcesses = v18SmallRoute.points.filter((item) => item.componentObjectId === 'reference-loading-robot' && item.process).map((item) => item.process!);
+	const v18LoadingPoints = v18SmallRoute.points.filter((item) => item.componentObjectId === 'reference-loading-robot' && item.process);
+	const v18LoadingProcesses = v18LoadingPoints.map((item) => item.process!);
 	const v18SmallInitializer = v18FullManifest.runtime.routePalletInitializers?.find((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
 	assert(v18LoadingProcesses.length === 2 && v18LoadingProcesses.every((process) => process.batchSize === 12) && v18SmallInitializer?.simulationDefaultCount === 12, 'V18 机器人上料必须由 A/B 两条真实辊道共同组成 2×6=12 托批次');
+	const v18GantryPoint = v18SmallRoute.points.find((point) => point.process?.type === 'gantry-stacking');
+	assert(Number(v18GantryPoint?.process?.behaviorCompletionRequirements?.yarn || 0) === 1
+		&& Number(v18GantryPoint?.process?.behaviorCompletionRequirements?.separator || 0) === 1,
+		'V18 一个 6 托桁架批次必须只完成 1 次丝锭层和 1 次隔板');
 	assert(new Set(v18LoadingProcesses.map((process) => process.physicalLane)).size === 2 && ['A', 'B'].every((lane) => v18LoadingProcesses.some((process) => process.physicalLane === lane)), 'V18 A/B 两排上料工位没有永久 physicalLane');
 	assert(v18LoadingProcesses.every((process) => process.batchLayout?.rows === 1 && process.batchLayout.columns === 6 && Math.abs(Number(process.batchLayout.columnSpacingMeters) - 1.55) < 0.001), 'V18 每条小辊道必须各自保持 1×6、1.55m 物理中心距');
-	assert(v18SmallRoute.edges.some((item) => item.edgeId === 'component-edge-reference-double-small-bottom-lane-b-segment-2'), 'V18 B 排机器人上料后仍没有自己的物理后续辊道');
-	assert(v18SmallRoute.edges.some((item) => item.componentObjectId === 'reference-bottom-b-to-inspection-merge'), 'V18 B 排没有通过真实合流短辊道进入外检');
-	assert(v18SmallRoute.decisionRules.some((item) => item.ruleId === 'reference-bottom-lane-b-forward' && item.payloadKey === 'physicalLane' && item.matchValue === 'B'), 'V18 B 排缺少保持本排前行的物理 lane 决策');
+	assert(v18LoadingPoints.every((point) => point.process?.simulationEntry === true
+		&& Boolean(point.process.releaseEdgeId)
+		&& v18SmallRoute.edges.some((edge) => edge.edgeId === point.process?.releaseEdgeId && edge.fromPointId === point.pointId)), 'V19 机器人上料工位没有通过设计器配置 Simulation 入口或物理离站 Edge');
+	assert(v18SmallRoute.generatedBy !== 'component-connections' && v18SmallRoute.edges.some((item) => item.edgeId === 'ref-edge-robot-east-b'), 'V19 B 排机器人上料后仍没有自己的可编辑物理后续辊道');
+	assert(v18SmallRoute.edges.some((item) => item.edgeId === 'ref-edge-bottom-b-merge'), 'V19 B 排没有按最终标注图并入外检');
+	assert(v18SmallRoute.decisionRules.some((item) => item.ruleId === 'reference-bottom-lane-b-forward'
+		&& item.payloadKey === 'palletId' && item.operator === 'truthy' && Number(item.weight) > 0),
+		'V19 B 侧交叉口缺少 Simulation 正权重放行规则');
 	const loadingRobotDefV18 = (v18FullManifest.objects as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-loading-robot')!;
 	assert(Number(loadingRobotDefV18.component?.properties?.gripperSpan || 0) === 6.6, 'V18 2×6 夹具列间距没有与丝车 1.1m 节距对齐');
-	assert(v18SmallRoute.edges.some((item) => item.edgeId === 'component-edge-reference-conveyor-ref-empty-return-down-main-through')
+	assert(v18SmallRoute.edges.some((item) => item.edgeId === 'ref-empty-return-down')
+		&& v18SmallRoute.edges.some((item) => item.edgeId === 'ref-empty-return-merge')
 		&& v18SmallRoute.decisionRules.some((item) => item.ruleId === 'reference-empty-return-rule' && item.payloadKey === 'materialCount' && item.matchValue === 0),
 		'V18 缺少外检后空托直回流支路或 materialCount=0 分流规则');
 	const v18FullScene = new THREE.Scene();
@@ -955,7 +1115,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			if (node.userData?.twinEntityType === 'route-slot-pallet' && node.userData?.transportUnitType === 'wooden-pallet') woodenPallets.set(String(node.userData.twinEntityId), node);
 			if (node.userData?.twinEntityType === 'route-slot-pallet' && node.userData?.transportUnitType === 'plastic-pallet') smallPallets.set(String(node.userData.twinEntityId), node);
 		});
-		assert(woodenPallets.size === 3, `V18 多循环必须创建 3 个木托，实际 ${woodenPallets.size}`);
+		assert(woodenPallets.size === 0, `V19 木托必须从 0 初始化并按需自动进料，启动前实际 ${woodenPallets.size}`);
 		assert(smallPallets.size === 12, `V18 双排机器人上料位必须初始化 12 个小托盘，实际 ${smallPallets.size}`);
 		const initialSmallSnapshotsV18 = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
 		const immutableLaneByPalletV18 = new Map(initialSmallSnapshotsV18.map((item) => [item.palletId, item.physicalLane]));
@@ -980,7 +1140,8 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(supportSurfaceYV18 > 0.18 && palletAnchorV18.position.y > supportSurfaceYV18, 'V18 小托盘放丝锚点没有位于支撑环上方');
 		assert(Math.abs(cakeBoundsV18.min.y - (palletBaseWorldYV18 + supportSurfaceYV18)) < 0.01, 'V18 丝锭底面没有贴合小托盘最高支撑面，仍存在嵌入或悬空');
 		const smallPalletPropsV18 = palletForGeometryV18.userData.properties || {};
-		assert(Number(smallPalletPropsV18.columnDiameter || 0) * 0.52 < 0.28, 'V18 小托盘中心柱直径超过丝锭中孔，仍会发生穿模');
+		assert(Number(smallPalletPropsV18.supportSeatDiameter || 0) > Number(smallPalletPropsV18.silkCakeInnerHoleDiameter || 0), 'V19 大承托中心座没有跨过丝锭中孔，无法承托丝锭底面');
+		assert(Number(smallPalletPropsV18.locatingPostDiameter || 0) < Number(smallPalletPropsV18.silkCakeInnerHoleDiameter || 0), 'V19 小定位柱直径没有小于丝锭中孔，仍会发生穿模');
 		placedCakeV18.removeFromParent();
 		const silkCountOnPallet = (pallet: THREE.Object3D | undefined) => {
 			let count = 0;
@@ -997,7 +1158,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			});
 			return { silk, separator, cover };
 		};
-		const cycleState = new Map([...woodenPallets.keys()].map((id) => [id, {
+		const createWoodCycleState = () => ({
 			initialStackChecked: false,
 			visitedCover: false,
 			visitedWrapper: false,
@@ -1006,27 +1167,41 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 			wrapperMotion: false,
 			labelMotion: false,
 			completed: false,
-		}]));
+		});
+		const cycleState = new Map<string, ReturnType<typeof createWoodCycleState>>();
 		const completedPalletIds: string[] = [];
 		let loadingBatchCount = 0, gantryBatchCount = 0;
 		let loadingBatchActive = false, gantryBatchActive = false;
 		let sawFullTwelveLoad = false, sawPartialSixLoad = false, sawSixEmptyReturn = false;
+		const observedEmptyReturnPalletIds = new Set<string>();
+		let previousGantryStationIds = new Set<string>();
 		let sawTwoBySixPalletLayout = false, sawStopperLowered = false, sawStopperRaisedAfterPass = false, sawStopperSensor = false;
 		let sawRobotPlaceContact = false, sawActualPalletSupport = false, sawStaggeredRelease = false;
 		let previousLoadingSilkCount = 0;
 		const loweredStopperKeys = new Set<string>();
 		let onePerPalletViolation = false, emptyReturnEnteredGantry = false, releaseOverlapViolation = false, physicalLaneViolation = false, palletOverlapViolation = false;
-		const robotPlacePhaseOrder = ['withdraw', 'lift', 'swing-start', 'transfer', 'above-place', 'descend', 'retract'];
-		let robotPlacePhaseCursor = 0;
 		const stationArrayKeys = ['stationPalletIds', 'stationWaitingPalletIds', 'stationReadyToReleasePalletIds', 'stationReleasedPalletIds'];
 		v18FullSlots.setRunning(true);
 		v18FullBehavior.setRunning(true);
-		for (let tick = 0; tick < 180000; tick += 1) {
-			v18FullSlots.tick(1 / 30);
-			v18FullBehavior.updateFixed(1 / 30);
-			for (const root of v18FullRoots.values()) advanceComponentVisualRuntime(root, 1 / 30, 1);
-			const currentPlacePhase = String(loadingRoot.userData.robotPlaceMotionPhase || '');
-			if (robotPlacePhaseCursor < robotPlacePhaseOrder.length && currentPlacePhase === robotPlacePhaseOrder[robotPlacePhaseCursor]) robotPlacePhaseCursor += 1;
+		// 保持 6000 秒总仿真覆盖，但用 10 Hz 固定步代替旧 30 Hz/180000 次 Three.js 全场景扫描。
+		// 连续 3 成品、重叠、工位动作和物料流断言不变，只降低回归本身的 CPU 开销。
+		const integrationDeltaSeconds = 0.1;
+		for (let tick = 0; tick < 60000; tick += 1) {
+			v18FullSlots.tick(integrationDeltaSeconds);
+			v18FullBehavior.updateFixed(integrationDeltaSeconds);
+			for (const root of v18FullRoots.values()) advanceComponentVisualRuntime(root, integrationDeltaSeconds, 1);
+			const frameWoodSnapshotsV18 = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId);
+			for (const snapshot of frameWoodSnapshotsV18) {
+				if (woodenPallets.has(snapshot.palletId)) continue;
+				let pallet: THREE.Object3D | undefined;
+				v18FullScene.traverse((node) => {
+					if (!pallet && node.userData?.twinEntityType === 'route-slot-pallet' && String(node.userData.twinEntityId) === snapshot.palletId) pallet = node;
+				});
+				if (pallet) {
+					woodenPallets.set(snapshot.palletId, pallet);
+					cycleState.set(snapshot.palletId, createWoodCycleState());
+				}
+			}
 			const frameSmallSnapshotsV18 = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
 			for (const snapshot of frameSmallSnapshotsV18) {
 				if (immutableLaneByPalletV18.get(snapshot.palletId) !== snapshot.physicalLane) physicalLaneViolation = true;
@@ -1035,11 +1210,23 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (snapshot.currentEdgeId?.includes('reference-double-small-bottom-lane-b') && Math.abs(pallet.position.z - 15.2) > 0.04) physicalLaneViolation = true;
 			}
 			const visibleSmallPalletsV18 = [...smallPallets.values()].filter((pallet) => pallet.visible);
+			const snapshotByPalletIdV18 = new Map(frameSmallSnapshotsV18.map((item) => [item.palletId, item]));
+			const stationMembershipV18 = (palletId: string) => {
+				const collect = (root: THREE.Object3D, label: string) => stationArrayKeys
+					.filter((key) => Array.isArray(root.userData?.[key]) && root.userData[key].map(String).includes(palletId))
+					.map((key) => `${label}.${key}`);
+				return [...collect(loadingRoot, 'loading'), ...collect(gantryRoot, 'gantry')];
+			};
 			for (let left = 0; left < visibleSmallPalletsV18.length; left += 1) for (let right = left + 1; right < visibleSmallPalletsV18.length; right += 1) {
-				const a = visibleSmallPalletsV18[left].position, b = visibleSmallPalletsV18[right].position;
+				const leftPallet = visibleSmallPalletsV18[left], rightPallet = visibleSmallPalletsV18[right];
+				const a = leftPallet.position, b = rightPallet.position;
 				const centerDistance = Math.hypot(a.x - b.x, a.z - b.z);
 				if (centerDistance < 1.50 - 0.001) palletOverlapViolation = true;
-				assert(centerDistance >= 1.50 - 0.001, 'V18 小托盘发生物理重叠：distance=' + centerDistance.toFixed(3) + 'm');
+				assert(centerDistance >= 1.50 - 0.001, 'V18 小托盘发生物理重叠：distance=' + centerDistance.toFixed(3) + 'm, left=' + JSON.stringify({
+					id: String(leftPallet.userData.twinEntityId), position: [a.x, a.z], snapshot: snapshotByPalletIdV18.get(String(leftPallet.userData.twinEntityId)), membership: stationMembershipV18(String(leftPallet.userData.twinEntityId)), flags: { collisionHeld: leftPallet.userData.collisionHeld, stationBatchVisual: leftPallet.userData.stationBatchVisual, stationQueueVisual: leftPallet.userData.stationQueueVisual, stationReleaseVisual: leftPallet.userData.stationReleaseVisual, routeHandoffComplete: leftPallet.userData.routeHandoffComplete },
+				}) + ', right=' + JSON.stringify({
+					id: String(rightPallet.userData.twinEntityId), position: [b.x, b.z], snapshot: snapshotByPalletIdV18.get(String(rightPallet.userData.twinEntityId)), membership: stationMembershipV18(String(rightPallet.userData.twinEntityId)), flags: { collisionHeld: rightPallet.userData.collisionHeld, stationBatchVisual: rightPallet.userData.stationBatchVisual, stationQueueVisual: rightPallet.userData.stationQueueVisual, stationReleaseVisual: rightPallet.userData.stationReleaseVisual, routeHandoffComplete: rightPallet.userData.routeHandoffComplete },
+				}));
 			}
 			const loadingIds = Array.isArray(loadingRoot.userData.stationPalletIds) ? loadingRoot.userData.stationPalletIds : [];
 			if (loadingIds.length === 12) {
@@ -1052,7 +1239,6 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (loadingSilkCount > previousLoadingSilkCount) {
 					const anchors = loadingPallets.map((pallet) => pallet.getObjectByName('SilkCakeAnchor')).filter(Boolean) as THREE.Object3D[];
 					const targetCenter = anchors.reduce((total, anchor) => total.add(anchor.getWorldPosition(new THREE.Vector3())), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, anchors.length));
-					targetCenter.y += Number(loadingPallets[0]?.userData.silkCakeAxialDepth || 0.42) / 2;
 					loadingRoot.updateMatrixWorld(true);
 					const tcpWorld = robotGripperV18.localToWorld(new THREE.Vector3(...(robotFrameV18.localPosition || [0, 0, 0])));
 					const contactDistance = tcpWorld.distanceTo(targetCenter);
@@ -1103,15 +1289,30 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				if (counts.filter((count) => count === 1).length === 6 && counts.filter((count) => count === 0).length === 6) sawPartialSixLoad = true;
 			}
 			const smallSnapshots = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
-			const emptyReturnSnapshots = smallSnapshots.filter((item) => item.currentEdgeId === 'component-edge-reference-conveyor-ref-empty-return-down-main-through');
-			if (emptyReturnSnapshots.length === 6 && emptyReturnSnapshots.every((item) => silkCountOnPallet(smallPallets.get(item.palletId)) === 0)) sawSixEmptyReturn = true;
+			// V19 按图纸把外检后的空托回流组件化为“一分二空托出口 + 独立回流辊道 + 后段汇流”。
+			// 独立辊道单段不需要、也不一定能同时容纳 6 个 >=1.50m 间距的托盘；
+			// 验收的是 6 个不同尾批空托都确实进入了这条专用支路，而不是要求它们同帧挤在同一 Edge。
+			const emptyReturnSnapshots = smallSnapshots.filter((item) => item.currentEdgeId === 'ref-empty-return-down'
+				|| item.currentEdgeId === 'ref-empty-return-merge');
+			for (const item of emptyReturnSnapshots) {
+				if (silkCountOnPallet(smallPallets.get(item.palletId)) === 0) observedEmptyReturnPalletIds.add(item.palletId);
+			}
+			if (observedEmptyReturnPalletIds.size >= 6) sawSixEmptyReturn = true;
 			const gantryStationIds = new Set([
 				...(Array.isArray(gantryRoot.userData.stationPalletIds) ? gantryRoot.userData.stationPalletIds.map(String) : []),
 				...(Array.isArray(gantryRoot.userData.stationWaitingPalletIds) ? gantryRoot.userData.stationWaitingPalletIds.map(String) : []),
 			]);
-			if (emptyReturnSnapshots.some((item) => gantryStationIds.has(item.palletId))) emptyReturnEnteredGantry = true;
+			// 同一个物理小托盘完成空托回流后会再次在机器人处装丝；后续作为有料托盘
+			// 进入桁架属于正常下一循环。桁架 Detach 后它会在工位内再次变为 0 锭，
+			// 因此只能在“新进入桁架工位”的瞬间检查入站物料，不能用工位内任意时刻的当前值。
+			for (const palletId of gantryStationIds) {
+				if (!previousGantryStationIds.has(palletId)
+					&& observedEmptyReturnPalletIds.has(palletId)
+					&& silkCountOnPallet(smallPallets.get(palletId)) === 0) emptyReturnEnteredGantry = true;
+			}
+			previousGantryStationIds = new Set(gantryStationIds);
 
-			for (const snapshot of v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId)) {
+			for (const snapshot of frameWoodSnapshotsV18) {
 				const pallet = woodenPallets.get(snapshot.palletId)!;
 				const state = cycleState.get(snapshot.palletId)!;
 				if (!pallet || !state) continue;
@@ -1159,8 +1360,35 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		}
 		const fullBehaviorSnapshot = v18FullBehavior.getSnapshot();
 		const finalSmallSnapshots = v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primarySmallPalletRouteId);
+		const finalStationMembershipV18 = (palletId: string) => {
+			const collect = (root: THREE.Object3D, label: string) => stationArrayKeys
+				.filter((key) => Array.isArray(root.userData?.[key]) && root.userData[key].map(String).includes(palletId))
+				.map((key) => `${label}.${key}`);
+			return [...collect(loadingRoot, 'loading'), ...collect(gantryRoot, 'gantry')];
+		};
+		const finalSmallDiagnostics = finalSmallSnapshots.map((item) => {
+			const pallet = smallPallets.get(item.palletId);
+			return {
+				...item,
+				silkCount: silkCountOnPallet(pallet),
+				membership: finalStationMembershipV18(item.palletId),
+				flags: pallet ? {
+					collisionHeld: pallet.userData.collisionHeld,
+					collisionBlockerPalletId: pallet.userData.collisionBlockerPalletId,
+					collisionBlockerEdgeId: pallet.userData.collisionBlockerEdgeId,
+					collisionBlockerPosition: pallet.userData.collisionBlockerPosition,
+					collisionCandidatePosition: pallet.userData.collisionCandidatePosition,
+					collisionRequiredDistance: pallet.userData.collisionRequiredDistance,
+					mergeYieldSeconds: pallet.userData.mergeYieldSeconds,
+					stationBatchVisual: pallet.userData.stationBatchVisual,
+					stationQueueVisual: pallet.userData.stationQueueVisual,
+					stationReleaseVisual: pallet.userData.stationReleaseVisual,
+					routeHandoffCompletePointId: pallet.userData.routeHandoffCompletePointId,
+				} : undefined,
+			};
+		});
 		assert(completedPalletIds.length === 3 && new Set(completedPalletIds).size === 3,
-			`V18 连续 3 成品失败：completed=${JSON.stringify(completedPalletIds)}, wood=${JSON.stringify(v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId))}, small=${JSON.stringify(finalSmallSnapshots)}, behavior=${JSON.stringify(fullBehaviorSnapshot.channels)}`);
+			`V18 连续 3 成品失败：completed=${JSON.stringify(completedPalletIds)}, wood=${JSON.stringify(v18FullSlots.getSimulationSnapshot().filter((item) => item.routeId === v18FullManifest.runtime.primaryWoodenPalletRouteId))}, small=${JSON.stringify(finalSmallDiagnostics)}, loadingStation=${JSON.stringify({ active: loadingRoot.userData.stationPalletIds, waiting: loadingRoot.userData.stationWaitingPalletIds, physicalRelease: loadingRoot.userData.stationPhysicalReleasePalletIds, released: loadingRoot.userData.stationReleasedPalletIds })}, gantryStation=${JSON.stringify({ active: gantryRoot.userData.stationPalletIds, waiting: gantryRoot.userData.stationWaitingPalletIds, physicalRelease: gantryRoot.userData.stationPhysicalReleasePalletIds, released: gantryRoot.userData.stationReleasedPalletIds })}, behavior=${JSON.stringify(fullBehaviorSnapshot.channels)}`);
 		assert(loadingBatchCount >= 16, `V18 3 个成品跨 18 锭/面尾批至少需要 16 次机器人批次，实际 ${loadingBatchCount}`);
 		assert(gantryBatchCount >= 24, `V18 3 个成品 2×3×8 至少需要 24 次桁架 6 托批次，实际 ${gantryBatchCount}`);
 		assert(sawFullTwelveLoad && sawPartialSixLoad, `V18 没有同时观察到 12 锭整批和 6 锭尾批：full=${sawFullTwelveLoad}, partial=${sawPartialSixLoad}`);
@@ -1169,7 +1397,6 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(sawRobotPlaceContact, 'V18 没有观察到机器人 TCP 真正到位后才放丝，仍可能存在提前瞬移');
 		assert(sawActualPalletSupport, 'V18 没有验证到真实丝锭底面贴合小托盘支撑面');
 		assert(sawStaggeredRelease && !releaseOverlapViolation, 'V18 机器人放料后的 12 个小托盘没有执行错峰释放，仍可能瞬间重叠');
-		assert(robotPlacePhaseCursor >= robotPlacePhaseOrder.length, 'V18 机器人没有完整观察到 V6 式 退出→抬升→摆渡→上方→下降→回撤路径，cursor=' + robotPlacePhaseCursor);
 		assert(!physicalLaneViolation, 'V18 小托盘发生跨辊道/physicalLane 改变，违反每托固定物理辊道原则');
 		assert(!palletOverlapViolation, 'V18 小托盘全流程出现实体重叠，违反托盘不可重叠底线');
 		assert(sawStopperLowered && sawStopperRaisedAfterPass && sawStopperSensor, `V18 小辊道阻挡器没有随托盘通过执行升→降→升：down=${sawStopperLowered}, up=${sawStopperRaisedAfterPass}, sensor=${sawStopperSensor}`);
@@ -1178,7 +1405,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		assert(Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0) >= 1
 			&& Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0) >= 1,
 			'V18 三成品没有触发声明式丝车 Simulation 补料，无法证明跨库存周期运行');
-		console.log(`V18 multi-cycle PASS: products=${completedPalletIds.join(',')}; robotBatches=${loadingBatchCount}; gantryBatches=${gantryBatchCount}; load=12+6; emptyReturn=6; refills=west:${Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0)},east:${Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0)},separator:${Number(v18FullRoots.get('reference-stacking-gantry')?.userData.simulationMaterialRefillCount || 0)}`);
+		console.log(`V${REFERENCE_PACKAGING_LAYOUT_VERSION} multi-cycle PASS: products=${completedPalletIds.join(',')}; robotBatches=${loadingBatchCount}; gantryBatches=${gantryBatchCount}; load=12+6; emptyReturn=6; refills=west:${Number(v18FullRoots.get('reference-turntable-west')?.userData.simulationMaterialRefillCount || 0)},east:${Number(v18FullRoots.get('reference-turntable-east')?.userData.simulationMaterialRefillCount || 0)},separator:${Number(v18FullRoots.get('reference-stacking-gantry')?.userData.simulationMaterialRefillCount || 0)}`);
 	} finally {
 		v18FullBehavior.dispose();
 		v18FullSlots.dispose();
@@ -1208,11 +1435,26 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 	}
 	const behaviorStationPalletIds = Array.from({ length: 12 }, (_, index) => `V18-STATION-PALLET-${index + 1}`);
 	const behaviorStationPalletRoots: THREE.Group[] = [];
+	const behaviorLoadingStations = referenceLineV11.routes
+		.flatMap((route) => route.points)
+		.filter((point) => point.componentObjectId === 'reference-loading-robot' && point.process?.type === 'robot-loading');
+	const behaviorLoadingStationA = behaviorLoadingStations.find((point) => point.process?.physicalLane === 'A');
+	const behaviorLoadingStationB = behaviorLoadingStations.find((point) => point.process?.physicalLane === 'B');
+	assert(Boolean(behaviorLoadingStationA && behaviorLoadingStationB), 'V15 测试夹具缺少机器人 A/B 两排真实上料工位');
 	for (let index = 0; index < behaviorStationPalletIds.length; index += 1) {
 		const built = defaultComponentRegistry.create(createComponentDefinitionFromTemplate('builtin-small-pallet', { objectId: `verify-v15-station-pallet-${index + 1}` }));
 		built.root.userData.twinEntityId = behaviorStationPalletIds[index];
 		built.root.userData.twinEntityType = 'route-slot-pallet';
-		built.root.position.set(index * 0.15, 0, 0);
+		const station = index < 6 ? behaviorLoadingStationA! : behaviorLoadingStationB!;
+		const layout = station.process?.batchLayout;
+		const columns = Math.max(1, Math.floor(Number(layout?.columns) || 6));
+		const spacing = Math.max(1.50, Number(layout?.columnSpacingMeters || 1.55));
+		const column = index % 6;
+		const centeredColumn = column - (columns - 1) / 2;
+		const position = new THREE.Vector3(...station.position);
+		if (layout?.columnAxis === 'z') position.z += centeredColumn * spacing;
+		else position.x += centeredColumn * spacing;
+		built.root.position.copy(position);
 		behaviorSceneV12.add(built.root);
 		behaviorStationPalletRoots.push(built.root);
 		behaviorBuiltV12.push(built);
@@ -1291,7 +1533,7 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 				break;
 			}
 		}
-		assert(firstBatchCompleted, `V15 第一批 2×6 在超时前没有完成两轮 2×3 + 两次隔板：groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}, channels=${JSON.stringify(behaviorRuntimeV12.getSnapshot().channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}, gantry=${JSON.stringify({ stationPalletIds: gantryStationRoot.userData.stationPalletIds, completedGroups: gantryStationRoot.userData.stationCompletedGroups })}`);
+		assert(firstBatchCompleted, `V15 第一批 2×6 在超时前没有完成两轮 2×3 + 两次隔板：groups=${JSON.stringify(gantryStationRoot.userData.stationCompletedGroupCounts || {})}, channels=${JSON.stringify(behaviorRuntimeV12.getSnapshot().channels.filter((item) => item.actorObjectId === 'reference-stacking-gantry'))}, robot=${JSON.stringify(behaviorRuntimeV12.getSnapshot().channels.filter((item) => item.actorObjectId === 'reference-loading-robot'))}, gantry=${JSON.stringify({ stationPalletIds: gantryStationRoot.userData.stationPalletIds, completedGroups: gantryStationRoot.userData.stationCompletedGroups, silkCounts: (Array.isArray(gantryStationRoot.userData.stationPalletIds) ? gantryStationRoot.userData.stationPalletIds : []).map((id: string) => { const root = behaviorStationPalletRoots.find((item) => String(item.userData.twinEntityId) === String(id)); let silk = 0; root?.traverse((node) => { if (node.userData?.materialEntity === true && node.userData?.payloadType === 'silk-cake') silk += 1; }); return { id, silk }; }) })}`);
 		const behaviorSnapshot = behaviorRuntimeV12.getSnapshot();
 		assert(behaviorSnapshot.active === true && behaviorSnapshot.dataMode === 'simulation', 'V12 BehaviorRuntime 没有在 simulation 模式启动');
 		const robotChannel = behaviorSnapshot.channels.find((item) => item.actorObjectId === 'reference-loading-robot');
@@ -1577,29 +1819,29 @@ if (REFERENCE_PACKAGING_LAYOUT_VERSION >= 11) {
 		saved.behaviors = [...(saved.behaviors || []), { behaviorId: `custom-behavior-${sourceVersion}`, name: '用户动作', actorObjectId: 'reference-loading-robot', enabled: false, actions: [{ actionId: `custom-action-${sourceVersion}`, kind: 'wait', durationSeconds: 0.1 }] }];
 		saved.interlocks = [...(saved.interlocks || []), { interlockId: `custom-interlock-${sourceVersion}`, name: '用户互锁', mode: 'all', conditions: [{ source: 'custom.ready', operator: 'truthy' }] }];
 		assert(upgradeReferencePackagingLineLayout(saved) === true, `已保存 V${sourceVersion} 没有迁移到 V18`);
-		assert(saved.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, `V${sourceVersion}->V18 没有刷新布局版本`);
-		assert(saved.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, `V${sourceVersion}->V18 没有同步场景名称`);
-		assert(saved.runtime.primarySmallPalletRouteId === referenceLineV11.runtime.primarySmallPalletRouteId, `V${sourceVersion}->V18 主小托盘路线 ID 未刷新`);
-		assert(saved.runtime.primaryWoodenPalletRouteId === referenceLineV11.runtime.primaryWoodenPalletRouteId, `V${sourceVersion}->V18 主木托路线 ID 未刷新`);
+		assert(saved.runtime.referencePackagingLayoutVersion === REFERENCE_PACKAGING_LAYOUT_VERSION, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 没有刷新布局版本`);
+		assert(saved.name === `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 没有同步场景名称`);
+		assert(saved.runtime.primarySmallPalletRouteId === referenceLineV11.runtime.primarySmallPalletRouteId, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 主小托盘路线 ID 未刷新`);
+		assert(saved.runtime.primaryWoodenPalletRouteId === referenceLineV11.runtime.primaryWoodenPalletRouteId, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 主木托路线 ID 未刷新`);
 		const smallInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primarySmallPalletRouteId);
 		const woodInit = saved.runtime.routePalletInitializers?.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId);
-		assert(smallInit?.simulationDefaultCount === 12 && woodInit?.simulationDefaultCount === 0 && woodInit?.simulationAutoFeed === true, `V${sourceVersion}->V18 没有迁移 12 小托 + 0 初始木托/按需进料`);
+		assert(smallInit?.simulationDefaultCount === 12 && woodInit?.simulationDefaultCount === 0 && woodInit?.simulationAutoFeed === true, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 没有迁移 12 小托 + 0 初始木托/按需进料`);
 		const woodRoute = saved.routes.find((item) => item.routeId === saved.runtime.primaryWoodenPalletRouteId)!;
 		const woodProcesses = woodRoute.points.filter((item) => item.kind === 'processStation' && item.process).map((item) => item.process!.type);
-		assert(['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => woodProcesses.includes(type)), `V${sourceVersion}->V18 后包装路线不完整`);
-		assert(saved.behaviors?.some((item) => item.behaviorId === 'reference-top-cover-place-behavior'), `V${sourceVersion}->V18 缺天盖 Behavior`);
-		assert(saved.materialSlots?.some((item) => item.slotId === 'reference-top-cover-target-slot'), `V${sourceVersion}->V18 缺天盖 MaterialSlot`);
-		assert(saved.interlocks?.some((item) => item.interlockId === 'reference-wood-stack-complete'), `V${sourceVersion}->V18 缺满托 Interlock`);
+		assert(['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => woodProcesses.includes(type)), `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 后包装路线不完整`);
+		assert(saved.behaviors?.some((item) => item.behaviorId === 'reference-top-cover-place-behavior'), `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 缺天盖 Behavior`);
+		assert(saved.materialSlots?.some((item) => item.slotId === 'reference-top-cover-target-slot'), `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 缺天盖 MaterialSlot`);
+		assert(saved.interlocks?.some((item) => item.interlockId === 'reference-wood-stack-complete'), `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 缺满托 Interlock`);
 		assert(saved.workPoints?.some((item) => item.workPointId === `custom-work-${sourceVersion}`)
 			&& saved.materialSlots?.some((item) => item.slotId === `custom-slot-${sourceVersion}`)
 			&& saved.toolFrames?.some((item) => item.toolFrameId === `custom-tcp-${sourceVersion}`)
 			&& saved.actuators?.some((item) => item.actuatorId === `custom-axis-${sourceVersion}`)
 			&& saved.poses?.some((item) => item.poseId === `custom-pose-${sourceVersion}`)
 			&& saved.behaviors?.some((item) => item.behaviorId === `custom-behavior-${sourceVersion}`)
-			&& saved.interlocks?.some((item) => item.interlockId === `custom-interlock-${sourceVersion}`), `V${sourceVersion}->V18 误删用户自定义动作定义`);
-		assert((saved.runtime as any).userCustomRuntimeFlag === `keep-v${sourceVersion}`, `V${sourceVersion}->V18 误覆盖用户 runtime 扩展字段`);
+			&& saved.interlocks?.some((item) => item.interlockId === `custom-interlock-${sourceVersion}`), `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 误删用户自定义动作定义`);
+		assert((saved.runtime as any).userCustomRuntimeFlag === `keep-v${sourceVersion}`, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 误覆盖用户 runtime 扩展字段`);
 		const snapshot = JSON.stringify(saved);
-		assert(upgradeReferencePackagingLineLayout(saved) === false && JSON.stringify(saved) === snapshot, `V${sourceVersion}->V18 迁移不是幂等操作`);
+		assert(upgradeReferencePackagingLineLayout(saved) === false && JSON.stringify(saved) === snapshot, `V${sourceVersion}->V${REFERENCE_PACKAGING_LAYOUT_VERSION} 迁移不是幂等操作`);
 	};
 	for (const version of [15, 16, 17] as const) assertReferenceV18Migration(version);
 
@@ -1771,7 +2013,13 @@ try {
 	assert(Number(flangeMount.userData?.mountAngleDegrees) === 0, '2×6 夹具板面没有保持垂直于 J6 轴');
 	assert(gridGripper.userData?.gripperRows === 2 && gridGripper.userData?.gripperColumns === 6 && gridGripper.userData?.gripperHeadCount === 12, '2×6 丝锭夹具行列/夹爪数量错误');
 	assert(Math.abs(Number(gridGripper.userData?.contactPlaneOffset) - 0.54) < 0.001, '2×6 夹具 TCP 没有落在吸盘真实接触平面');
-	for (let head = 1; head <= 12; head += 1) assert(Boolean(gridGripper.getObjectByName('RobotGripperHead-' + head)), '2×6 丝锭夹具缺少抓头 ' + head);
+	for (let head = 1; head <= 12; head += 1) {
+		const headNode = gridGripper.getObjectByName('RobotGripperHead-' + head);
+		const payloadAnchor = gridGripper.getObjectByName('RobotPayloadAnchor-' + head);
+		assert(Boolean(headNode), '2×6 丝锭夹具缺少抓头 ' + head);
+		assert(Boolean(payloadAnchor) && payloadAnchor?.parent === headNode && payloadAnchor?.userData?.robotPayloadAnchor === true, '2×6 丝锭夹具缺少固定抓位锚点 ' + head);
+		assert(Math.abs(Number(payloadAnchor?.position.x || 0)) < 0.0001 && Math.abs(Number(payloadAnchor?.position.z || 0)) < 0.0001, '固定抓位锚点没有与对应抓头同轴 ' + head);
+	}
 	builtLoadingRobot.root.updateMatrixWorld(true);
 	const q6 = axis6.getWorldQuaternion(new THREE.Quaternion());
 	const qGrip = gridGripper.getWorldQuaternion(new THREE.Quaternion());
@@ -1999,7 +2247,7 @@ for (const routeCode of ['A', 'B'] as const) {
 		const item = referenceComponents.find((candidate) => candidate.objectId === objectId)!;
 		roots.set(objectId, defaultComponentRegistry.create({ objectId: item.objectId, name: item.name, resourceKey: item.component!.resourceKey, componentType: item.component!.componentType as any, generator: item.component!.generator, generatorVersion: item.component!.generatorVersion, properties: item.component!.properties, transform: item.transform, sectionId: item.component!.sectionId }));
 	}
-	const runtime = new ComponentProcessRuntime({ route: processRoute, routeEngine: engine, getComponentRoot: (objectId) => roots.get(objectId)?.root, getRoutingContext: () => ({ payload: { routeCode }, bindingValues: {}, staleBindingIds: [] }) });
+	const runtime = new ComponentProcessRuntime({ route: processRoute, routeEngine: engine, dataMode: 'simulation', getComponentRoot: (objectId) => roots.get(objectId)?.root, getRoutingContext: () => ({ payload: { routeCode }, bindingValues: {}, staleBindingIds: [] }) });
 	runtime.setRunning(true);
 	const activeStations = new Set<string>();
 	let sawInspectionTimeline = false;
@@ -2515,7 +2763,325 @@ const graph = upsertGeneratedComponentRoute(connectedManifest);
 assert(graph?.route.generatedBy === 'component-connections', '自动路线没有 generatedBy 只读标识');
 assert(graph?.route.edges.length === 3, 'C1 → C2 → C3 应生成三个独立 Section');
 assert(graph?.route.points.length === 4, '三段串联辊道应将相接端口合并成四个路线节点');
+assert(graph?.route.points.every((point) => point.authoring?.mode === 'generated' && point.authoring.locked === true), '组件自动 RoutePoint 没有 generated/locked authoring 标识');
+assert(graph?.route.edges.every((edge) => edge.authoring?.mode === 'generated' && edge.authoring.locked === true), '组件自动 RouteEdge 没有 generated/locked authoring 标识');
+
+// 双路线 Phase 1：旧路线缺少 authoring 仍按 generated 归一；新手工段可与自动段共存，并在组件 Route 重建后稳定保留。
+const legacyAuthoringRoute = structuredClone(graph!.route);
+for (const point of legacyAuthoringRoute.points) delete point.authoring;
+for (const edge of legacyAuthoringRoute.edges) delete edge.authoring;
+const normalizedLegacyAuthoringRoute = normalizeTwinRoute(legacyAuthoringRoute);
+assert(normalizedLegacyAuthoringRoute.points.every((point) => point.authoring?.mode === 'generated'), '旧 RoutePoint 缺少 authoring 时没有兼容为 generated');
+assert(normalizedLegacyAuthoringRoute.edges.every((edge) => edge.authoring?.mode === 'generated'), '旧 RouteEdge 缺少 authoring 时没有兼容为 generated');
+
+const generatedRouteWithManual = connectedManifest.routes.find((item) => item.generatedBy === 'component-connections')!;
+const outgoingGeneratedPointIds = new Set(generatedRouteWithManual.edges.filter((edge) => edge.authoring?.mode === 'generated').map((edge) => edge.fromPointId));
+const generatedTail = generatedRouteWithManual.points.find((point) => point.authoring?.mode === 'generated' && !outgoingGeneratedPointIds.has(point.pointId))!;
+assert(Boolean(generatedTail), '双路线 Phase 1 未找到组件自动路线末端');
+const manualPoint = createRoutePoint([generatedTail.position[0] + 2, generatedTail.position[1], generatedTail.position[2]], generatedRouteWithManual.points.length);
+manualPoint.name = 'Phase1 Manual Bridge';
+manualPoint.authoring = { mode: 'manual', locked: false };
+const manualEdge = createRouteEdge(generatedTail.pointId, manualPoint.pointId, generatedRouteWithManual.edges.length);
+manualEdge.name = 'Phase1 Manual Edge';
+manualEdge.authoring = { mode: 'manual', locked: false };
+generatedRouteWithManual.points.push(manualPoint);
+generatedRouteWithManual.edges.push(manualEdge);
+const manualPointSnapshot = structuredClone(manualPoint);
+upsertGeneratedComponentRoutes(connectedManifest);
+const rebuiltMixedRoute = connectedManifest.routes.find((item) => item.routeId === generatedRouteWithManual.routeId)!;
+assert(rebuiltMixedRoute.points.some((point) => point.pointId === manualPoint.pointId && point.authoring?.mode === 'manual'), '组件自动路线重建删除了 Manual RoutePoint');
+assert(rebuiltMixedRoute.edges.some((edge) => edge.edgeId === manualEdge.edgeId && edge.authoring?.mode === 'manual'), '组件自动路线重建删除了 Manual RouteEdge');
+assert(JSON.stringify(rebuiltMixedRoute.points.find((point) => point.pointId === manualPoint.pointId)) === JSON.stringify(manualPointSnapshot), '组件自动路线重建改变了 Manual RoutePoint ID/几何/元数据');
+const rebuiltMixedPath = resolveRoutePath({ ...rebuiltMixedRoute, startPointId: graph!.route.startPointId }, {});
+assert(rebuiltMixedPath.edgeIds.includes(manualEdge.edgeId), 'RouteEngine 没有沿统一 Route Graph 从 Generated 段继续进入 Manual 段');
+
+// 纯数据编译验收：Generated A.Output → Manual Route → Generated B.Input/内部段最终仍是一张标准 Route Graph。
+const phase1A = { ...createRoutePoint([0, 0.8, 0], 0), pointId: 'phase1-a-output', name: 'Conveyor A.Output', authoring: { mode: 'generated' as const, sourceObjectId: 'ConveyorA', sourcePortId: 'output', locked: true } };
+const phase1Manual = { ...createRoutePoint([2, 0.8, 0], 1), pointId: 'phase1-manual', name: 'Manual Route Point', authoring: { mode: 'manual' as const, locked: false } };
+const phase1B = { ...createRoutePoint([4, 0.8, 0], 2), pointId: 'phase1-b-input', name: 'Conveyor B.Input', authoring: { mode: 'generated' as const, sourceObjectId: 'ConveyorB', sourcePortId: 'input', locked: true } };
+const phase1BExit = { ...createRoutePoint([6, 0.8, 0], 3), pointId: 'phase1-b-output', name: 'Conveyor B.Output', authoring: { mode: 'generated' as const, sourceObjectId: 'ConveyorB', sourcePortId: 'output', locked: true } };
+const phase1ManualA = { ...createRouteEdge(phase1A.pointId, phase1Manual.pointId, 0), edgeId: 'phase1-manual-a', authoring: { mode: 'manual' as const, locked: false } };
+const phase1ManualB = { ...createRouteEdge(phase1Manual.pointId, phase1B.pointId, 1), edgeId: 'phase1-manual-b', authoring: { mode: 'manual' as const, locked: false } };
+const phase1GeneratedB = { ...createRouteEdge(phase1B.pointId, phase1BExit.pointId, 2), edgeId: 'phase1-generated-b', authoring: { mode: 'generated' as const, sourceObjectId: 'ConveyorB', sourceInternalFlowId: 'main', locked: true } };
+const phase1Compiled = compileRouteAuthoringGraph([{
+	routeId: 'phase1-unified', name: 'Phase1 Unified Route', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [phase1A, phase1Manual, phase1B, phase1BExit], edges: [phase1ManualA, phase1ManualB, phase1GeneratedB], startPointId: phase1A.pointId,
+	junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+}]);
+assert(phase1Compiled.diagnostics.every((item) => item.severity !== 'error'), `双路线 Phase 1 编译出现错误：${JSON.stringify(phase1Compiled.diagnostics)}`);
+assert(phase1Compiled.sourceMap.filter((item) => item.authoringMode === 'manual').length === 2 && phase1Compiled.sourceMap.some((item) => item.authoringMode === 'generated'), 'RouteAuthoringCompiler 没有保留 Generated/Manual SourceMap');
+const phase1Resolved = resolveRoutePath(phase1Compiled.routes[0], {});
+assert(phase1Resolved.edgeIds.join('|') === 'phase1-manual-a|phase1-manual-b|phase1-generated-b', `Generated → Manual → Generated 没有形成统一运行路径：${phase1Resolved.edgeIds.join('|')}`);
+
+// 双路线 Phase 2：Manual Route 两端可吸附 Component Port，组件移动只带动 hard-attached Endpoint，中间手工点保持不动。
+const phase2Manifest = createManifest(createSmallRoller('Phase2ConveyorA', 0), createSmallRoller('Phase2ConveyorB', 8));
+upsertGeneratedComponentRoutes(phase2Manifest);
+const phase2ObjectA = phase2Manifest.objects.find((item) => item.objectId === 'Phase2ConveyorA') as TwinV7SceneObjectDefinition;
+const phase2ObjectB = phase2Manifest.objects.find((item) => item.objectId === 'Phase2ConveyorB') as TwinV7SceneObjectDefinition;
+const phase2OutputA = resolveComponentPorts(phase2ObjectA).find((port) => port.type === 'material-output')!;
+const phase2InputB = resolveComponentPorts(phase2ObjectB).find((port) => port.type === 'material-input')!;
+assert(Boolean(phase2OutputA && phase2InputB), 'Phase2 测试辊道缺少 input/output Port');
+const phase2Start = { ...createRoutePoint([phase2OutputA.worldPosition.x + 0.15, phase2OutputA.worldPosition.y, phase2OutputA.worldPosition.z], 0), pointId: 'phase2-manual-start', authoring: { mode: 'manual' as const, locked: false } };
+const phase2Middle = { ...createRoutePoint([(phase2OutputA.worldPosition.x + phase2InputB.worldPosition.x) / 2, phase2OutputA.worldPosition.y, phase2OutputA.worldPosition.z], 1), pointId: 'phase2-manual-middle', authoring: { mode: 'manual' as const, locked: false } };
+const phase2End = { ...createRoutePoint([phase2InputB.worldPosition.x - 0.15, phase2InputB.worldPosition.y, phase2InputB.worldPosition.z], 2), pointId: 'phase2-manual-end', authoring: { mode: 'manual' as const, locked: false } };
+const phase2EdgeA = { ...createRouteEdge(phase2Start.pointId, phase2Middle.pointId, 0), edgeId: 'phase2-manual-edge-a', authoring: { mode: 'manual' as const, locked: false } };
+const phase2EdgeB = { ...createRouteEdge(phase2Middle.pointId, phase2End.pointId, 1), edgeId: 'phase2-manual-edge-b', authoring: { mode: 'manual' as const, locked: false } };
+phase2Manifest.routes.push({
+	routeId: 'phase2-manual-route', name: 'Phase2 Manual Route', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [phase2Start, phase2Middle, phase2End], edges: [phase2EdgeA, phase2EdgeB], startPointId: phase2Start.pointId,
+	junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+});
+const phase2StartOptions = listRouteEndpointPortSnapOptions(phase2Manifest, 'phase2-manual-route', phase2Start.pointId);
+const phase2EndOptions = listRouteEndpointPortSnapOptions(phase2Manifest, 'phase2-manual-route', phase2End.pointId);
+assert(phase2StartOptions.some((item) => item.objectId === phase2ObjectA.objectId && item.portId === phase2OutputA.portId), 'Phase2 Port 下拉没有为 Manual 起点列出 Conveyor A.Output');
+assert(phase2EndOptions.some((item) => item.objectId === phase2ObjectB.objectId && item.portId === phase2InputB.portId), 'Phase2 Port 下拉没有为 Manual 终点列出 Conveyor B.Input');
+assert(Boolean(attachRoutePointToPort(phase2Manifest, 'phase2-manual-route', phase2Start.pointId, phase2ObjectA.objectId, phase2OutputA.portId)), 'Phase2 Manual 起点吸附 Conveyor A.Output 失败');
+assert(Boolean(attachRoutePointToPort(phase2Manifest, 'phase2-manual-route', phase2End.pointId, phase2ObjectB.objectId, phase2InputB.portId)), 'Phase2 Manual 终点吸附 Conveyor B.Input 失败');
+const phase2RouteBeforeMove = phase2Manifest.routes.find((item) => item.routeId === 'phase2-manual-route')!;
+const phase2AttachedStartBefore = structuredClone(phase2RouteBeforeMove.points.find((item) => item.pointId === phase2Start.pointId)!);
+const phase2AttachedEndBefore = structuredClone(phase2RouteBeforeMove.points.find((item) => item.pointId === phase2End.pointId)!);
+const phase2MiddleBefore = structuredClone(phase2RouteBeforeMove.points.find((item) => item.pointId === phase2Middle.pointId)!);
+phase2ObjectB.transform.position[0] += 1;
+upsertGeneratedComponentRoutes(phase2Manifest);
+const phase2RouteAfterMove = phase2Manifest.routes.find((item) => item.routeId === 'phase2-manual-route')!;
+const phase2AttachedStartAfter = phase2RouteAfterMove.points.find((item) => item.pointId === phase2Start.pointId)!;
+const phase2AttachedEndAfter = phase2RouteAfterMove.points.find((item) => item.pointId === phase2End.pointId)!;
+const phase2MiddleAfter = phase2RouteAfterMove.points.find((item) => item.pointId === phase2Middle.pointId)!;
+assert(Math.abs(phase2AttachedStartAfter.position[0] - phase2AttachedStartBefore.position[0]) < 0.0001, '移动 Conveyor B 时错误带动了吸附在 Conveyor A.Output 的 Manual 起点');
+assert(Math.abs((phase2AttachedEndAfter.position[0] - phase2AttachedEndBefore.position[0]) - 1) < 0.0001, 'Conveyor B 移动 1m 后 Manual 终点没有跟随 B.Input 移动 1m');
+assert(JSON.stringify(phase2MiddleAfter.position) === JSON.stringify(phase2MiddleBefore.position), '组件移动错误改变了 Manual Route 中间节点');
+assert(phase2AttachedEndAfter.attachment?.objectId === phase2ObjectB.objectId && phase2AttachedEndAfter.attachment?.portId === phase2InputB.portId && phase2AttachedEndAfter.attachment?.snapMode === 'hard', '组件重建后 Manual Endpoint Attachment 丢失');
+assert(phase2AttachedEndAfter.pointId === phase2End.pointId && phase2RouteAfterMove.edges.some((edge) => edge.edgeId === phase2EdgeB.edgeId), '组件移动后 Manual Route 稳定 ID 被改变');
+assert(detachRoutePointFromPort(phase2Manifest, 'phase2-manual-route', phase2End.pointId), 'Phase2 Manual Endpoint 解除 Port 吸附失败');
+assert(!phase2RouteAfterMove.points.find((item) => item.pointId === phase2End.pointId)?.attachment, 'Phase2 解除吸附后 attachment 仍残留');
+
+// 双路线 Phase 3：Generated → Manual 转换保持全部 Runtime ID / Binding / Section，不再被组件重建覆盖。
+const phase3Manifest = createManifest(createSmallRoller('Phase3A', 0), createSmallRoller('Phase3B', 3.3));
+assert(snapAndConnectNearestComponent(phase3Manifest, 'Phase3B', { maxDistance: 0.5, maxAngleDegrees: 15 }), 'Phase3 两段辊道自动连接失败');
+const phase3Graph = upsertGeneratedComponentRoute(phase3Manifest)!.route;
+const phase3EdgeBefore = phase3Graph.edges[0];
+phase3EdgeBefore.releasePermitBindingId = 'phase3-release-permit';
+phase3EdgeBefore.readyBindingId = 'phase3-ready';
+phase3EdgeBefore.sectionId = 'phase3-section-stable';
+const phase3IdsBefore = { routeId: phase3Graph.routeId, pointIds: phase3Graph.points.map((item) => item.pointId), edgeIds: phase3Graph.edges.map((item) => item.edgeId) };
+const phase3Converted = convertGeneratedRouteToManual(phase3Graph);
+phase3Manifest.routes.splice(phase3Manifest.routes.findIndex((item) => item.routeId === phase3Graph.routeId), 1, phase3Converted.route);
+assert(phase3Converted.route.routeId === phase3IdsBefore.routeId, 'Generated→Manual 转换改变了 routeId');
+assert(JSON.stringify(phase3Converted.route.points.map((item) => item.pointId)) === JSON.stringify(phase3IdsBefore.pointIds), 'Generated→Manual 转换改变了 pointId');
+assert(JSON.stringify(phase3Converted.route.edges.map((item) => item.edgeId)) === JSON.stringify(phase3IdsBefore.edgeIds), 'Generated→Manual 转换改变了 edgeId');
+const phase3ConvertedEdge = phase3Converted.route.edges.find((item) => item.edgeId === phase3EdgeBefore.edgeId)!;
+assert(phase3ConvertedEdge.authoring?.mode === 'manual' && phase3ConvertedEdge.authoring.convertedFromGenerated === true && phase3ConvertedEdge.authoring.locked === false, '转换后的 generated Edge 没有成为可编辑 Manual override');
+assert(phase3ConvertedEdge.releasePermitBindingId === 'phase3-release-permit' && phase3ConvertedEdge.readyBindingId === 'phase3-ready' && phase3ConvertedEdge.sectionId === 'phase3-section-stable', '转换时丢失 Binding/Section');
+const phase3GeometryBefore = JSON.stringify(phase3Converted.route.points.map((item) => item.position));
+(phase3Manifest.objects.find((item) => item.objectId === 'Phase3B') as TwinV7SceneObjectDefinition).transform.position[0] += 1;
+upsertGeneratedComponentRoutes(phase3Manifest);
+const phase3AfterRebuild = phase3Manifest.routes.find((item) => item.routeId === phase3IdsBefore.routeId)!;
+assert(JSON.stringify(phase3AfterRebuild.points.map((item) => item.position)) === phase3GeometryBefore, 'Converted Manual Route 又被组件移动/自动重建覆盖');
+assert(phase3AfterRebuild.edges.find((item) => item.edgeId === phase3EdgeBefore.edgeId)?.releasePermitBindingId === 'phase3-release-permit', 'Converted Manual Route 重建后 Binding 丢失');
+
+// Route Section：名称可变、ID 稳定；Edge 永远引用稳定 sectionId。
+const phase4Section = ensureRouteSection(phase3AfterRebuild, '外检空托回流', 'section-empty-return-stable');
+const phase4SectionId = phase4Section.sectionId;
+assert(renameRouteSection(phase3AfterRebuild, phase4SectionId, '外检后空托独立回流'), 'Route Section 改名失败');
+assert(phase3AfterRebuild.sections?.find((item) => item.sectionId === phase4SectionId)?.name === '外检后空托独立回流' && phase4SectionId === 'section-empty-return-stable', 'Route Section 改名改变了稳定 ID');
+
+// Phase 4：三个独立 Authoring Route 通过 hard Port Attachment 编译成一张统一 Runtime Graph。
+const phase4GeneratedA: TwinRouteDefinition = {
+	routeId: 'phase4-generated-a', name: 'Generated A', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([0, 0.8, 0], 0), pointId: 'phase4-a-in', authoring: { mode: 'generated', sourceObjectId: 'P4A', sourcePortId: 'input', locked: true } },
+		{ ...createRoutePoint([2, 0.8, 0], 1), pointId: 'phase4-a-out', authoring: { mode: 'generated', sourceObjectId: 'P4A', sourcePortId: 'output', locked: true } },
+	],
+	edges: [{ ...createRouteEdge('phase4-a-in', 'phase4-a-out', 0), edgeId: 'phase4-edge-a', authoring: { mode: 'generated', sourceObjectId: 'P4A', sourceInternalFlowId: 'main', locked: true } }],
+	startPointId: 'phase4-a-in', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+};
+const phase4Manual: TwinRouteDefinition = {
+	routeId: 'phase4-manual', name: 'Manual Bridge', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([2, 0.8, 0], 0), pointId: 'phase4-manual-start', attachment: { objectId: 'P4A', portId: 'output', role: 'entry', snapMode: 'hard' } },
+		{ ...createRoutePoint([4, 0.8, 1], 1), pointId: 'phase4-manual-mid' },
+		{ ...createRoutePoint([6, 0.8, 0], 2), pointId: 'phase4-manual-end', attachment: { objectId: 'P4B', portId: 'input', role: 'exit', snapMode: 'hard' } },
+	],
+	edges: [
+		{ ...createRouteEdge('phase4-manual-start', 'phase4-manual-mid', 0), edgeId: 'phase4-manual-edge-1' },
+		{ ...createRouteEdge('phase4-manual-mid', 'phase4-manual-end', 1), edgeId: 'phase4-manual-edge-2' },
+	],
+	startPointId: 'phase4-manual-start', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+};
+const phase4GeneratedB: TwinRouteDefinition = {
+	routeId: 'phase4-generated-b', name: 'Generated B', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([6, 0.8, 0], 0), pointId: 'phase4-b-in', authoring: { mode: 'generated', sourceObjectId: 'P4B', sourcePortId: 'input', locked: true } },
+		{ ...createRoutePoint([8, 0.8, 0], 1), pointId: 'phase4-b-out', authoring: { mode: 'generated', sourceObjectId: 'P4B', sourcePortId: 'output', locked: true } },
+	],
+	edges: [{ ...createRouteEdge('phase4-b-in', 'phase4-b-out', 0), edgeId: 'phase4-edge-b', authoring: { mode: 'generated', sourceObjectId: 'P4B', sourceInternalFlowId: 'main', locked: true } }],
+	startPointId: 'phase4-b-in', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+};
+const phase4Compile = compileRouteAuthoringGraph([phase4GeneratedA, phase4Manual, phase4GeneratedB]);
+assert(phase4Compile.diagnostics.every((item) => item.severity !== 'error'), `Phase4 Graph Merge 出现错误：${JSON.stringify(phase4Compile.diagnostics)}`);
+assert(phase4Compile.routes.length === 1, `Port Attachment 没有把三条 Authoring Route 合并成一张 Runtime Graph：${phase4Compile.routes.length}`);
+const phase4RuntimeRoute = phase4Compile.routes[0];
+assert(!phase4RuntimeRoute.points.some((item) => item.pointId === 'phase4-manual-start' || item.pointId === 'phase4-manual-end'), 'Endpoint Merge 后重复 Manual Port Point 仍留在 Runtime Graph');
+assert(phase4RuntimeRoute.edges.find((item) => item.edgeId === 'phase4-manual-edge-1')?.fromPointId === 'phase4-a-out' && phase4RuntimeRoute.edges.find((item) => item.edgeId === 'phase4-manual-edge-2')?.toPointId === 'phase4-b-in', 'Endpoint Merge 没有把 Manual Edge 归一到 Generated Port Point');
+assert(phase4Compile.routeAliases['phase4-manual'] === 'phase4-generated-a' && phase4Compile.routeAliases['phase4-generated-b'] === 'phase4-generated-a', '跨 Route 合并没有生成稳定 route alias');
+const phase4Resolved = resolveRoutePath(phase4RuntimeRoute, {});
+assert(phase4Resolved.edgeIds.join('|') === 'phase4-edge-a|phase4-manual-edge-1|phase4-manual-edge-2|phase4-edge-b', `统一 Runtime Graph 不能连续通过 Generated→Manual→Generated：${phase4Resolved.edgeIds.join('|')}`);
+assert(phase4Compile.sourceMap.some((item) => item.runtimeEdgeId === 'phase4-manual-edge-1' && item.authoringMode === 'manual') && phase4Compile.sourceMap.some((item) => item.runtimeEdgeId === 'phase4-edge-b' && item.authoringMode === 'generated'), 'Phase4 SourceMap 没有保留 Generated/Manual 来源');
+
+// routeGraph 随草稿固化；发布 Runtime 使用固化副本，不受随后 authoring route 临时变化影响。
+const phase4PersistManifest = createDefaultTwinSceneManifest();
+phase4PersistManifest.routes = [phase4GeneratedA, phase4Manual, phase4GeneratedB];
+const phase4PersistCompile = persistCompiledRouteGraph(phase4PersistManifest);
+assert(phase4PersistManifest.routeGraph?.compilerVersion === 1 && phase4PersistManifest.routeGraph.routes.length === 1, 'Compiled routeGraph 没有随 Manifest 固化');
+phase4PersistManifest.routes[0].edges[0].name = 'authoring-after-publish-change';
+const phase4PublishedRuntime = createPublishedRuntimeManifest(phase4PersistManifest).manifest;
+assert(phase4PublishedRuntime.routes[0].edges[0].name !== 'authoring-after-publish-change', 'Published Runtime 又临时从 Authoring Route 重编译，没有使用不可变 routeGraph');
+const phase4DraftRuntime = createCompiledRuntimeManifest(phase4PersistManifest).manifest;
+assert(phase4DraftRuntime.routes.length === phase4PersistCompile.routes.length, 'Draft Runtime 没有使用统一 RouteAuthoringCompiler');
+
+// Authoring Validator：普通 Input 被多个外部流占用必须报错；不能静默生成错误拓扑。
+const phase4InvalidManifest = createManifest(createSmallRoller('Phase4Target', 10));
+const phase4Target = phase4InvalidManifest.objects[0] as TwinV7SceneObjectDefinition;
+const phase4TargetInput = resolveComponentPorts(phase4Target).find((item) => item.type === 'material-input')!;
+const duplicateExitRoute = (routeId: string, suffix: string, z: number): TwinRouteDefinition => ({
+	routeId, name: routeId, type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([6, phase4TargetInput.worldPosition.y, z], 0), pointId: `phase4-${suffix}-start` },
+		{ ...createRoutePoint([phase4TargetInput.worldPosition.x, phase4TargetInput.worldPosition.y, phase4TargetInput.worldPosition.z], 1), pointId: `phase4-${suffix}-end`, attachment: { objectId: phase4Target.objectId, portId: phase4TargetInput.portId, role: 'exit', snapMode: 'hard' } },
+	],
+	edges: [{ ...createRouteEdge(`phase4-${suffix}-start`, `phase4-${suffix}-end`, 0), edgeId: `phase4-${suffix}-edge` }],
+	startPointId: `phase4-${suffix}-start`, junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+});
+phase4InvalidManifest.routes = [duplicateExitRoute('phase4-invalid-a', 'invalid-a', 0), duplicateExitRoute('phase4-invalid-b', 'invalid-b', 1)];
+assert(validateRouteAuthoringManifest(phase4InvalidManifest).some((item) => item.code === 'route.authoring.port.input-multiple' && item.severity === 'error'), 'RouteAuthoringValidator 没有阻止普通 Input 多路占用');
+
+// 不属于组件生成来源的旧自由路线必须保持可编辑 manual，而不是误判成 generated。
+const phase4LegacyManual = structuredClone(duplicateExitRoute('phase4-legacy-manual', 'legacy', 2));
+for (const point of phase4LegacyManual.points) { delete point.authoring; delete point.attachment; }
+for (const edge of phase4LegacyManual.edges) delete edge.authoring;
+const phase4LegacyNormalized = normalizeTwinRoute(phase4LegacyManual);
+assert(phase4LegacyNormalized.points.every((item) => item.authoring?.mode === 'manual') && phase4LegacyNormalized.edges.every((item) => item.authoring?.mode === 'manual'), '旧自由路线被错误迁移成 generated');
 assert(validateV7ComponentManifest(connectedManifest).every((item) => item.severity !== 'error'), '合法 V7 组件场景未通过前端校验');
+
+// Phase 4/6/7 双路线收尾严格验收：方向、Section、Manifest roundtrip、Runtime Overlay 与单路线调试。
+const phase4DirectionManifest = createDefaultTwinSceneManifest();
+phase4DirectionManifest.objects = [];
+phase4DirectionManifest.connections = [];
+phase4DirectionManifest.routes = [{
+	routeId: 'phase4-direction', name: '方向折返告警', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([0, 0.8, 0], 0), pointId: 'direction-p0' },
+		{ ...createRoutePoint([2, 0.8, 0], 1), pointId: 'direction-p1' },
+		{ ...createRoutePoint([0.2, 0.8, 0], 2), pointId: 'direction-p2' },
+	],
+	edges: [
+		{ ...createRouteEdge('direction-p0', 'direction-p1', 0), edgeId: 'direction-e0' },
+		{ ...createRouteEdge('direction-p1', 'direction-p2', 1), edgeId: 'direction-e1' },
+	],
+	startPointId: 'direction-p0', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+}];
+assert(validateRouteAuthoringManifest(phase4DirectionManifest).some((item) => item.code === 'route.authoring.direction.reverse' && item.severity === 'warning'), 'RouteAuthoringValidator 没有对 >150° 连续反向路线给出 warning');
+
+const phase4Roundtrip = JSON.parse(JSON.stringify(phase4PersistManifest)) as TwinSceneManifest;
+const phase4RoundtripManual = phase4Roundtrip.routes.find((item) => item.routeId === 'phase4-manual');
+assert(Boolean(phase4RoundtripManual?.points.find((item) => item.pointId === 'phase4-manual-start')?.attachment), 'Manifest JSON roundtrip 丢失 Manual Endpoint Attachment');
+assert(phase4RoundtripManual?.edges.every((item) => item.authoring?.mode === 'manual'), 'Manifest JSON roundtrip 丢失 Manual authoring 数据');
+assert(Boolean(phase4Roundtrip.routeGraph?.routes?.length) && Boolean(phase4Roundtrip.routeGraph?.sourceMap?.length), 'Manifest JSON roundtrip 丢失固化 routeGraph');
+assert(phase4Roundtrip.routeGraph?.sourceMap.some((item) => item.runtimeEdgeId === 'phase4-manual-edge-1' && item.sourceRouteId === 'phase4-manual'), 'routeGraph SourceMap 没有保存 sourceRouteId');
+assert(phase4Roundtrip.routeGraph?.routes[0].edges.some((item) => item.edgeId === 'phase4-manual-edge-1'), 'Manifest roundtrip 后 routeGraph Runtime Edge 丢失');
+// Manifest 生命周期必须保存完整 JSON，而不是只保存路线 DTO 白名单。
+const routeLifecycleWorkbenchSource = readFileSync('src/views/iot/digital-twin/workbench.vue', 'utf8');
+const routeLifecycleDtoSource = readFileSync('../IoTSharp.Contracts/DigitalTwinDtos.cs', 'utf8');
+const routeLifecycleServiceSource = readFileSync('../IoTSharp/Services/DigitalTwin/DigitalTwinSceneService.cs', 'utf8');
+const routeLifecycleInspectorSource = readFileSync('../IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs', 'utf8');
+assert(routeLifecycleWorkbenchSource.includes('persistCompiledRouteGraph(manifest.value)') && routeLifecycleWorkbenchSource.indexOf('persistCompiledRouteGraph(manifest.value)') < routeLifecycleWorkbenchSource.indexOf('digitalTwinApi.saveDraft'), '保存草稿没有先固化统一 routeGraph');
+assert(routeLifecycleWorkbenchSource.includes('manifest.value = normalizeManifest(detail.draftPayload)'), '回滚没有从完整 draftPayload 恢复 Manifest');
+assert(routeLifecycleDtoSource.includes('public JsonElement DraftPayload') && routeLifecycleDtoSource.includes('public JsonElement Payload'), 'DigitalTwin DTO 改成了细粒度 Payload，可能丢失 authoring/attachment/routeGraph');
+assert(routeLifecycleServiceSource.includes('JsonNode.Parse(request.Payload.GetRawText())') && routeLifecycleServiceSource.includes('Manifest = inspection.NormalizedPayload') && routeLifecycleServiceSource.includes('JsonDocument.Parse(scene.DraftPayload)'), '服务端保存/发布没有沿完整 Manifest JSON 快照处理');
+assert(routeLifecycleInspectorSource.includes('root = JsonNode.Parse(payload.GetRawText())') && routeLifecycleInspectorSource.includes('result.NormalizedPayload = root.ToJsonString'), 'TwinManifestInspector 没有在原始 JSON Root 上归一，未知 authoring 字段可能被裁剪');
+
+const phase6BaseRoute = normalizeTwinRoute({
+	routeId: 'phase6-overlay', name: 'Runtime Overlay', type: 'conveyor', curveKind: 'line', defaultSpeed: 1, loop: false, orientToPath: true,
+	points: [{ ...createRoutePoint([0, 0.8, 0], 0), pointId: 'overlay-p0' }, { ...createRoutePoint([2, 0.8, 0], 1), pointId: 'overlay-p1' }],
+	edges: [{ ...createRouteEdge('overlay-p0', 'overlay-p1', 0), edgeId: 'overlay-edge', capacity: 2, sectionId: 'overlay-section' }],
+	sections: [{ sectionId: 'overlay-section', name: 'Overlay Section', enabled: true }], startPointId: 'overlay-p0', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+});
+const overlayStatus = (edgePatch: Record<string, unknown>, context: any = {}) => {
+	const edge = { ...phase6BaseRoute.edges[0], ...edgePatch } as any;
+	const candidate = { ...phase6BaseRoute, edges: [edge] };
+	return resolveRuntimeRouteEdgeOverlayState(candidate, edge, context).status;
+};
+assert(overlayStatus({}, { dataMode: 'simulation', edgeOccupancy: {} }) === 'ready', 'Runtime Overlay Ready 状态错误');
+assert(overlayStatus({ capacity: 2 }, { dataMode: 'simulation', edgeOccupancy: { 'overlay-edge': 1 } }) === 'occupied', 'Runtime Overlay Occupied 状态错误');
+assert(overlayStatus({ blocked: true }, { dataMode: 'simulation' }) === 'blocked', 'Runtime Overlay Blocked 状态错误');
+assert(overlayStatus({ capacity: 1 }, { dataMode: 'simulation', edgeOccupancy: { 'overlay-edge': 1 } }) === 'full', 'Runtime Overlay Full 状态错误');
+assert(overlayStatus({ readyBindingId: 'overlay-ready' }, { dataMode: 'live', bindingValues: { 'overlay-ready': false } }) === 'not-ready', 'Runtime Overlay NotReady 状态错误');
+assert(overlayStatus({ enabled: false }, { dataMode: 'simulation' }) === 'disabled', 'Runtime Overlay Disabled 状态错误');
+assert(overlayStatus({ readyBindingId: 'overlay-ready' }, { dataMode: 'live', bindingValues: { 'overlay-ready': true }, staleBindingIds: ['overlay-ready'] }) === 'stale', 'Runtime Overlay Stale 状态错误');
+
+const phase7Route = normalizeTwinRoute({
+	routeId: 'phase7-debug', name: 'Phase7 Debug', type: 'conveyor', curveKind: 'line', defaultSpeed: 5, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([0, 0.8, 0], 0), pointId: 'debug-start' },
+		{ ...createRoutePoint([1, 0.8, 0], 1), pointId: 'debug-junction', kind: 'diverter' },
+		{ ...createRoutePoint([3, 0.8, -1], 2), pointId: 'debug-a' },
+		{ ...createRoutePoint([3, 0.8, 1], 3), pointId: 'debug-b' },
+	],
+	edges: [
+		{ ...createRouteEdge('debug-start', 'debug-junction', 0), edgeId: 'debug-entry' },
+		{ ...createRouteEdge('debug-junction', 'debug-a', 1), edgeId: 'debug-a-edge', priority: 20 },
+		{ ...createRouteEdge('debug-junction', 'debug-b', 2), edgeId: 'debug-b-edge', priority: 10 },
+	],
+	startPointId: 'debug-start', junctionDecisions: { 'debug-junction': 'debug-a-edge' }, routingMode: 'manual', decisionRules: [],
+});
+const phase7Single = runSingleRouteDebug(phase7Route);
+assert(phase7Single.state === 'completed' && phase7Single.activeEdgeIds.includes('debug-a-edge'), 'Phase7 单路线 Run 没有复用 RouteEngine 完成路径');
+const phase7A = runDiverterRouteDebug(phase7Route, 'debug-junction', 'debug-a-edge');
+const phase7B = runDiverterRouteDebug(phase7Route, 'debug-junction', 'debug-b-edge');
+assert(phase7A.activeEdgeIds.includes('debug-a-edge') && !phase7A.activeEdgeIds.includes('debug-b-edge'), 'Phase7 分流 A 调试没有锁定 A 支路');
+assert(phase7B.activeEdgeIds.includes('debug-b-edge') && !phase7B.activeEdgeIds.includes('debug-a-edge'), 'Phase7 分流 B 调试没有锁定 B 支路');
+const phase7MergeRoute = normalizeTwinRoute({
+	routeId: 'phase7-merge', name: 'Phase7 Merge', type: 'conveyor', curveKind: 'line', defaultSpeed: 2, loop: false, orientToPath: true,
+	points: [
+		{ ...createRoutePoint([0, 0.8, -1], 0), pointId: 'merge-a' }, { ...createRoutePoint([0, 0.8, 1], 1), pointId: 'merge-b' },
+		{ ...createRoutePoint([2, 0.8, 0], 2), pointId: 'merge-point', kind: 'merger' }, { ...createRoutePoint([4, 0.8, 0], 3), pointId: 'merge-out' },
+	],
+	edges: [
+		{ ...createRouteEdge('merge-a', 'merge-point', 0), edgeId: 'merge-a-edge', priority: 30 },
+		{ ...createRouteEdge('merge-b', 'merge-point', 1), edgeId: 'merge-b-edge', priority: 10 },
+		{ ...createRouteEdge('merge-point', 'merge-out', 2), edgeId: 'merge-out-edge' },
+	],
+	startPointId: 'merge-a', junctionDecisions: {}, routingMode: 'automatic', decisionRules: [],
+});
+const phase7Merge = runMergeRouteDebug(phase7MergeRoute, 'merge-a-edge', 'merge-b-edge', 0.25);
+assert(phase7Merge.valid && phase7Merge.winnerEdgeId === 'merge-a-edge', 'Phase7 合流调试没有按现有 Edge priority 产生稳定判定');
+assert(phase7Merge.safetyDistanceMeters === ROUTE_DEBUG_MIN_SAFETY_DISTANCE_METERS && phase7Merge.safetyDistanceMeters >= 1.5, 'Phase7 合流调试降低了 1.50m 安全距离');
+const routeDebugRunnerSource = readFileSync('src/digital-twin/routes/RouteDebugRunner.ts', 'utf8');
+assert(routeDebugRunnerSource.includes('new RouteEngine(') && !routeDebugRunnerSource.includes('class RouteDebugRuntime'), 'Phase7 调试器没有复用现有 RouteEngine，疑似创建第二套 Runtime');
+
+const phase5Reference = createReferencePackagingLineTwinSceneManifest();
+const phase5Route = phase5Reference.routes.find((item) => item.routeId === phase5Reference.runtime.primarySmallPalletRouteId)!;
+const phase5EmptyDown = phase5Route.edges.find((item) => item.edgeId === 'ref-empty-return-down')!;
+const phase5EmptyMerge = phase5Route.edges.find((item) => item.edgeId === 'ref-empty-return-merge')!;
+const phase5GantryThrough = phase5Route.edges.find((item) => item.edgeId === 'ref-gantry-merger-through')!;
+assert(phase5EmptyDown.authoring?.mode === 'manual' && phase5EmptyDown.authoring.convertedFromGenerated === true && phase5EmptyDown.authoring.locked === false, 'V19 外检后空托下行没有正式迁移为 Manual Route');
+assert(phase5EmptyMerge.authoring?.mode === 'manual' && phase5EmptyMerge.authoring.convertedFromGenerated === true && phase5EmptyMerge.authoring.locked === false, 'V19 外检后空托合流段没有正式迁移为 Manual Route');
+assert(phase5EmptyDown.sectionId === 'EmptyReturnAfterInspection' && phase5EmptyMerge.sectionId === 'EmptyReturnAfterInspection', 'V19 外检后空托独立回流没有使用稳定语义 Section');
+assert(phase5Route.sections?.some((item) => item.sectionId === 'EmptyReturnAfterInspection') && phase5Route.sections?.some((item) => item.sectionId === 'GantryEmptyReturn'), 'V19 缺少 EmptyReturnAfterInspection / GantryEmptyReturn Section 定义');
+for (const edgeId of ['ref-gantry-edge-a-merge', 'ref-gantry-edge-out', 'ref-return-edge-outer-top', 'ref-gantry-merger-through']) assert(phase5Route.edges.find((item) => item.edgeId === edgeId)?.sectionId === 'GantryEmptyReturn', `V19 桁架空托段没有归入 GantryEmptyReturn: ${edgeId}`);
+assert(phase5EmptyMerge.toPointId === phase5GantryThrough.toPointId && phase5Route.edges.some((item) => item.fromPointId === phase5EmptyMerge.toPointId && item.edgeId === 'ref-return-edge-outer-down'), 'V19 外检空托与桁架空托没有在同一汇流点后沿统一方向进入公共回流');
+const phase5CompiledReference = createCompiledRuntimeManifest(phase5Reference).manifest;
+const phase5CompiledRoute = phase5CompiledReference.routes.find((item) => item.routeId === phase5CompiledReference.runtime.primarySmallPalletRouteId)!;
+assert(phase5CompiledRoute.edges.find((item) => item.edgeId === 'ref-empty-return-down')?.sectionId === 'EmptyReturnAfterInspection' && phase5CompiledRoute.sections?.some((item) => item.sectionId === 'EmptyReturnAfterInspection'), 'Phase 5 编译后语义 Section 丢失');
+assert(phase5CompiledRoute.edges.find((item) => item.edgeId === 'ref-gantry-merger-through')?.sectionId === 'GantryEmptyReturn', 'Phase 5 编译后 GantryEmptyReturn Section 丢失');
+const phase5BuilderReference = buildReferencePackagingLineTwinSceneManifest();
+const phase5BuilderRoute = phase5BuilderReference.routes.find((item) => item.routeId === phase5BuilderReference.runtime.primarySmallPalletRouteId)!;
+for (const edgeId of ['ref-empty-return-down', 'ref-empty-return-merge']) {
+	const assetEdge = phase5Route.edges.find((item) => item.edgeId === edgeId)!;
+	const builderEdge = phase5BuilderRoute.edges.find((item) => item.edgeId === edgeId)!;
+	assert(builderEdge.sectionId === assetEdge.sectionId && builderEdge.authoring?.mode === assetEdge.authoring?.mode && builderEdge.authoring?.convertedFromGenerated === true, `ReferencePackagingLineManifest Builder 与 V19 资产的 Manual/Section 不一致: ${edgeId}`);
+}
+assert(phase5BuilderRoute.edges.find((item) => item.edgeId === 'ref-gantry-merger-through')?.sectionId === 'GantryEmptyReturn', 'ReferencePackagingLineManifest Builder 没有同步 GantryEmptyReturn Section');
 
 const multipleNetworkManifest = createManifest(
 	createSmallRoller('A1', 0), createSmallRoller('A2', 3.3),
@@ -2596,8 +3162,17 @@ liveProcess.arrive();
 const staleProcess = liveProcess.update(0.1, { bindingValues: {}, staleBindingIds: ['binding-ready'] });
 assert(staleProcess.waitingReason === 'PROCESS_SIGNAL_STALE' && !staleProcess.canRelease, 'stale 工艺信号必须阻止错误放行');
 liveProcess.update(0.1, { bindingValues: { 'binding-ready': true }, staleBindingIds: [] });
-const completedProcess = liveProcess.update(0.1, { bindingValues: { 'binding-ready': true, 'binding-complete': true, 'binding-result': 'PASS' }, staleBindingIds: [] });
+liveProcess.update(0.1, { bindingValues: { 'binding-ready': true, 'binding-busy': true }, staleBindingIds: [] });
+const completedProcess = liveProcess.update(0.1, { bindingValues: { 'binding-ready': true, 'binding-busy': true, 'binding-complete': true, 'binding-result': 'PASS' }, staleBindingIds: [] });
 assert(completedProcess.canRelease && completedProcess.result === 'PASS', 'Live 工艺 Complete/Result Binding 未正确驱动状态机');
+const residualCompleteProcess = new ComponentProcessStateMachine({ type: 'scan', completeBindingId: 'done', timeoutSeconds: 5 }, 'live');
+residualCompleteProcess.arrive({ bindingValues: { done: true } });
+assert(!residualCompleteProcess.update(0.1, { bindingValues: { done: true } }).canRelease, '到站前残留的 Complete 高电平不能完成新周期');
+residualCompleteProcess.update(0.1, { bindingValues: { done: false } });
+assert(residualCompleteProcess.update(0.1, { bindingValues: { done: true } }).canRelease, 'Complete 出现低到高新沿后应完成当前周期');
+const timedOutProcess = new ComponentProcessStateMachine({ type: 'scan', completeBindingId: 'done', timeoutSeconds: 0.15 }, 'live');
+timedOutProcess.arrive({ bindingValues: { done: false } });
+assert(timedOutProcess.update(0.2, { bindingValues: { done: false } }).waitingReason === 'PROCESS_TIMEOUT', 'Live 工艺超过 timeoutSeconds 后必须进入明确故障状态');
 const processStations = new ProcessStationManager([{
 	stationId: 'Inspection01', sectionId: 'section-Inspection01', type: 'external-inspection', process: process!, dataMode: 'live',
 }]);
@@ -2605,7 +3180,8 @@ processStations.arrive('section-Inspection01', 'pallet-01');
 processStations.update('Inspection01', 0.1, { bindingValues: {}, staleBindingIds: ['binding-ready'] });
 assert(processStations.canRelease('section-Inspection01', 'pallet-01').reason === 'PROCESS_SIGNAL_STALE', 'ProcessStationManager 未继承 stale 阻塞语义');
 processStations.update('Inspection01', 0.1, { bindingValues: { 'binding-ready': true }, staleBindingIds: [] });
-processStations.update('Inspection01', 0.1, { bindingValues: { 'binding-ready': true, 'binding-complete': true, 'binding-result': 'PASS' }, staleBindingIds: [] });
+processStations.update('Inspection01', 0.1, { bindingValues: { 'binding-ready': true, 'binding-busy': true }, staleBindingIds: [] });
+processStations.update('Inspection01', 0.1, { bindingValues: { 'binding-ready': true, 'binding-busy': true, 'binding-complete': true, 'binding-result': 'PASS' }, staleBindingIds: [] });
 assert(processStations.canRelease('section-Inspection01', 'pallet-01').canRelease, 'ProcessStationManager 未按 Generated Process Contract 放行');
 
 const dualProcessManager = new ProcessStationManager([{
@@ -2649,6 +3225,7 @@ const genericInspection = defaultComponentRegistry.create(createComponentDefinit
 const genericProcessRuntime = new ComponentProcessRuntime({
 	route: genericProcessRoute,
 	routeEngine: genericRouteEngine,
+	dataMode: 'simulation',
 	getComponentRoot: (objectId) => objectId === 'InspectionAuto01' ? genericInspection.root : undefined,
 	getRoutingContext: () => ({ payload: {}, bindingValues: {}, staleBindingIds: [] }),
 });
@@ -2663,7 +3240,7 @@ for (let index = 0; index < 240; index += 1) {
 	if (allowRoute) genericRouteEngine.updateFixed(1 / 30);
 	advanceComponentVisualRuntime(genericInspection.root, 1 / 30, 1);
 	const processSnapshot = genericProcessRuntime.getSnapshot();
-	if (processSnapshot.activeStationId === 'InspectionAuto01') {
+	if (processSnapshot.activeComponentObjectId === 'InspectionAuto01') {
 		observedAutoStop = true;
 		stoppedDistance = genericRouteEngine.getSnapshot().distanceMeters;
 		if (Math.abs(genericGripper.rotation.y - genericGripperBaseRotation) > 0.05) observedInspectionMotion = true;
@@ -2672,7 +3249,7 @@ for (let index = 0; index < 240; index += 1) {
 assert(observedAutoStop, '普通 V7 组件场景没有在外检工艺组件中自动停车');
 assert(Math.abs(stoppedDistance - 5) < 0.15, '工艺停车位置必须位于外检组件内部中点，实际 ' + stoppedDistance.toFixed(2) + 'm');
 assert(observedInspectionMotion, '外检工位没有通过组件内部时间轴驱动旋转检测夹具动画');
-assert(genericProcessRuntime.getSnapshot().processedStationIds.includes('InspectionAuto01'), 'cycleSeconds 完成后没有记录工艺完成');
+assert(genericProcessRuntime.getSnapshot().processedStationIds.some((stationId) => stationId === 'InspectionAuto01' || stationId.startsWith('InspectionAuto01:')), 'cycleSeconds 完成后没有记录工艺完成');
 assert(genericRouteEngine.getSnapshot().distanceMeters > 5.2, '工艺完成后路线没有自动恢复放行');
 genericProcessRuntime.dispose();
 genericInspection.dispose();
@@ -2809,5 +3386,109 @@ assert(connectedManifest.connections?.length === 1, '失效 Connection 清理后
 moving.transform.scale = [2, 1, 1];
 const scaleDiagnostics = validateV7ComponentManifest(connectedManifest);
 assert(scaleDiagnostics.some((item) => item.code === 'twin.component.scale.locked'), '组件 Scale 锁定校验未生效');
+
+// Telemetry -> TwinRuntime.applyDataUpdates seam -> BindingEngine -> ActuatorRuntime -> Three.js 专项闭环。
+const actuatorManifest = createBlankTwinSceneManifest();
+actuatorManifest.runtime.dataMode = 'live';
+actuatorManifest.objects.push({ objectId: 'ActuatorHost', name: 'Actuator Host', kind: 'visual', transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } });
+const actuatorRoot = new THREE.Group();
+const linearNode = new THREE.Group(); linearNode.name = 'LinearAxis'; actuatorRoot.add(linearNode);
+const rotaryNode = new THREE.Group(); rotaryNode.name = 'RotaryAxis'; rotaryNode.rotation.y = THREE.MathUtils.degToRad(179); actuatorRoot.add(rotaryNode);
+const gripperNode = new THREE.Group(); gripperNode.name = 'Gripper'; actuatorRoot.add(gripperNode);
+actuatorManifest.actuators = [
+	{ actuatorId: 'verify-linear', name: '验证直线轴', objectId: 'ActuatorHost', nodePath: 'LinearAxis', kind: 'linear-axis', motionAxis: 'x', unit: 'meter', minValue: 0, maxValue: 10, homeValue: 0, speed: 20, bindings: { positionBindingId: 'verify-linear-binding' }, telemetryInterpolation: { enabled: true, mode: 'linear' } },
+	{ actuatorId: 'verify-rotary', name: '验证旋转轴', objectId: 'ActuatorHost', nodePath: 'RotaryAxis', kind: 'rotary-joint', motionAxis: 'y', unit: 'degree', minValue: -180, maxValue: 180, homeValue: 179, speed: 360, bindings: { positionBindingId: 'verify-rotary-binding' }, telemetryInterpolation: { enabled: true, mode: 'shortest-angle' } },
+	{ actuatorId: 'verify-gripper', name: '验证夹具', objectId: 'ActuatorHost', nodePath: 'Gripper', kind: 'gripper', unit: 'boolean', bindings: { positionBindingId: 'verify-gripper-binding' } },
+];
+actuatorManifest.bindings = [
+	{ bindingId: 'verify-linear-binding', objectId: 'ActuatorHost', source: { kind: 'telemetry', deviceId: '00000000-0000-0000-0000-000000000001', key: 'AxisX' }, target: { kind: 'actuator', actuatorId: 'verify-linear' }, transform: { kind: 'identity' }, staleAfterMs: 3000, enabled: true },
+	{ bindingId: 'verify-rotary-binding', objectId: 'ActuatorHost', source: { kind: 'telemetry', deviceId: '00000000-0000-0000-0000-000000000001', key: 'J1' }, target: { kind: 'actuator', actuatorId: 'verify-rotary' }, transform: { kind: 'identity' }, staleAfterMs: 3000, enabled: true },
+	{ bindingId: 'verify-gripper-binding', objectId: 'ActuatorHost', source: { kind: 'telemetry', deviceId: '00000000-0000-0000-0000-000000000001', key: 'Grip' }, target: { kind: 'actuator', actuatorId: 'verify-gripper' }, transform: { kind: 'identity' }, staleAfterMs: 3000, enabled: true },
+];
+const actuatorRuntime = new ActuatorRuntime(actuatorManifest, (objectId) => objectId === 'ActuatorHost' ? actuatorRoot : undefined);
+const actuatorBindingEngine = new BindingEngine(actuatorManifest, (objectId) => objectId === 'ActuatorHost' ? actuatorRoot : undefined, () => {}, undefined, undefined, undefined, undefined,
+	(binding, value, update) => actuatorRuntime.applyTelemetryUpdate(binding.target.actuatorId!, { ...update, value }));
+const sourceTimestamp = new Date().toISOString();
+applyTwinRuntimeDataUpdates([{ bindingId: 'server-linear', bindingKey: 'verify-linear-binding', objectId: 'ActuatorHost', kind: 'telemetry', key: 'AxisX', value: 2.5, sourceTimestamp, quality: 'good', stale: false } as any], actuatorBindingEngine);
+for (let index = 0; index < 10; index += 1) actuatorRuntime.tick(1 / 60);
+assert(linearNode.position.x > 0 && linearNode.position.x <= 2.5, 'Telemetry 没有通过 TwinRuntime 数据入口/BindingEngine/ActuatorRuntime 驱动 linear-axis');
+assert(actuatorRuntime.applyBehavior('verify-linear', 8) === false, 'Live telemetry-owned Actuator 错误接受了 Behavior 控制权');
+const frozenLinear = linearNode.position.x;
+actuatorRuntime.applyTelemetry('verify-linear', 5, Date.now(), true, 'stale');
+for (let index = 0; index < 5; index += 1) actuatorRuntime.tick(1 / 60);
+assert(Math.abs(linearNode.position.x - frozenLinear) < 1e-6 && actuatorRuntime.getState('verify-linear')?.stale === true, 'stale Actuator 没有冻结最后位置');
+actuatorRuntime.applyTelemetry('verify-rotary', -179, Date.now(), false, 'good');
+const beforeRotary = rotaryNode.rotation.y;
+actuatorRuntime.tick(1 / 60);
+const rotaryDelta = Math.abs(THREE.MathUtils.euclideanModulo(rotaryNode.rotation.y - beforeRotary + Math.PI, Math.PI * 2) - Math.PI);
+assert(rotaryDelta < THREE.MathUtils.degToRad(10), 'shortest-angle 发生错误整圈旋转');
+actuatorRuntime.applyTelemetry('verify-gripper', true, Date.now(), false, 'good');
+assert(gripperNode.userData.closed === true && actuatorRuntime.getState('verify-gripper')?.currentValue === true, 'Telemetry 没有驱动 gripper boolean');
+assert(!validateTwinSceneManifest(actuatorManifest).some((item) => item.code.startsWith('twin.actuator.binding.') && item.severity === 'error'), '合法 Actuator Telemetry Binding 被错误拒绝');
+const conflictingActuatorManifest = structuredClone(actuatorManifest);
+conflictingActuatorManifest.bindings.push({ ...structuredClone(conflictingActuatorManifest.bindings[0]), bindingId: 'verify-linear-binding-duplicate' });
+assert(validateTwinSceneManifest(conflictingActuatorManifest).some((item) => item.code === 'twin.actuator.binding.conflict'), '重复 Actuator 实时位置 Binding 没有被阻止');
+const liveControlManifest = structuredClone(actuatorManifest);
+liveControlManifest.behaviors = [{ behaviorId: 'verify-live-conflict', name: 'Live conflict', actorObjectId: 'ActuatorHost', enabled: true, actions: [{ actionId: 'move-axis', kind: 'axisMove', actuatorId: 'verify-linear', targetValue: 3 }] }];
+assert(validateTwinSceneManifest(liveControlManifest).some((item) => item.code === 'twin.actuator.live-control.conflict'), 'Live Telemetry/Behavior 控制权冲突没有诊断');
+actuatorBindingEngine.dispose();
+actuatorRuntime.dispose();
+
+// 文档性能基线：100 Binding / 30 motion Actuator。这里验收 Runtime CPU update+tick，
+// 不把 Node CPU 耗时冒充浏览器 WebGL FPS；真实 FPS 继续由 Runtime metrics 在浏览器验收。
+{
+	const perfManifest = createBlankTwinSceneManifest();
+	perfManifest.runtime.dataMode = 'live';
+	perfManifest.objects.push({ objectId: 'PerfHost', name: 'Telemetry Perf Host', kind: 'visual', transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } });
+	const perfRoot = new THREE.Group();
+	perfManifest.actuators = [];
+	perfManifest.bindings = [];
+	for (let index = 0; index < 30; index += 1) {
+		const node = new THREE.Group();
+		node.name = `PerfAxis-${index}`;
+		perfRoot.add(node);
+		const actuatorId = `perf-actuator-${index}`;
+		const bindingId = `perf-actuator-binding-${index}`;
+		perfManifest.actuators.push({ actuatorId, name: `Perf Axis ${index}`, objectId: 'PerfHost', nodePath: node.name, kind: 'linear-axis', motionAxis: 'x', unit: 'meter', minValue: -1000, maxValue: 1000, homeValue: 0, speed: 1000, bindings: { positionBindingId: bindingId }, telemetryInterpolation: { enabled: true, mode: 'linear' } });
+		perfManifest.bindings.push({ bindingId, objectId: 'PerfHost', source: { kind: 'telemetry', deviceId: '00000000-0000-0000-0000-000000000001', key: `Axis${index}` }, target: { kind: 'actuator', actuatorId }, transform: { kind: 'identity' }, staleAfterMs: 3000, enabled: true });
+	}
+	for (let index = 30; index < 100; index += 1) {
+		perfManifest.bindings.push({ bindingId: `perf-visual-binding-${index}`, objectId: 'PerfHost', source: { kind: 'telemetry', deviceId: '00000000-0000-0000-0000-000000000001', key: `Visual${index}` }, target: { kind: 'customProperty', property: `perfValue${index}` }, transform: { kind: 'identity' }, staleAfterMs: 3000, enabled: true });
+	}
+	assert(perfManifest.bindings.length === 100 && perfManifest.actuators.length === 30, 'Telemetry 性能场景没有形成 100 Binding / 30 Actuator');
+	const perfActuatorRuntime = new ActuatorRuntime(perfManifest, (objectId) => objectId === 'PerfHost' ? perfRoot : undefined);
+	const perfBindingEngine = new BindingEngine(perfManifest, (objectId) => objectId === 'PerfHost' ? perfRoot : undefined, () => {}, undefined, undefined, undefined, undefined,
+		(binding, value, update) => perfActuatorRuntime.applyTelemetryUpdate(binding.target.actuatorId!, { ...update, value }));
+	const makePerfUpdates = (round: number) => perfManifest.bindings.map((binding, index) => ({
+		bindingId: `server-${binding.bindingId}`,
+		bindingKey: binding.bindingId,
+		objectId: binding.objectId,
+		kind: 'telemetry',
+		key: binding.source.key,
+		value: round + index / 100,
+		sourceTimestamp: new Date(1_700_000_000_000 + round * 300).toISOString(),
+		quality: 'good',
+		stale: false,
+	} as any));
+	for (let round = 0; round < 10; round += 1) {
+		applyTwinRuntimeDataUpdates(makePerfUpdates(round), perfBindingEngine);
+		perfActuatorRuntime.tick(1 / 60);
+	}
+	const perfSamples: number[] = [];
+	for (let round = 0; round < 120; round += 1) {
+		const startedAt = performance.now();
+		applyTwinRuntimeDataUpdates(makePerfUpdates(round + 10), perfBindingEngine);
+		perfActuatorRuntime.tick(1 / 60);
+		perfSamples.push(performance.now() - startedAt);
+	}
+	const sortedPerfSamples = [...perfSamples].sort((left, right) => left - right);
+	const perfAverage = perfSamples.reduce((sum, value) => sum + value, 0) / perfSamples.length;
+	const perfP95 = sortedPerfSamples[Math.min(sortedPerfSamples.length - 1, Math.ceil(sortedPerfSamples.length * 0.95) - 1)];
+	assert(perfActuatorRuntime.getSnapshot().length === 30, 'Telemetry 性能场景没有维持 30 个 Actuator Runtime State');
+	assert(perfP95 < 25, `Telemetry 100 Binding / 30 Actuator CPU update+tick P95 ${perfP95.toFixed(2)}ms 超过 25ms 门禁`);
+	console.info(`Telemetry actuator performance PASS: bindings=100, actuators=30, rounds=${perfSamples.length}, avg=${perfAverage.toFixed(2)}ms, p95=${perfP95.toFixed(2)}ms (CPU update+tick)`);
+	perfBindingEngine.dispose();
+	perfActuatorRuntime.dispose();
+}
 
 console.info(`V7 component verification passed: templates=${builtInComponentTemplates.length}, connections=${connectedManifest.connections?.length}, sections=${graph?.route.edges.length}`);

@@ -151,6 +151,7 @@ public sealed class DigitalTwinSceneService
         _context.DigitalTwinScenes.Add(scene);
         ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
         ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
+        ReplaceDraftActionFlows(scene, inspection.ActionFlows, profile, actor, now);
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneCreate", new { scene.SceneKey, scene.RootAssetId, scene.Revision }, "Created", now);
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -193,6 +194,7 @@ public sealed class DigitalTwinSceneService
         scene.UpdatedBy = actor;
         ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
         ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
+        ReplaceDraftActionFlows(scene, inspection.ActionFlows, profile, actor, now);
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneMetadataUpdate", new { scene.RootAssetId, scene.Revision }, "Updated", now);
         await _context.SaveChangesAsync(cancellationToken);
         scene.RootAsset = asset;
@@ -239,6 +241,7 @@ public sealed class DigitalTwinSceneService
             {
                 await _context.Entry(scene).Collection(item => item.Bindings).LoadAsync(cancellationToken);
                 await _context.Entry(scene).Collection(item => item.Routes).LoadAsync(cancellationToken);
+                await _context.Entry(scene).Collection(item => item.ActionFlows).LoadAsync(cancellationToken);
                 return ToSceneDetailDto(scene);
             }
 
@@ -268,14 +271,19 @@ public sealed class DigitalTwinSceneService
         await _context.TwinRoutes
             .Where(item => item.SceneId == scene.Id && item.SceneVersionId == null)
             .ExecuteDeleteAsync(cancellationToken);
+        await _context.TwinActionFlows
+            .Where(item => item.SceneId == scene.Id && item.SceneVersionId == null)
+            .ExecuteDeleteAsync(cancellationToken);
         AddDraftBindings(scene.Id, inspection.Bindings, profile, actor, now);
         AddDraftRoutes(scene.Id, inspection.Routes, profile, actor, now);
+        AddDraftActionFlows(scene.Id, inspection.ActionFlows, profile, actor, now);
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneDraftCommit", new
         {
             scene.Revision,
             scene.RootAssetId,
             bindingCount = inspection.Bindings.Count,
             routeCount = inspection.Routes.Count,
+            actionFlowCount = inspection.ActionFlows.Count,
             manifestHash = ComputeSha256(inspection.NormalizedPayload)
         }, "Saved", now);
 
@@ -375,6 +383,7 @@ public sealed class DigitalTwinSceneService
         _context.DigitalTwinSceneVersions.Add(version);
         CopyPublishedBindings(scene, version, profile, actor, now);
         CopyPublishedRoutes(scene, version, profile, actor, now);
+        CopyPublishedActionFlows(scene, version, profile, actor, now);
         scene.PublishedVersionId = version.Id;
         scene.PublishedVersion = version;
         scene.Status = DigitalTwinSceneStatus.Published;
@@ -386,7 +395,8 @@ public sealed class DigitalTwinSceneService
             version.Version,
             version.ManifestHash,
             bindingCount = scene.Bindings.Count(item => !item.Deleted && item.SceneVersionId == null),
-            routeCount = scene.Routes.Count(item => !item.Deleted && item.SceneVersionId == null)
+            routeCount = scene.Routes.Count(item => !item.Deleted && item.SceneVersionId == null),
+            actionFlowCount = scene.ActionFlows.Count(item => !item.Deleted && item.SceneVersionId == null)
         }, "Published", now);
         await _context.SaveChangesAsync(cancellationToken);
         return ToVersionDto(version, true);
@@ -438,6 +448,7 @@ public sealed class DigitalTwinSceneService
         scene.UpdatedBy = actor;
         ReplaceDraftBindings(scene, inspection.Bindings, profile, actor, now);
         ReplaceDraftRoutes(scene, inspection.Routes, profile, actor, now);
+        ReplaceDraftActionFlows(scene, inspection.ActionFlows, profile, actor, now);
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneRollbackDraft", new { version.Id, version.Version, version.ManifestHash, scene.Revision }, "DraftCreated", now);
         await _context.SaveChangesAsync(cancellationToken);
         return ToSceneDetailDto(scene);
@@ -470,6 +481,7 @@ public sealed class DigitalTwinSceneService
         scene.UpdatedBy = ResolveActor(profile);
         foreach (var binding in scene.Bindings.Where(item => item.SceneVersionId == null)) binding.Deleted = true;
         foreach (var route in scene.Routes.Where(item => item.SceneVersionId == null)) route.Deleted = true;
+        foreach (var flow in scene.ActionFlows.Where(item => item.SceneVersionId == null)) flow.Deleted = true;
         AddAudit(profile, scene.Id, scene.Name, "TwinSceneDelete", new { scene.SceneKey, scene.PublishedVersionId }, "Deleted", now);
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -482,7 +494,7 @@ public sealed class DigitalTwinSceneService
             .Where(item => item.Id == id && !item.Deleted && item.TenantId == profile.Tenant && item.CustomerId == profile.Customer);
         if (includeDraftRelations)
         {
-            query = query.Include(item => item.Bindings).Include(item => item.Routes);
+            query = query.Include(item => item.Bindings).Include(item => item.Routes).Include(item => item.ActionFlows);
         }
         return await query.FirstOrDefaultAsync(cancellationToken);
     }
@@ -697,6 +709,10 @@ public sealed class DigitalTwinSceneService
                 }
                 else
                 {
+                    foreach (var (portId, portType) in component.InstancePorts)
+                    {
+                        registeredPorts.TryAdd(portId, portType);
+                    }
                     componentPortsByObjectId[component.ObjectId] = registeredPorts;
                     foreach (var slotId in component.Bindings.Keys.Where(slotId => !registeredBindingSlots.Contains(slotId)))
                     {
@@ -780,6 +796,13 @@ public sealed class DigitalTwinSceneService
         }
 
         foreach (var entry in _context.ChangeTracker.Entries<TwinRoute>()
+                     .Where(entry => entry.Entity.SceneId == sceneId && entry.Entity.SceneVersionId == null)
+                     .ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        foreach (var entry in _context.ChangeTracker.Entries<TwinActionFlow>()
                      .Where(entry => entry.Entity.SceneId == sceneId && entry.Entity.SceneVersionId == null)
                      .ToList())
         {
@@ -876,6 +899,60 @@ public sealed class DigitalTwinSceneService
         }
     }
 
+    private void AddDraftActionFlows(Guid sceneId, List<TwinActionFlowDraft> drafts, UserProfile profile, string actor, DateTime now)
+    {
+        foreach (var draft in drafts)
+        {
+            var entity = new TwinActionFlow
+            {
+                Id = Guid.NewGuid(), SceneId = sceneId, SceneVersionId = null, FlowKey = draft.FlowKey,
+                CreatedAt = now, CreatedBy = actor, TenantId = profile.Tenant, CustomerId = profile.Customer
+            };
+            ApplyActionFlow(entity, draft, actor, now);
+            _context.TwinActionFlows.Add(entity);
+        }
+    }
+
+    private void ReplaceDraftActionFlows(DigitalTwinScene scene, List<TwinActionFlowDraft> drafts, UserProfile profile, string actor, DateTime now)
+    {
+        var existing = scene.ActionFlows.Where(item => item.SceneVersionId == null).ToDictionary(item => item.FlowKey, StringComparer.Ordinal);
+        foreach (var draft in drafts)
+        {
+            if (!existing.Remove(draft.FlowKey, out var entity))
+            {
+                entity = new TwinActionFlow
+                {
+                    Id = Guid.NewGuid(), SceneId = scene.Id, Scene = scene, SceneVersionId = null, FlowKey = draft.FlowKey,
+                    CreatedAt = now, CreatedBy = actor, TenantId = profile.Tenant, CustomerId = profile.Customer
+                };
+                scene.ActionFlows.Add(entity);
+            }
+            ApplyActionFlow(entity, draft, actor, now);
+        }
+        foreach (var removed in existing.Values)
+        {
+            removed.Deleted = true;
+            removed.UpdatedAt = now;
+            removed.UpdatedBy = actor;
+        }
+    }
+
+    private static void ApplyActionFlow(TwinActionFlow entity, TwinActionFlowDraft draft, string actor, DateTime now)
+    {
+        entity.Name = draft.Name;
+        entity.ContractVersion = draft.ContractVersion;
+        entity.ActorScope = draft.ActorScope;
+        entity.GraphPayload = draft.GraphPayload;
+        entity.GraphHash = draft.GraphHash;
+        entity.CompiledPayload = draft.CompiledPayload;
+        entity.CompiledPlanHash = draft.CompiledPlanHash;
+        entity.Revision = draft.Revision;
+        entity.Enabled = draft.Enabled;
+        entity.Deleted = false;
+        entity.UpdatedAt = now;
+        entity.UpdatedBy = actor;
+    }
+
     private static void ApplyBinding(TwinObjectBinding entity, TwinBindingDraft draft, string actor, DateTime now)
     {
         entity.ObjectId = draft.ObjectId;
@@ -928,6 +1005,23 @@ public sealed class DigitalTwinSceneService
                 Id = Guid.NewGuid(), SceneId = scene.Id, Scene = scene, SceneVersionId = version.Id, SceneVersion = version,
                 RouteKey = source.RouteKey, Name = source.Name, RouteType = source.RouteType,
                 GraphPayload = source.GraphPayload, Revision = source.Revision, Enabled = source.Enabled,
+                CreatedAt = now, UpdatedAt = now, CreatedBy = actor, UpdatedBy = actor,
+                TenantId = profile.Tenant, CustomerId = profile.Customer
+            });
+        }
+    }
+
+    private static void CopyPublishedActionFlows(DigitalTwinScene scene, DigitalTwinSceneVersion version, UserProfile profile, string actor, DateTime now)
+    {
+        foreach (var source in scene.ActionFlows.Where(item => item.SceneVersionId == null && !item.Deleted).ToList())
+        {
+            version.ActionFlows.Add(new TwinActionFlow
+            {
+                Id = Guid.NewGuid(), SceneId = scene.Id, Scene = scene, SceneVersionId = version.Id, SceneVersion = version,
+                FlowKey = source.FlowKey, Name = source.Name, ContractVersion = source.ContractVersion,
+                ActorScope = source.ActorScope, GraphPayload = source.GraphPayload, GraphHash = source.GraphHash,
+                CompiledPayload = source.CompiledPayload, CompiledPlanHash = source.CompiledPlanHash,
+                Revision = source.Revision, Enabled = source.Enabled, Deleted = false,
                 CreatedAt = now, UpdatedAt = now, CreatedBy = actor, UpdatedBy = actor,
                 TenantId = profile.Tenant, CustomerId = profile.Customer
             });
@@ -1109,7 +1203,8 @@ public sealed class DigitalTwinSceneService
             UpdatedBy = summary.UpdatedBy,
             DraftPayload = ParseJson(scene.DraftPayload),
             Bindings = scene.Bindings.Where(item => item.SceneVersionId == null && !item.Deleted).OrderBy(item => item.Priority).Select(ToBindingDto).ToList(),
-            Routes = scene.Routes.Where(item => item.SceneVersionId == null && !item.Deleted).Select(ToRouteDto).ToList()
+            Routes = scene.Routes.Where(item => item.SceneVersionId == null && !item.Deleted).Select(ToRouteDto).ToList(),
+            ActionFlows = scene.ActionFlows.Where(item => item.SceneVersionId == null && !item.Deleted).Select(ToActionFlowDto).ToList()
         };
     }
 
@@ -1145,6 +1240,23 @@ public sealed class DigitalTwinSceneService
         Name = item.Name,
         RouteType = item.RouteType,
         GraphPayload = ParseJson(item.GraphPayload),
+        Revision = item.Revision,
+        Enabled = item.Enabled
+    };
+
+    private static TwinActionFlowDto ToActionFlowDto(TwinActionFlow item) => new()
+    {
+        Id = item.Id,
+        SceneId = item.SceneId,
+        SceneVersionId = item.SceneVersionId,
+        FlowKey = item.FlowKey,
+        Name = item.Name,
+        ContractVersion = item.ContractVersion,
+        ActorScope = ParseJson(item.ActorScope),
+        GraphPayload = ParseJson(item.GraphPayload),
+        GraphHash = item.GraphHash,
+        CompiledPayload = ParseJson(item.CompiledPayload),
+        CompiledPlanHash = item.CompiledPlanHash,
         Revision = item.Revision,
         Enabled = item.Enabled
     };

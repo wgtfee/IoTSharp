@@ -1,6 +1,7 @@
 import request from '/@/utils/request';
 import type { TwinSceneManifest, TwinValidationDiagnostic } from '/@/digital-twin/contracts';
 import type { TwinComponentResourceRegistrationPayload } from '/@/digital-twin/components/ComponentResourceRegistration';
+import type { TwinActionFlowDefinitionV2 } from '/@/digital-twin/action-flow/contracts/action-flow-v2';
 
 export interface DigitalTwinSceneSummary {
 	id: string;
@@ -22,6 +23,114 @@ export interface DigitalTwinSceneDetail extends DigitalTwinSceneSummary {
 	draftPayload: TwinSceneManifest;
 	bindings: TwinPersistedBinding[];
 	routes: Array<{ id: string; routeKey: string; revision: number }>;
+	actionFlows: TwinPersistedActionFlow[];
+}
+
+export interface TwinPersistedActionFlow {
+	id: string;
+	sceneId: string;
+	sceneVersionId?: string;
+	flowKey: string;
+	name: string;
+	contractVersion: string;
+	actorScope: unknown;
+	graphPayload: unknown;
+	graphHash: string;
+	compiledPayload: unknown;
+	compiledPlanHash: string;
+	revision: number;
+	enabled: boolean;
+}
+
+export interface TwinActionFlowRunStep {
+	id: string;
+	stepInstanceId: string;
+	nodeId: string;
+	attempt: number;
+	status: string;
+	input: unknown;
+	output: unknown;
+	errorCode?: string;
+	errorMessage?: string;
+	deadlineAt?: string;
+	startedAt?: string;
+	endedAt?: string;
+	lastSequence: number;
+}
+
+export interface TwinActionFlowDeviceCommand {
+	id: string;
+	commandId: string;
+	correlationId: string;
+	bindingKey: string;
+	status: string;
+	deviceCycleId?: string;
+	sentAt?: string;
+	acknowledgedAt?: string;
+	busyAt?: string;
+	completedAt?: string;
+	lastError?: string;
+}
+
+export interface TwinActionFlowReservation {
+	reservationId: string;
+	resourceType: string;
+	resourceId: string;
+	ownerRunId: string;
+	status: string;
+	leaseUntil: string;
+	revision: number;
+}
+
+export interface TwinActionFlowMaterialRuntime {
+	materialInstanceId: string;
+	transportUnitId?: string;
+	materialType?: string;
+	ownerType: string;
+	ownerId: string;
+	poseSource: string;
+	status: string;
+	revision: number;
+	lastEventSequence: number;
+}
+
+export interface TwinActionFlowRun {
+	id: string;
+	sceneId: string;
+	sceneVersionId: string;
+	actionFlowId: string;
+	flowKey: string;
+	idempotencyKey: string;
+	status: string;
+	input: unknown;
+	runtime: Record<string, unknown>;
+	currentSequence: number;
+	concurrencyVersion: number;
+	graphHash: string;
+	compiledPlanHash: string;
+	faultCode?: string;
+	faultMessage?: string;
+	startedAt?: string;
+	endedAt?: string;
+	createdAt: string;
+	updatedAt: string;
+	steps: TwinActionFlowRunStep[];
+	commands: TwinActionFlowDeviceCommand[];
+	reservations: TwinActionFlowReservation[];
+	materials: TwinActionFlowMaterialRuntime[];
+}
+
+export interface TwinActionFlowEvent {
+	id: string;
+	runId: string;
+	sequence: number;
+	eventType: string;
+	nodeId?: string;
+	stepInstanceId?: string;
+	correlationId: string;
+	source: string;
+	payload: Record<string, unknown>;
+	occurredAt: string;
 }
 
 export interface TwinBindingDeviceOption {
@@ -207,6 +316,27 @@ export const digitalTwinApi = {
 	cancelModelGenerationJob: (id: string) => request({ url: `/api/digital-twin/model-generation/jobs/${id}/cancel`, method: 'post' }),
 	retryModelGenerationJob: (id: string) => request({ url: `/api/digital-twin/model-generation/jobs/${id}/retry`, method: 'post' }),
 
-	snapshot: (sceneId: string, version?: number) =>
-		request({ url: '/api/digital-twin/runtime/snapshot', method: 'post', data: { sceneId, version } }),
+	snapshot: (sceneId: string, version?: number, sinceTimestamp?: string) =>
+		request({ url: '/api/digital-twin/runtime/snapshot', method: 'post', data: { sceneId, version, sinceTimestamp } }),
+
+	validateActionFlow: (sceneId: string, flow: TwinActionFlowDefinitionV2) =>
+		request({ url: '/api/digital-twin/action-flows/validate', method: 'post', data: { sceneId, flow } }),
+	compileActionFlow: (sceneId: string, flow: TwinActionFlowDefinitionV2) =>
+		request({ url: '/api/digital-twin/action-flows/compile', method: 'post', data: { sceneId, flow } }),
+	getActionFlow: (flowId: string) => request({ url: `/api/digital-twin/action-flows/${flowId}`, method: 'get' }),
+	startActionFlowRun: (flowId: string, idempotencyKey: string, input: Record<string, unknown> = {}) =>
+		request({ url: `/api/digital-twin/action-flows/${flowId}/runs`, method: 'post', data: { idempotencyKey, runtimeMode: 'live', input } }),
+	getActionFlowRun: (runId: string) => request({ url: `/api/digital-twin/action-flows/runs/${runId}`, method: 'get' }),
+	getActionFlowRunEvents: (runId: string, afterSequence = 0, take = 500) =>
+		request({ url: `/api/digital-twin/action-flows/runs/${runId}/events`, method: 'get', params: { afterSequence, take } }),
+	pauseActionFlowRun: (runId: string, reason = '') => request({ url: `/api/digital-twin/action-flows/runs/${runId}/pause`, method: 'post', data: { reason } }),
+	resumeActionFlowRun: (runId: string, reason = '') => request({ url: `/api/digital-twin/action-flows/runs/${runId}/resume`, method: 'post', data: { reason } }),
+	cancelActionFlowRun: (runId: string, reason: string) => request({ url: `/api/digital-twin/action-flows/runs/${runId}/cancel`, method: 'post', data: { reason } }),
+	retryActionFlowStep: (runId: string, stepInstanceId: string, reason = '') => request({ url: `/api/digital-twin/action-flows/runs/${runId}/steps/${encodeURIComponent(stepInstanceId)}/retry`, method: 'post', data: { reason } }),
+	manualConfirmActionFlowRun: (runId: string, stepInstanceId: string, reason: string, output: Record<string, unknown> = {}) =>
+		request({ url: `/api/digital-twin/action-flows/runs/${runId}/manual-confirm`, method: 'post', data: { stepInstanceId, reason, output } }),
+	sendActionFlowSignal: (runId: string, bindingId: string, value: unknown, cycleId?: string) =>
+		request({ url: `/api/digital-twin/action-flows/runs/${runId}/signals`, method: 'post', data: { bindingId, value, cycleId } }),
+	sendActionFlowCommandFeedback: (runId: string, data: { commandId: string; correlationId: string; cycleId?: string; status: string; payload?: unknown }) =>
+		request({ url: `/api/digital-twin/action-flows/runs/${runId}/command-feedback`, method: 'post', data }),
 };

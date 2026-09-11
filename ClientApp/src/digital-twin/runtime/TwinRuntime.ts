@@ -6,6 +6,7 @@ import type { TwinDataUpdate } from '/@/api/digital-twin';
 import { BindingEngine } from '/@/digital-twin/bindings/BindingEngine';
 import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
+import { resolveRuntimeRouteOverlayStates } from '/@/digital-twin/routes/RouteRuntimeOverlay';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
 import { upgradeSilkPackagingLayout } from '/@/digital-twin/runtime/SilkPackagingLayoutMigration';
 import { upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
@@ -13,6 +14,7 @@ import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlo
 import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 import { BehaviorRuntime } from '/@/digital-twin/runtime/BehaviorRuntime';
+import { ActuatorRuntime } from '/@/digital-twin/runtime/ActuatorRuntime';
 import { advanceComponentVisualRuntime } from '/@/digital-twin/components/ComponentVisualRuntime';
 import { createComponentDefinitionFromTemplate, defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, migrateSilkLineInfrastructureToV7, resolveComponentInternalFlows, type TwinComponentDefinition } from '/@/digital-twin/components';
 
@@ -37,6 +39,22 @@ export interface TwinSelectionInfo {
 export interface TwinRuntimeOptions {
 	readOnly?: boolean;
 }
+
+/**
+ * TwinRuntime.applyDataUpdates 的可测试集成边界。
+ * 保持 Telemetry 更新顺序：BindingEngine -> Behavior signal snapshot -> 绑定后同步。
+ * 这样 Node 回归无需创建 WebGLRenderer，也能锁定 TwinRuntime 的真实数据入口。
+ */
+export const applyTwinRuntimeDataUpdates = (
+	updates: TwinDataUpdate[],
+	bindingEngine: Pick<BindingEngine, 'apply' | 'getSignalSnapshot'>,
+	behaviorRuntime?: Pick<BehaviorRuntime, 'setBindingContext'>,
+	afterBindings?: () => void,
+) => {
+	bindingEngine.apply(updates);
+	behaviorRuntime?.setBindingContext(bindingEngine.getSignalSnapshot());
+	afterBindings?.();
+};
 
 export const resolveRouteTransportUnitResourceKey = (route: TwinRouteDefinition) => {
 	const edge = route.edges.find((candidate) => candidate.enabled !== false && (candidate.transportUnitResourceKey || candidate.transportUnitType));
@@ -161,6 +179,7 @@ export class TwinRuntime {
 	private readonly componentModels = new Map<string, { root: THREE.Group; dispose: () => void }>();
 	private readonly routeDistanceCurves = new Map<string, TwinRouteDistanceCurveInfo>();
 	private readonly bindingEngine: BindingEngine;
+	private readonly actuatorRuntime: ActuatorRuntime;
 	private route: TwinRouteDefinition;
 	private routeEngine: RouteEngine;
 	private readonly materialFlowRuntime: TwinMaterialFlowRuntime;
@@ -194,6 +213,7 @@ export class TwinRuntime {
 		this.events = events;
 		this.readOnly = options.readOnly === true;
 		this.manifest = structuredClone(manifest);
+		this.routingContext = { ...this.routingContext, dataMode: this.manifest.runtime.dataMode };
 		upgradeReferencePackagingLineLayout(this.manifest);
 		upgradeSilkPackagingLayout(this.manifest);
 		migrateSilkLineInfrastructureToV7(this.manifest);
@@ -206,6 +226,11 @@ export class TwinRuntime {
 			(objectId) => this.componentModels.get(objectId)?.root,
 		);
 		this.rebuildRouteDistanceCurves();
+		this.actuatorRuntime = new ActuatorRuntime(
+			this.manifest,
+			(objectId) => this.objectIndex.get(objectId),
+			(message) => this.events.onError?.(message),
+		);
 		this.bindingEngine = new BindingEngine(
 			this.manifest,
 			(objectId) => this.objectIndex.get(objectId),
@@ -214,6 +239,18 @@ export class TwinRuntime {
 			(bindingId, value, stale) => this.applyRouteSignal(bindingId, value, stale),
 			(binding, value, stale) => this.routeSlotArrayRuntime.apply(binding, value, stale),
 			(binding, object, distanceMeters) => this.applyRouteDistance(binding, object, distanceMeters),
+			(binding, value, update) => {
+				const actuatorId = binding.target.actuatorId || binding.target.property || binding.target.path;
+				if (!actuatorId) return;
+				const quality = (update.quality || (update.stale ? 'stale' : 'good')) as 'good' | 'stale' | 'missing' | 'bad';
+				this.actuatorRuntime.applyTelemetry(
+					actuatorId,
+					value,
+					update.sourceTimestamp ? Date.parse(update.sourceTimestamp) : undefined,
+					Boolean(update.stale),
+					quality,
+				);
+			},
 		);
 
 		this.scene.background = new THREE.Color(manifest.world.background);
@@ -350,6 +387,7 @@ export class TwinRuntime {
 		this.componentProcessRuntime?.reset();
 		this.packagingLine?.reset();
 		this.behaviorRuntime?.reset();
+		this.actuatorRuntime.reset();
 	}
 
 	correctRouteDistance(distanceMeters: number) {
@@ -394,6 +432,7 @@ export class TwinRuntime {
 
 	setRouteRoutingContext(context: TwinRouteRoutingContext) {
 		this.routingContext = {
+			dataMode: context.dataMode || this.manifest.runtime.dataMode,
 			payload: { ...(context.payload || {}) },
 			bindingValues: { ...(this.routingContext.bindingValues || {}), ...(context.bindingValues || {}) },
 			edgeOccupancy: { ...(context.edgeOccupancy || {}) },
@@ -456,11 +495,13 @@ export class TwinRuntime {
 		this.route = normalizeTwinRoute(structuredClone(this.manifest.routes[0]));
 		this.scene.background = new THREE.Color(this.manifest.world.background);
 		this.bindingEngine.setManifest(this.manifest);
+		this.actuatorRuntime.setManifest(this.manifest);
 		this.routeSlotArrayRuntime.setManifest(this.manifest);
 		this.rebuildRouteDistanceCurves();
 		const routeBindingIds = new Set(this.manifest.bindings.filter((binding) => binding.enabled !== false && binding.transform.kind === 'routeEvent').map((binding) => binding.bindingId));
 		this.routingContext = {
 			...this.routingContext,
+			dataMode: this.manifest.runtime.dataMode,
 			bindingValues: Object.fromEntries(Object.entries(this.routingContext.bindingValues || {}).filter(([bindingId]) => routeBindingIds.has(bindingId))),
 			staleBindingIds: (this.routingContext.staleBindingIds || []).filter((bindingId) => routeBindingIds.has(bindingId)),
 		};
@@ -484,7 +525,12 @@ export class TwinRuntime {
 			silkCakeLine: this.packagingLine?.getSnapshot(),
 			componentProcesses: this.componentProcessRuntime?.getSnapshot(),
 			behaviors: this.behaviorRuntime?.getSnapshot(),
+			actuators: this.actuatorRuntime.getSnapshot(),
 		};
+	}
+
+	getActuatorSnapshot() {
+		return this.actuatorRuntime.getSnapshot();
 	}
 
 	/**
@@ -559,9 +605,7 @@ export class TwinRuntime {
 	}
 
 	applyDataUpdates(updates: TwinDataUpdate[]) {
-		this.bindingEngine.apply(updates);
-		this.behaviorRuntime?.setBindingContext(this.bindingEngine.getSignalSnapshot());
-		this.syncOutputStopperBindings();
+		applyTwinRuntimeDataUpdates(updates, this.bindingEngine, this.behaviorRuntime, () => this.syncOutputStopperBindings());
 	}
 
 	getSelectionScreenAnchor(): TwinRuntimeScreenAnchor | undefined {
@@ -608,6 +652,7 @@ export class TwinRuntime {
 		this.scene.remove(this.transformControls);
 		this.orbitControls.dispose();
 		this.bindingEngine.dispose();
+		this.actuatorRuntime.dispose();
 		this.routeSlotArrayRuntime.dispose();
 		this.behaviorRuntime?.dispose();
 		this.behaviorRuntime = undefined;
@@ -631,6 +676,8 @@ export class TwinRuntime {
 		if (this.disposed) return;
 		const deltaSeconds = Math.min(0.25, Math.max(0, (now - this.lastFrameAt) / 1000));
 		this.lastFrameAt = now;
+		// 执行机构使用实际渲染帧 delta 插值，Snapshot 可以 250~500ms 更新一次目标值，画面仍保持逐帧平滑。
+		this.actuatorRuntime.tick(deltaSeconds);
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
 			this.bindingEngine.tick(this.fixedStep);
@@ -867,6 +914,14 @@ export class TwinRuntime {
 			this.scene,
 			(objectId) => this.objectIndex.get(objectId),
 			(message) => this.events.onError?.(message),
+			(actuatorId, value) => {
+				const accepted = this.actuatorRuntime.apply({ actuatorId, value, source: 'behavior' });
+				if (!accepted) return false;
+				const state = this.actuatorRuntime.getState(actuatorId);
+				if (!state) return false;
+				if (typeof value === 'boolean') return state.currentValue === value;
+				return Math.abs(Number(state.currentValue) - Number(state.targetValue)) <= 1e-4;
+			},
 		);
 		this.behaviorRuntime.setBindingContext(this.bindingEngine.getSignalSnapshot());
 		this.behaviorRuntime.setActorFilter(this.componentTestObjectId);
@@ -1016,6 +1071,7 @@ export class TwinRuntime {
 		this.componentProcessRuntime = new ComponentProcessRuntime({
 			route: this.route,
 			routeEngine: this.routeEngine,
+			dataMode: this.manifest.runtime.dataMode,
 			getComponentRoot: (objectId) => this.componentModels.get(objectId)?.root,
 			getRoutingContext: () => this.routingContext,
 			getBehaviorRequirements: (objectId) => this.getBehaviorRequirements(objectId),
@@ -1120,13 +1176,13 @@ export class TwinRuntime {
 
 		const pointIndex = new Map(this.route.points.map((point) => [point.pointId, point]));
 		const snapshot = this.routeEngine.getSnapshot();
-		const activeEdgeIds = new Set(snapshot.activeEdgeIds);
-		const unavailableEdgeIds = new Set(snapshot.unavailableEdgeIds);
+		const overlayStates = new Map(resolveRuntimeRouteOverlayStates(this.route, this.routingContext, snapshot).map((item) => [item.edgeId, item]));
 		for (const edge of this.route.edges || []) {
 			const from = pointIndex.get(edge.fromPointId), to = pointIndex.get(edge.toPointId);
 			if (!from || !to) continue;
-			const color = unavailableEdgeIds.has(edge.edgeId) ? 0xef4444 : activeEdgeIds.has(edge.edgeId) ? 0x22c55e : edge.enabled === false ? 0x475569 : 0x64748b;
-			const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: edge.enabled === false ? 0.35 : 0.8 });
+			const overlay = overlayStates.get(edge.edgeId);
+			const color = overlay?.color ?? 0x64748b;
+			const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: overlay?.status === 'disabled' ? 0.35 : 0.86 });
 			const geometry = new THREE.BufferGeometry().setFromPoints([
 				new THREE.Vector3(...from.position),
 				new THREE.Vector3(...to.position),
@@ -1134,6 +1190,10 @@ export class TwinRuntime {
 			const line = new THREE.Line(geometry, material);
 			line.name = edge.name || edge.edgeId;
 			line.userData[helperFlag] = true;
+			line.userData.routeId = this.route.routeId;
+			line.userData.edgeId = edge.edgeId;
+			line.userData.sectionId = edge.sectionId;
+			line.userData.runtimeRouteStatus = overlay?.status || 'ready';
 			this.routeEdgeGroup.add(line);
 		}
 
@@ -1396,31 +1456,33 @@ export class TwinRuntime {
 	private getSceneObjectRuntimeDetail(objectId?: string, equipmentType?: string, equipmentId?: string): Record<string, unknown> | undefined {
 		const definition = objectId ? this.manifest.objects.find((item) => item.objectId === objectId) : undefined;
 		const behaviorDetail = objectId ? this.behaviorRuntime?.getObjectDetail(objectId) : undefined;
+		const actuatorDetail = objectId ? this.actuatorRuntime.getSnapshot().filter((item) => item.objectId === objectId) : [];
+		const withActuators = (detail: Record<string, unknown> | undefined) => detail ? { ...detail, actuators: actuatorDetail } : actuatorDetail.length ? { actuators: actuatorDetail } : undefined;
 		const packaging = this.packagingLine;
 		if (packaging) {
 			const snapshot = packaging.getSnapshot();
 			switch (equipmentType || definition?.equipment?.equipmentType) {
-				case 'loading-robot': return packaging.getEntityDetail('loading-robot', equipmentId || objectId || '') ?? snapshot.robot;
-				case 'gantry-stacker': return packaging.getEntityDetail('gantry-stacker', equipmentId || objectId || '') ?? snapshot.gantry;
-				case 'silk-cart-turntable': return snapshot.silkCart;
-				case 'cover-applicator': return { station: 'cover-applicator', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
-				case 'labeler': return { station: 'labeler', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
-				case 'wrapper': return { station: 'wrapper', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
-				case 'inbound-lift': return { station: 'inbound-lift', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess };
+				case 'loading-robot': return withActuators((packaging.getEntityDetail('loading-robot', equipmentId || objectId || '') ?? snapshot.robot) as Record<string, unknown>);
+				case 'gantry-stacker': return withActuators((packaging.getEntityDetail('gantry-stacker', equipmentId || objectId || '') ?? snapshot.gantry) as Record<string, unknown>);
+				case 'silk-cart-turntable': return withActuators(snapshot.silkCart as unknown as Record<string, unknown>);
+				case 'cover-applicator': return withActuators({ station: 'cover-applicator', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
+				case 'labeler': return withActuators({ station: 'labeler', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
+				case 'wrapper': return withActuators({ station: 'wrapper', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
+				case 'inbound-lift': return withActuators({ station: 'inbound-lift', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
 			}
 			const semantic = `${definition?.name || ''} ${definition?.component?.resourceKey || ''} ${definition?.component?.componentType || ''}`.toLocaleLowerCase();
-			if (/external[-_ ]?inspection|外检/.test(semantic)) return { station: 'external-inspection', ...snapshot.preProcess.inspection };
-			if (/bagging|套袋/.test(semantic)) return { station: 'bagging', ...snapshot.preProcess.bagging };
-			if (/gantry|桁架/.test(semantic)) return snapshot.gantry;
-			if (/robot|机器人/.test(semantic)) return snapshot.robot;
+			if (/external[-_ ]?inspection|外检/.test(semantic)) return withActuators({ station: 'external-inspection', ...snapshot.preProcess.inspection });
+			if (/bagging|套袋/.test(semantic)) return withActuators({ station: 'bagging', ...snapshot.preProcess.bagging });
+			if (/gantry|桁架/.test(semantic)) return withActuators(snapshot.gantry as unknown as Record<string, unknown>);
+			if (/robot|机器人/.test(semantic)) return withActuators(snapshot.robot as unknown as Record<string, unknown>);
 		}
-		if (definition?.component) return {
+		if (definition?.component) return withActuators({
 			componentType: definition.component.componentType,
 			resourceKey: definition.component.resourceKey,
 			properties: definition.component.properties,
 			...(behaviorDetail || {}),
-		};
-		return behaviorDetail;
+		});
+		return withActuators(behaviorDetail as Record<string, unknown> | undefined);
 	}
 
 	private clearSelection() {

@@ -25,7 +25,10 @@ export const parseRouteSlotArray = (value: unknown, emptyValue: unknown = 0): Ro
 	for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
 		const rawValue = arrayValue[slotIndex];
 		if (rawValue === null || rawValue === undefined || String(rawValue) === emptyText) continue;
-		const palletId = String(rawValue).trim();
+		const objectValue = typeof rawValue === 'object' && !Array.isArray(rawValue) ? rawValue as Record<string, unknown> : undefined;
+		const idValue = objectValue?.palletId ?? objectValue?.id ?? objectValue?.value ?? rawValue;
+		if (idValue === null || idValue === undefined || String(idValue) === emptyText) continue;
+		const palletId = String(idValue).trim();
 		if (!palletId || seen.has(palletId)) continue;
 		seen.add(palletId);
 		result.push({

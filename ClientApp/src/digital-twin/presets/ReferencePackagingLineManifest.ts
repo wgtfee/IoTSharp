@@ -8,14 +8,14 @@ import {
 import type { TwinV7SceneObjectDefinition } from '../contracts/v7-components';
 import { getBuiltInComponentTemplate } from '../components/BuiltInComponentCatalog';
 import { areComponentPortsCompatible, resolveComponentPorts, upsertGeneratedComponentRoutes } from '../components/ComponentConnectionEngine';
-import referencePackagingSceneV18 from './reference-packaging-v18.scene.json';
+import referencePackagingSceneV19 from './reference-packaging-v19.scene.json';
 
 const SMALL_HEIGHT = 0.9;
 const LARGE_HEIGHT = 0.82;
 // 用户图纸的平面 Y 轴对应 Three.js 地面坐标 Z；大辊道固定在 X=-15.7 并沿 -Z 运行。
 const LARGE_LINE_X = -19.0;
 const LARGE_LINE_ROTATION_Y = Math.PI / 2;
-export const REFERENCE_PACKAGING_LAYOUT_VERSION = 18;
+export const REFERENCE_PACKAGING_LAYOUT_VERSION = 19;
 
 const componentObject = (
 	resourceKey: string,
@@ -253,10 +253,14 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		point('ref-inspection-right', '外检机右侧入口', 8, 6.8, 'buffer'),
 		{ ...point('ref-inspection', '外检机内部检测位', 4.6, 6.8, 'processStation'), componentObjectId: 'reference-external-inspection', process: { type: 'external-inspection', cycleSeconds: 2 } },
 		point('ref-inspection-left', '外检机左侧出口', 1.2, 6.8, 'buffer'),
+		point('ref-empty-return-diverter', '外检后空托/有料一级分流位', -5.2, 6.8, 'diverter'),
 		point('ref-inspection-diverter', '外检后一分二分流点', -10.8, 6.8, 'diverter'),
+		// 外检后的空托从这里进入独立回流支路。该支路不经过套袋/有料双排线，
+		// 直到桁架抓取完成后的公共空托回流段才汇合。
+		{ ...point('ref-empty-return-merger-b', '外检后空托独立回流汇入口', -12.13798061746948, 6.365879555832675, 'buffer'), componentObjectId: 'reference-gantry-merger' },
 
-		point('ref-a-left-entry', 'A 路左侧双排入口', -12.7, 6.8, 'buffer'),
-		point('ref-a-middle-west', 'A 路左侧双排中途接驳', -12.7, -0.8, 'buffer'),
+		point('ref-a-left-entry', 'A 路内侧上行入口', -8.9, 6.8, 'buffer'),
+		point('ref-a-middle-west', 'A 路内侧上行接驳', -8.9, -0.8, 'buffer'),
 		point('ref-a-middle-east', 'A 路上层横线东端', 6.8, -0.8, 'buffer'),
 		point('ref-a-bag-left', '套袋 A 左侧入口', 6.8, -12.9, 'buffer'),
 		{ ...point('ref-bag-a', '套袋机 A 内部工位', 15, -12.9, 'processStation'), componentObjectId: 'reference-bagging-a', process: { type: 'bagging', cycleSeconds: 3 } },
@@ -264,23 +268,23 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		point('ref-bag-a-merge-turn', '套袋 A 汇流转接', 21.5, -12.9, 'buffer'),
 
 		point('ref-b-left-entry', 'B 路左侧双排入口', -10.8, 6.8, 'buffer'),
-		point('ref-b-middle-west', 'B 路左侧双排中途接驳', -10.8, 1.1, 'buffer'),
-		point('ref-b-middle-east', 'B 路中部双排接驳', 6.8, 1.1, 'buffer'),
+		point('ref-b-middle-west', '外检后下排去套袋接驳', -10.8, 3, 'buffer'),
+		point('ref-b-middle-east', '外检后下排去套袋东端', 6.8, 3, 'buffer'),
 		point('ref-b-bag-left', '套袋 B 左侧入口', 6.8, -5.5, 'buffer'),
 		{ ...point('ref-bag-b', '套袋机 B 内部工位', 14.5, -5.5, 'processStation'), componentObjectId: 'reference-bagging-b', process: { type: 'bagging', cycleSeconds: 3 } },
 		point('ref-bag-b-right', '套袋 B 右侧出口', 20, -5.5, 'buffer'),
 
 		point('ref-post-bag-merge', '双套袋后二合一汇流点', 21.5, -5.5, 'merger'),
 		point('ref-post-bag-east', '套袋后右侧纵向转接', 21.5, -0.8, 'buffer'),
-		point('ref-post-bag-up', '套袋后进入桁架输送线', 21.5, 3, 'buffer'),
-		point('ref-loaded-middle-tap', '有料托盘中部回送接驳', 6.8, 3, 'buffer'),
+		point('ref-post-bag-up', '套袋后进入上排左向回流线', 21.5, 1.1, 'buffer'),
+		point('ref-loaded-middle-tap', '上排左向回流接驳', 6.8, 1.1, 'buffer'),
 		point('ref-loaded-upper-right-in', '有料托盘右上双排入口', 6.8, -5.3, 'buffer'),
 		point('ref-loaded-upper-right-out', '有料托盘右上双排出口', 6.8, -17.7, 'buffer'),
 		point('ref-gantry-pick', '桁架抓取丝锭工位', -12.7, -17.7, 'station'),
-		point('ref-gantry-merger', '桁架后二合一汇流点', -10.8, -17.7, 'merger'),
-		point('ref-gantry-out', '桁架抓取后空托出口', -8, -17.7, 'buffer'),
-
+		point('ref-gantry-out', '桁架抓取后空托出口', -13.6, -17.7, 'buffer'),
 		point('ref-return-outer-top', '空托外侧回流上端', -14.6, -17.7, 'buffer'),
+		{ ...point('ref-gantry-merger', '桁架后空托主路汇流入口', -14.6, 4.3, 'buffer'), componentObjectId: 'reference-gantry-merger' },
+		{ ...point('ref-gantry-merger-out', '外检/桁架空托汇流后公共回流出口', -14.6, 9.0, 'merger'), componentObjectId: 'reference-gantry-merger' },
 		point('ref-return-outer-bottom', '空托外侧回流下端', -14.6, 15.2, 'buffer'),
 		point('ref-return-bottom-in', '底部双排 B 回流入口', -10.8, 15.2, 'buffer'),
 		point('ref-return-bottom-tap', '底部双排 B 机器人接驳', 0, 15.2, 'buffer'),
@@ -291,10 +295,12 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		edge('ref-edge-inspection-right-in', 'ref-inspection-east-turn', 'ref-inspection-right', '外检右侧入口横段', { capacity: 3 }),
 		edge('ref-edge-inspection-in', 'ref-inspection-right', 'ref-inspection', '外检右进', { capacity: 3 }),
 		edge('ref-edge-inspection-out', 'ref-inspection', 'ref-inspection-left', '外检左出', { capacity: 3 }),
-		edge('ref-edge-inspection-to-diverter', 'ref-inspection-left', 'ref-inspection-diverter', '外检左出至一分二', { capacity: 5 }),
+		edge('ref-edge-inspection-to-diverter', 'ref-inspection-left', 'ref-empty-return-diverter', '外检左出至空托一级分流', { capacity: 5 }),
+		edge('ref-empty-return-loaded', 'ref-empty-return-diverter', 'ref-inspection-diverter', '有料托继续进入套袋 A/B 分流', { priority: 10, capacity: 5 }),
+		edge('ref-empty-return-down', 'ref-empty-return-diverter', 'ref-empty-return-merger-b', '外检后空托独立直回流', { priority: 20, capacity: 8 }),
 
 		edge('ref-edge-diverter-a', 'ref-inspection-diverter', 'ref-a-left-entry', '一分二 A 路', { priority: 10, capacity: 2 }),
-		edge('ref-edge-a-left-up', 'ref-a-left-entry', 'ref-a-middle-west', 'A 路左侧双排前行段', { priority: 10, capacity: 8 }),
+		edge('ref-edge-a-left-up', 'ref-a-left-entry', 'ref-a-middle-west', 'A 路内侧独立上行段', { priority: 10, capacity: 8 }),
 		edge('ref-edge-a-middle-east', 'ref-a-middle-west', 'ref-a-middle-east', 'A 路套袋前横段', { priority: 10, capacity: 8 }),
 		edge('ref-edge-a-bag-up', 'ref-a-middle-east', 'ref-a-bag-left', 'A 路套袋入口纵段', { priority: 10, capacity: 5 }),
 		edge('ref-edge-bag-a', 'ref-a-bag-left', 'ref-bag-a', '套袋 A 入口', { priority: 10, capacity: 1 }),
@@ -303,7 +309,7 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		edge('ref-edge-bag-a-merge-z', 'ref-bag-a-merge-turn', 'ref-post-bag-merge', '套袋 A 汇流纵段', { priority: 10, capacity: 3 }),
 
 		edge('ref-edge-diverter-b', 'ref-inspection-diverter', 'ref-b-left-entry', '一分二 B 路', { capacity: 5 }),
-		edge('ref-edge-b-left-down', 'ref-b-left-entry', 'ref-b-middle-west', 'B 路左侧双排前行段', { capacity: 5 }),
+		edge('ref-edge-b-left-down', 'ref-b-left-entry', 'ref-b-middle-west', 'B 路内侧独立上行段', { capacity: 5 }),
 		edge('ref-edge-b-middle-east', 'ref-b-middle-west', 'ref-b-middle-east', 'B 路中部双排前行段', { capacity: 8 }),
 		edge('ref-edge-b-bag-up', 'ref-b-middle-east', 'ref-b-bag-left', 'B 路套袋入口纵段', { capacity: 5 }),
 		edge('ref-edge-bag-b', 'ref-b-bag-left', 'ref-bag-b', '套袋 B 入口', { capacity: 1 }),
@@ -316,17 +322,16 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		edge('ref-edge-loaded-upper-right-in', 'ref-loaded-middle-tap', 'ref-loaded-upper-right-in', '有料托盘进入右上双排', { capacity: 5 }),
 		edge('ref-edge-loaded-upper-right', 'ref-loaded-upper-right-in', 'ref-loaded-upper-right-out', '有料托盘右上双排上行', { capacity: 8 }),
 		edge('ref-edge-loaded-upper-north', 'ref-loaded-upper-right-out', 'ref-gantry-pick', '有料托盘送至桁架抓取位', { capacity: 8 }),
-		edge('ref-gantry-edge-a-merge', 'ref-gantry-pick', 'ref-gantry-merger', '桁架抓取位至汇流器', { capacity: 2 }),
-		edge('ref-gantry-edge-out', 'ref-gantry-merger', 'ref-gantry-out', '桁架抓完丝空托输出', { capacity: 4 }),
-
-		edge('ref-return-edge-outer-top', 'ref-gantry-out', 'ref-return-outer-top', '桁架后空托进入外侧回流', { capacity: 5 }),
-		edge('ref-return-edge-outer-down', 'ref-return-outer-top', 'ref-return-outer-bottom', '空托外侧长回流', { capacity: 18 }),
+		edge('ref-gantry-edge-a-merge', 'ref-gantry-pick', 'ref-gantry-out', '桁架抓取后空托向外侧回流', { capacity: 2 }),
+		edge('ref-gantry-edge-out', 'ref-gantry-out', 'ref-return-outer-top', '桁架后空托接入外侧回流', { capacity: 4 }),
+		edge('ref-return-edge-outer-top', 'ref-return-outer-top', 'ref-gantry-merger', '桁架后空托沿独立主路到汇流入口', { capacity: 12 }),
+		edge('ref-return-edge-outer-down', 'ref-gantry-merger-out', 'ref-return-outer-bottom', '外检/桁架空托汇流后公共回流', { capacity: 18 }),
 		edge('ref-return-edge-bottom-in', 'ref-return-outer-bottom', 'ref-return-bottom-in', '空托进入底部双排 B', { capacity: 5 }),
 		edge('ref-return-edge-bottom-b', 'ref-return-bottom-in', 'ref-return-bottom-tap', '底部双排 B 空托回机器人', { capacity: 8 }),
 		edge('ref-return-edge-robot-cross', 'ref-return-bottom-tap', 'ref-robot-out', '空托交回机器人上料位', { capacity: 2 }),
 	],
 	startPointId: 'ref-robot-out',
-	junctionDecisions: { 'ref-inspection-diverter': 'ref-edge-diverter-a' },
+	junctionDecisions: { 'ref-empty-return-diverter': 'ref-empty-return-loaded', 'ref-inspection-diverter': 'ref-edge-diverter-a' },
 	routingMode: 'automatic',
 	decisionRules: [{
 		ruleId: 'ref-rule-bag-b',
@@ -341,6 +346,494 @@ const createSmallMainRoute = (): TwinRouteDefinition => ({
 		enabled: true,
 	}],
 });
+
+/**
+ * V9 物理布局基线。
+ * 仅用于生成参考包装线的辊道/设备几何；后续版本的遥测、动作编排和运行能力
+ * 继续由当前 Manifest/Runtime 承载，不随布局回退。
+ */
+const createV9SmallMainLayoutRoute = (): TwinRouteDefinition => ({
+	routeId: 'reference-small-pallet-main-v9-layout',
+	name: 'V9 小托盘前行布局（机器人→外检右进左出→一分二→双套袋→上行）',
+	type: 'conveyor',
+	curveKind: 'line',
+	defaultSpeed: 1.0,
+	loop: false,
+	orientToPath: true,
+	points: [
+		{ ...point('ref-robot-out', '底部机器人上料位', 0, 12.8, 'processStation'), componentObjectId: 'reference-loading-robot', process: { type: 'robot-loading', cycleSeconds: 2 } },
+		point('ref-robot-east', '机器人前行线右端', 13, 12.8, 'buffer'),
+		point('ref-inspection-east-turn', '外检回路右下转角', 13, 6.8, 'buffer'),
+		point('ref-inspection-right', '外检机右侧入口', 8, 6.8, 'buffer'),
+		{ ...point('ref-inspection', '外检机内部检测位', 4.6, 6.8, 'processStation'), componentObjectId: 'reference-external-inspection', process: { type: 'external-inspection', cycleSeconds: 2 } },
+		point('ref-inspection-left', '外检机左侧出口', 1.2, 6.8, 'buffer'),
+		point('ref-inspection-diverter', '外检后一分二分流点', -10.8, 6.8, 'diverter'),
+
+		point('ref-a-left-entry', 'A 路左侧双排入口', -12.7, 6.8, 'buffer'),
+		point('ref-a-middle-west', 'A 路上层横线西端', -12.7, -0.8, 'buffer'),
+		point('ref-a-middle-east', 'A 路上层横线东端', 6.8, -0.8, 'buffer'),
+		point('ref-a-bag-left', '套袋 A 左侧入口', 6.8, -12.9, 'buffer'),
+		{ ...point('ref-bag-a', '套袋机 A 内部工位', 15, -12.9, 'processStation'), componentObjectId: 'reference-bagging-a', process: { type: 'bagging', cycleSeconds: 3 } },
+		point('ref-bag-a-right', '套袋 A 右侧出口', 20, -12.9, 'buffer'),
+		point('ref-bag-a-merge-turn', '套袋 A 汇流转接', 21.5, -12.9, 'buffer'),
+
+		point('ref-b-middle-west', 'B 路中部双排西端', -10.8, 1.1, 'buffer'),
+		point('ref-b-middle-east', 'B 路中部双排东端', 6.8, 1.1, 'buffer'),
+		point('ref-b-bag-left', '套袋 B 左侧入口', 6.8, -5.5, 'buffer'),
+		{ ...point('ref-bag-b', '套袋机 B 内部工位', 14.5, -5.5, 'processStation'), componentObjectId: 'reference-bagging-b', process: { type: 'bagging', cycleSeconds: 3 } },
+		point('ref-bag-b-right', '套袋 B 右侧出口', 20, -5.5, 'buffer'),
+
+		point('ref-post-bag-merge', '双套袋后二合一汇流点', 21.5, -5.5, 'merger'),
+		point('ref-post-bag-east', '套袋后右侧纵向转接', 21.5, -0.8, 'buffer'),
+		point('ref-post-bag-up', '套袋后中部回流交接位', 21.5, 3, 'station'),
+	],
+	edges: [
+		edge('ref-edge-robot-east', 'ref-robot-out', 'ref-robot-east', '机器人至外检前行横段', { capacity: 8 }),
+		edge('ref-edge-inspection-right-rise', 'ref-robot-east', 'ref-inspection-east-turn', '外检右侧进料纵段', { capacity: 5 }),
+		edge('ref-edge-inspection-right-in', 'ref-inspection-east-turn', 'ref-inspection-right', '外检右侧入口横段', { capacity: 3 }),
+		edge('ref-edge-inspection-in', 'ref-inspection-right', 'ref-inspection', '外检右进', { capacity: 3 }),
+		edge('ref-edge-inspection-out', 'ref-inspection', 'ref-inspection-left', '外检左出', { capacity: 3 }),
+		edge('ref-edge-inspection-to-diverter', 'ref-inspection-left', 'ref-inspection-diverter', '外检左出至一分二', { capacity: 5 }),
+
+		edge('ref-edge-diverter-a', 'ref-inspection-diverter', 'ref-a-left-entry', '一分二 A 路', { priority: 10, capacity: 2 }),
+		edge('ref-edge-a-left-up', 'ref-a-left-entry', 'ref-a-middle-west', 'A 路左侧双排段', { priority: 10, capacity: 8 }),
+		edge('ref-edge-a-middle-east', 'ref-a-middle-west', 'ref-a-middle-east', 'A 路中部双排段', { priority: 10, capacity: 12 }),
+		edge('ref-edge-a-bag-up', 'ref-a-middle-east', 'ref-a-bag-left', 'A 路套袋入口上行段', { priority: 10, capacity: 5 }),
+		edge('ref-edge-bag-a', 'ref-a-bag-left', 'ref-bag-a', '套袋 A 入口', { priority: 10, capacity: 1 }),
+		edge('ref-edge-bag-a-out', 'ref-bag-a', 'ref-bag-a-right', '套袋 A 出口', { priority: 10, capacity: 1 }),
+		edge('ref-edge-bag-a-merge-x', 'ref-bag-a-right', 'ref-bag-a-merge-turn', '套袋 A 汇流横段', { priority: 10, capacity: 2 }),
+		edge('ref-edge-bag-a-merge-z', 'ref-bag-a-merge-turn', 'ref-post-bag-merge', '套袋 A 汇流纵段', { priority: 10, capacity: 3 }),
+
+		edge('ref-edge-diverter-b', 'ref-inspection-diverter', 'ref-b-middle-west', '一分二 B 路', { capacity: 8 }),
+		edge('ref-edge-b-middle-east', 'ref-b-middle-west', 'ref-b-middle-east', 'B 路中部双排段', { capacity: 12 }),
+		edge('ref-edge-b-bag-up', 'ref-b-middle-east', 'ref-b-bag-left', 'B 路套袋入口上行段', { capacity: 5 }),
+		edge('ref-edge-bag-b', 'ref-b-bag-left', 'ref-bag-b', '套袋 B 入口', { capacity: 1 }),
+		edge('ref-edge-bag-b-out', 'ref-bag-b', 'ref-bag-b-right', '套袋 B 出口', { capacity: 1 }),
+		edge('ref-edge-bag-b-merge', 'ref-bag-b-right', 'ref-post-bag-merge', '套袋 B 汇流横段', { capacity: 2 }),
+
+		edge('ref-edge-post-bag-east', 'ref-post-bag-merge', 'ref-post-bag-east', '双套袋汇流后横段', { capacity: 4 }),
+		edge('ref-edge-post-bag-up', 'ref-post-bag-east', 'ref-post-bag-up', '套袋后向上小辊道', { capacity: 8 }),
+	],
+	startPointId: 'ref-robot-out',
+	junctionDecisions: { 'ref-inspection-diverter': 'ref-edge-diverter-a' },
+	routingMode: 'automatic',
+	decisionRules: [{
+		ruleId: 'ref-rule-bag-b', name: 'B 类产品进入套袋机 B', junctionPointId: 'ref-inspection-diverter', edgeId: 'ref-edge-diverter-b',
+		source: 'payload', payloadKey: 'routeCode', operator: 'equals', matchValue: 'B', priority: 100, enabled: true,
+	}],
+});
+
+/**
+ * V19 现场路线以用户最终标注图为唯一方向基准。
+ * 组件端口 Connection 负责物理拼装，但不能直接作为编辑器路线：端口桥接会产生
+ * 斜线和重复线段，也会让控制点变成只读。这里把同一物理拓扑整理成正交、可编辑、
+ * 可直接运行的主路线，并明确画出底部双排、外检、双套袋、桁架和空托回流。
+ */
+const createEditableSmallMainRouteV19Draft = (generatedRoute?: TwinRouteDefinition): TwinRouteDefinition => {
+	const route = createSmallMainRoute();
+	route.routeId = 'component-route-d045206d';
+	route.name = 'V19 现场手绘小托盘闭环（双排→外检→双套袋→桁架→空托回流）';
+
+	// 外检后的空托先向图纸下方让开旋转台，再水平并入桁架空托回流。
+	route.points = route.points
+		.filter((item) => item.pointId !== 'ref-empty-return-merger-b')
+		.map((item) => {
+			if (item.pointId === 'ref-return-bottom-tap') return { ...item, pointId: 'ref-robot-return', name: '底部 B 排机器人上料位', position: [0, SMALL_HEIGHT, 15.2], kind: 'processStation' };
+			if (item.pointId === 'ref-a-left-entry') return { ...item, position: [-10.8, SMALL_HEIGHT, 5.3] };
+			if (item.pointId === 'ref-a-middle-west') return { ...item, position: [-10.8, SMALL_HEIGHT, -0.8] };
+			if (item.pointId === 'ref-b-left-entry') return { ...item, position: [-12.7, SMALL_HEIGHT, 6.8] };
+			if (item.pointId === 'ref-b-middle-west') return { ...item, position: [-12.7, SMALL_HEIGHT, 3] };
+			return item;
+		});
+	route.points.push(
+		point('ref-empty-return-turn-b', '外检空托回流下转角', -5.2, 9.0, 'buffer'),
+		point('ref-return-bottom-a-in', '底部 A 排左侧入口', -10.8, 13.3, 'buffer'),
+		point('ref-robot-east-b', '底部 B 排右端', 13, 15.2, 'buffer'),
+	);
+	const pointById = (pointId: string) => route.points.find((item) => item.pointId === pointId);
+	const loadingLayout = { rows: 1, columns: 6, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z' as const, columnAxis: 'x' as const };
+	for (const [pointId, physicalLane, releaseEdgeId] of [
+		['ref-robot-out', 'A', 'ref-edge-robot-east'],
+		['ref-robot-return', 'B', 'ref-edge-robot-east-b'],
+	] as const) {
+		const loadingPoint = pointById(pointId);
+		if (!loadingPoint) continue;
+		loadingPoint.kind = 'processStation';
+		loadingPoint.componentObjectId = 'reference-loading-robot';
+		loadingPoint.process = {
+			type: 'robot-loading', cycleSeconds: 2, batchSize: 12, batchLayout: loadingLayout,
+			simulationEntry: true, physicalLane, releaseEdgeId,
+			behaviorCompletionGroups: ['load'], behaviorCompletionRequirements: { load: 1 },
+		};
+	}
+	const gantryPoint = pointById('ref-gantry-pick');
+	if (gantryPoint) {
+		gantryPoint.kind = 'processStation';
+		gantryPoint.componentObjectId = 'reference-stacking-gantry';
+		gantryPoint.process = {
+			type: 'gantry-stacking', cycleSeconds: 3, batchSize: 6,
+			batchLayout: { rows: 1, columns: 6, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z', columnAxis: 'x' },
+			behaviorCompletionGroups: ['yarn', 'separator'], behaviorCompletionRequirements: { yarn: 1, separator: 1 },
+		};
+	}
+	const outerBottom = pointById('ref-return-outer-bottom');
+	if (outerBottom) { outerBottom.kind = 'diverter'; outerBottom.decisionMode = 'simulation'; }
+
+	const replacedEdgeIds = new Set([
+		'ref-empty-return-down', 'ref-return-edge-outer-down', 'ref-return-edge-bottom-in',
+		'ref-return-edge-bottom-b', 'ref-return-edge-robot-cross',
+	]);
+	route.edges = route.edges.filter((item) => !replacedEdgeIds.has(item.edgeId));
+	route.edges.push(
+		edge('ref-empty-return-down', 'ref-empty-return-diverter', 'ref-empty-return-turn-b', '外检后空托下行回流', { priority: 20, capacity: 8 }),
+		edge('ref-empty-return-merge', 'ref-empty-return-turn-b', 'ref-gantry-merger-out', '外检空托水平并入桁架回流', { priority: 20, capacity: 8 }),
+		edge('ref-gantry-merger-through', 'ref-gantry-merger', 'ref-gantry-merger-out', '桁架空托通过汇流位', { capacity: 18 }),
+		edge('ref-return-edge-outer-down', 'ref-gantry-merger-out', 'ref-return-outer-bottom', '汇流后空托下行至底部双排', { capacity: 18 }),
+		edge('ref-return-edge-bottom-in-a', 'ref-return-outer-bottom', 'ref-return-bottom-a-in', '空托进入底部 A 排', { priority: 10, capacity: 5 }),
+		edge('ref-return-edge-bottom-a', 'ref-return-bottom-a-in', 'ref-robot-out', '底部 A 排回到机器人', { capacity: 8 }),
+		edge('ref-return-edge-bottom-in-b', 'ref-return-outer-bottom', 'ref-return-bottom-in', '空托进入底部 B 排', { priority: 20, capacity: 5 }),
+		edge('ref-return-edge-bottom-b', 'ref-return-bottom-in', 'ref-robot-return', '底部 B 排回到机器人', { capacity: 8 }),
+		edge('ref-edge-robot-east-b', 'ref-robot-return', 'ref-robot-east-b', '机器人上料后沿 B 排前行', { capacity: 8 }),
+		edge('ref-edge-bottom-b-merge', 'ref-robot-east-b', 'ref-robot-east', '底部 B 排在右端并入 A 排', { capacity: 2 }),
+	);
+
+	const edgeById = (edgeId: string) => route.edges.find((item) => item.edgeId === edgeId);
+	const attachLiveGate = (edgeId: string, lane: 'a' | 'b') => {
+		const target = edgeById(edgeId);
+		if (!target) return;
+		const prefix = `reference-robot-cross-${lane}`;
+		target.releasePermitBindingId = `${prefix}-release-permit`;
+		target.readyBindingId = `${prefix}-ready`;
+		target.blockedBindingId = `${prefix}-blocked`;
+		target.fullBindingId = `${prefix}-full`;
+		target.componentObjectId = 'reference-double-small-bottom';
+		target.sectionId = edgeId;
+	};
+	attachLiveGate('ref-return-edge-bottom-in-a', 'a');
+	attachLiveGate('ref-return-edge-bottom-in-b', 'b');
+	for (const edgeId of ['ref-return-edge-bottom-a', 'ref-edge-robot-east', 'ref-return-edge-bottom-b', 'ref-edge-robot-east-b']) {
+		const target = edgeById(edgeId);
+		if (target) { target.componentObjectId = 'reference-double-small-bottom'; target.sectionId = edgeId; }
+	}
+
+	// 能从组件路线一一对应的区段继续携带 section/component 元数据，供占用率和状态高亮使用。
+	for (const target of route.edges) {
+		const source = generatedRoute?.edges.find((item) => item.sectionId === target.edgeId || item.edgeId === target.edgeId);
+		if (!source) continue;
+		target.componentObjectId ||= source.componentObjectId;
+		target.sectionId ||= source.sectionId;
+		target.conveyorSizeClass ||= source.conveyorSizeClass;
+		target.transportUnitType ||= source.transportUnitType;
+	}
+
+	// Phase 5：把两条现场空托支路固化成稳定语义 Section。汇流点之后仍是公共回流段，
+	// 不覆盖其原 sectionId，避免把共享运行状态误归到任一来源支路。
+	route.sections ||= [];
+	const ensureSemanticSection = (sectionId: string, name: string) => {
+		if (!route.sections!.some((item) => item.sectionId === sectionId)) route.sections!.push({ sectionId, name, enabled: true });
+	};
+	ensureSemanticSection('EmptyReturnAfterInspection', '外检后空托独立回流');
+	ensureSemanticSection('GantryEmptyReturn', '桁架抓取后空托回流');
+	for (const edgeId of ['ref-empty-return-down', 'ref-empty-return-merge']) {
+		const target = edgeById(edgeId);
+		if (!target) continue;
+		target.sectionId = 'EmptyReturnAfterInspection';
+		target.authoring = { ...target.authoring, mode: 'manual', generatedKey: target.authoring?.generatedKey || edgeId, locked: false, convertedFromGenerated: true };
+	}
+	for (const edgeId of ['ref-gantry-edge-a-merge', 'ref-gantry-edge-out', 'ref-return-edge-outer-top', 'ref-gantry-merger-through']) {
+		const target = edgeById(edgeId);
+		if (target) target.sectionId = 'GantryEmptyReturn';
+	}
+
+	route.startPointId = 'ref-robot-out';
+	route.junctionDecisions['ref-return-outer-bottom'] = 'ref-return-edge-bottom-in-a';
+	route.decisionRules = route.decisionRules.filter((item) => !['reference-bottom-lane-a-return-cross', 'reference-bottom-lane-b-forward', 'reference-empty-return-rule'].includes(item.ruleId));
+	route.decisionRules.push(
+		{ ruleId: 'reference-empty-return-rule', name: '外检后空托直回流', junctionPointId: 'ref-empty-return-diverter', edgeId: 'ref-empty-return-down', source: 'payload', payloadKey: 'materialCount', operator: 'equals', matchValue: 0, priority: 200, enabled: true },
+		{ ruleId: 'reference-bottom-lane-a-return-cross', name: '底部 A 排分流权重', junctionPointId: 'ref-return-outer-bottom', edgeId: 'ref-return-edge-bottom-in-a', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+		{ ruleId: 'reference-bottom-lane-b-forward', name: '底部 B 排分流权重', junctionPointId: 'ref-return-outer-bottom', edgeId: 'ref-return-edge-bottom-in-b', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+	);
+	return route;
+};
+
+/**
+ * V9 视觉布局继续使用旧图纸坐标，但运行时仍需要当前版本的完整闭环语义。
+ * 不能再从“最长 generated small route”猜主路线：V9 的中央马蹄缓存也属于 small/plastic，
+ * 一旦被误选，Simulation 托盘会从中央缓存初始化，而不是从机器人下方双排辊道开始。
+ *
+ * 这里复用当前完整闭环定义，只把机器人下方 A/B 两排入口精确对齐到 V9 双排辊道中心线：
+ * A = Z 12.8，B = Z 14.7；12 个仿真托盘因此按现有 1×6 batchLayout 分成两排各 6 个。
+ */
+const createV9RuntimeSmallPalletRoute = (): TwinRouteDefinition => {
+	const route = createEditableSmallMainRouteV19Draft();
+	route.name = 'V9 小托盘运行闭环（机器人下双排→外检→双套袋→桁架→空托回流）';
+	const pointById = new Map(route.points.map((item) => [item.pointId, item]));
+	const setPoint = (pointId: string, x: number, z: number) => {
+		const target = pointById.get(pointId);
+		if (target) target.position = [x, SMALL_HEIGHT, z];
+	};
+
+	// V9 底部双排实体：center Z=13.75，laneSpacing=1.9，因此 A/B 中心线分别为 12.8/14.7。
+	setPoint('ref-robot-out', 0, 12.8);
+	setPoint('ref-robot-east', 13, 12.8);
+	setPoint('ref-return-bottom-a-in', -10.8, 12.8);
+	setPoint('ref-robot-return', 0, 14.7);
+	setPoint('ref-robot-east-b', 13, 14.7);
+	setPoint('ref-return-bottom-in', -10.8, 14.7);
+
+	const loadingLayout = { rows: 1, columns: 6, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z' as const, columnAxis: 'x' as const };
+	for (const [pointId, physicalLane, releaseEdgeId] of [
+		['ref-robot-out', 'A', 'ref-edge-robot-east'],
+		['ref-robot-return', 'B', 'ref-edge-robot-east-b'],
+	] as const) {
+		const target = pointById.get(pointId);
+		if (!target) continue;
+		target.kind = 'processStation';
+		target.componentObjectId = 'reference-loading-robot';
+		target.process = {
+			type: 'robot-loading', cycleSeconds: 2, batchSize: 12, batchLayout: loadingLayout,
+			simulationEntry: true, physicalLane, releaseEdgeId,
+			behaviorCompletionGroups: ['load'], behaviorCompletionRequirements: { load: 1 },
+		};
+	}
+	route.startPointId = 'ref-robot-out';
+	return route;
+};
+
+/**
+ * V19 最终现场路线。
+ *
+ * 这张路线直接按用户最终标注图组织，不再从旧组件 Connection 猜测坐标：
+ * - 底部两排都从机器人向右进入外检；
+ * - 外检后沿中部下排向右进入两台套袋机，两台套袋机均由右向左；
+ * - 外检上方双排的上排专供空托反向回机器人；套袋后直接经右上双排送到桁架；
+ * - 桁架下两排空托都向下回机器人；
+ * - 外检后空托进入独立单排回流，并在桁架空托公共回流处汇合。
+ */
+const createEditableSmallMainRoute = (generatedRoute?: TwinRouteDefinition): TwinRouteDefinition => {
+	const route = createEditableSmallMainRouteV19Draft(generatedRoute);
+	route.name = 'V19 现场定稿小托盘闭环（按最终标注图逐段重绘）';
+
+	const robotLayout = {
+		rows: 1,
+		columns: 6,
+		rowSpacingMeters: 0,
+		columnSpacingMeters: 1.55,
+		rowAxis: 'z' as const,
+		columnAxis: 'x' as const,
+	};
+	const robotStation = (pointId: string, name: string, x: number, z: number, lane: 'A' | 'B', releaseEdgeId: string): TwinRoutePointDefinition => ({
+		...point(pointId, name, x, z, 'processStation'),
+		componentObjectId: 'reference-loading-robot',
+		process: {
+			type: 'robot-loading',
+			cycleSeconds: 2,
+			batchSize: 12,
+			batchLayout: robotLayout,
+			simulationEntry: true,
+			physicalLane: lane,
+			releaseEdgeId,
+			behaviorCompletionGroups: ['load'],
+			behaviorCompletionRequirements: { load: 1 },
+		},
+	});
+
+	route.points = [
+		robotStation('ref-robot-out', '底部 A 排机器人上料位', 0, 13.3, 'A', 'ref-edge-robot-east'),
+		point('ref-robot-east', '底部 A 排右端', 10.8, 13.3, 'buffer'),
+		robotStation('ref-robot-return', '底部 B 排机器人上料位', 0, 15.2, 'B', 'ref-edge-robot-east-b'),
+		point('ref-robot-east-b', '底部 B 排右端', 10.8, 15.2, 'buffer'),
+		point('ref-bottom-merge-b-turn', '底部 B 排二合一转角', 13, 15.2, 'buffer'),
+		{ ...point('ref-bottom-merge', '底部双排进入外检二合一', 13, 13.3, 'merger'), componentObjectId: 'reference-bottom-b-to-inspection-merge' },
+		point('ref-inspection-east-turn', '外检前单线转角', 13, 6.8, 'buffer'),
+		point('ref-inspection-right', '外检机右侧入口', 8, 6.8, 'buffer'),
+		{ ...point('ref-inspection', '外检机内部检测位', 4.6, 6.8, 'processStation'), componentObjectId: 'reference-external-inspection', process: { type: 'external-inspection', cycleSeconds: 2 } },
+		point('ref-inspection-left', '外检机左侧出口', 1.2, 6.8, 'buffer'),
+		{ ...point('ref-empty-return-diverter', '外检后空托/有料分流位', -1.5, 6.8, 'diverter'), componentObjectId: 'reference-empty-return-diverter', decisionMode: 'simulation' },
+		{ ...point('ref-inspection-diverter', '外检后双排 A/B 分流位', -5.2, 6.8, 'diverter'), componentObjectId: 'reference-inspection-diverter', decisionMode: 'simulation' },
+		point('ref-a-middle-west', '外检上方双排 A 排西端', -5.2, 3, 'buffer'),
+		point('ref-a-middle-east', '外检上方双排 A 排东端', 21.5, 3, 'buffer'),
+		point('ref-a-bag-east-turn', 'A 排套袋外绕转角', 23.5, 3, 'buffer'),
+		point('ref-b-middle-west-turn', '外检后 B 排转接横段', -7.1, 6.8, 'buffer'),
+		point('ref-b-middle-west', '外检上方双排 B 排西端', -7.1, 4.9, 'buffer'),
+		point('ref-b-middle-east', '外检上方双排 B 排东端', 21.5, 4.9, 'buffer'),
+
+		point('ref-bag-a-right-turn', '套袋 A 右侧转角', 23.5, -12.9, 'buffer'),
+		point('ref-bag-a-right', '套袋 A 右侧入口', 20, -12.9, 'buffer'),
+		{ ...point('ref-bag-a', '套袋机 A 内部工位', 15, -12.9, 'processStation'), componentObjectId: 'reference-bagging-a', process: { type: 'bagging', cycleSeconds: 3 } },
+		point('ref-a-bag-left', '套袋 A 左侧出口', 6.8, -12.9, 'buffer'),
+		point('ref-bag-b-right-turn', '套袋 B 右侧转角', 21.5, -5.5, 'buffer'),
+		point('ref-bag-b-right', '套袋 B 右侧入口', 20, -5.5, 'buffer'),
+		{ ...point('ref-bag-b', '套袋机 B 内部工位', 14.5, -5.5, 'processStation'), componentObjectId: 'reference-bagging-b', process: { type: 'bagging', cycleSeconds: 3 } },
+		point('ref-b-bag-left', '套袋 B 左侧出口', 6.8, -5.5, 'buffer'),
+		{ ...point('ref-post-bag-merge', '双套袋左侧二合一', 6.8, -5.3, 'merger'), componentObjectId: 'reference-bag-merger' },
+		point('ref-post-bag-up', '套袋后接入右上双排', 5.8, -5.3, 'buffer'),
+		point('ref-loaded-upper-right-in', '右上双排上行入口', 4.9, -5.3, 'buffer'),
+		point('ref-loaded-upper-right-out', '右上双排上行出口', 4.9, -17.7, 'buffer'),
+		{
+			...point('ref-gantry-pick', '桁架抓取丝锭工位', -12.7, -17.7, 'processStation'),
+			componentObjectId: 'reference-stacking-gantry',
+			process: {
+				type: 'gantry-stacking',
+				cycleSeconds: 3,
+				batchSize: 6,
+				batchLayout: robotLayout,
+				behaviorCompletionGroups: ['yarn', 'separator'],
+				behaviorCompletionRequirements: { yarn: 1, separator: 1 },
+			},
+		},
+		{ ...point('ref-gantry-return-split', '桁架下双排空托分流位', -12.7, -16.5, 'diverter'), componentObjectId: 'reference-gantry-return-diverter', decisionMode: 'simulation' },
+		point('ref-return-inner-bottom', '桁架下内排回流末端', -12.7, 9, 'buffer'),
+		point('ref-return-outer-top', '桁架下外排回流起点', -14.6, -16.5, 'buffer'),
+		{ ...point('ref-gantry-merger', '桁架双排/空托捷径公共汇流', -14.6, 9, 'merger'), componentObjectId: 'reference-gantry-merger' },
+		{ ...point('ref-return-outer-bottom', '底部双排回机器人分流位', -14.6, 15.2, 'diverter'), componentObjectId: 'reference-bottom-return-diverter', decisionMode: 'simulation' },
+		point('ref-return-bottom-a-turn', '底部 A 排回流转角', -14.6, 13.3, 'buffer'),
+		point('ref-return-bottom-a-in', '底部 A 排左侧入口', -10.8, 13.3, 'buffer'),
+		point('ref-return-bottom-in', '底部 B 排左侧入口', -10.8, 15.2, 'buffer'),
+		point('ref-empty-return-upper-entry', '外检后单排空回流接入口', -1.5, 1.1, 'buffer'),
+		point('ref-loaded-middle-tap', '单排空回流西端', -10.8, 1.1, 'buffer'),
+		point('ref-empty-return-turn-b', '上排空托回流西侧下转角', -10.8, 9, 'buffer'),
+	];
+
+	const bottomLane = (options: Partial<TwinRouteEdgeDefinition> = {}) => ({ componentObjectId: 'reference-double-small-bottom', ...options });
+	const middleLane = (options: Partial<TwinRouteEdgeDefinition> = {}) => ({ componentObjectId: 'reference-double-small-middle', ...options });
+	const upperRightLane = (options: Partial<TwinRouteEdgeDefinition> = {}) => ({ componentObjectId: 'reference-double-small-upper-right', ...options });
+	const upperLeftLane = (options: Partial<TwinRouteEdgeDefinition> = {}) => ({ componentObjectId: 'reference-double-small-upper-left', ...options });
+
+	route.edges = [
+		edge('ref-edge-robot-east', 'ref-robot-out', 'ref-robot-east', '底部 A 排：机器人向右', bottomLane({ capacity: 8, sectionId: 'ref-edge-robot-east' })),
+		edge('ref-edge-robot-east-b', 'ref-robot-return', 'ref-robot-east-b', '底部 B 排：机器人向右', bottomLane({ capacity: 8, sectionId: 'ref-edge-robot-east-b' })),
+		edge('ref-edge-bottom-a-merge', 'ref-robot-east', 'ref-bottom-merge', '底部 A 排进入二合一', { capacity: 2 }),
+		edge('ref-edge-bottom-b-merge-x', 'ref-robot-east-b', 'ref-bottom-merge-b-turn', '底部 B 排进入二合一横段', { capacity: 2 }),
+		edge('ref-edge-bottom-b-merge', 'ref-bottom-merge-b-turn', 'ref-bottom-merge', '底部 B 排进入二合一纵段', { capacity: 2 }),
+		edge('ref-edge-inspection-right-rise', 'ref-bottom-merge', 'ref-inspection-east-turn', '双排合流后单线进入外检', { capacity: 5 }),
+		edge('ref-edge-inspection-right-in', 'ref-inspection-east-turn', 'ref-inspection-right', '外检前单线进入外检', { capacity: 5 }),
+		edge('ref-edge-inspection-in', 'ref-inspection-right', 'ref-inspection', '外检右进', { capacity: 3 }),
+		edge('ref-edge-inspection-out', 'ref-inspection', 'ref-inspection-left', '外检左出', { capacity: 3 }),
+		edge('ref-edge-inspection-to-diverter', 'ref-inspection-left', 'ref-empty-return-diverter', '外检后进入空托/有料分流', { capacity: 5 }),
+		edge('ref-empty-return-loaded', 'ref-empty-return-diverter', 'ref-inspection-diverter', '有料托进入外检上方双排 A/B 分流', { priority: 10, capacity: 5 }),
+		edge('ref-edge-diverter-a', 'ref-inspection-diverter', 'ref-a-middle-west', '外检后分入 A 排', { priority: 10, capacity: 4 }),
+		edge('ref-edge-a-middle-east', 'ref-a-middle-west', 'ref-a-middle-east', '外检上方双排 A 排向右去套袋', middleLane({ priority: 10, capacity: 12, sectionId: 'ref-edge-a-middle-east' })),
+		edge('ref-edge-a-bag-east', 'ref-a-middle-east', 'ref-a-bag-east-turn', 'A 排向外侧错位接入套袋', { priority: 10, capacity: 4 }),
+		edge('ref-edge-a-bag-up', 'ref-a-bag-east-turn', 'ref-bag-a-right-turn', 'A 排上行至套袋 A', { priority: 10, capacity: 5 }),
+		edge('ref-edge-bag-a-right-in', 'ref-bag-a-right-turn', 'ref-bag-a-right', '套袋 A 右侧接入', { priority: 10, capacity: 2 }),
+		edge('ref-edge-bag-a', 'ref-bag-a-right', 'ref-bag-a', '套袋 A 由右进入', { priority: 10, capacity: 1 }),
+		edge('ref-edge-bag-a-out', 'ref-bag-a', 'ref-a-bag-left', '套袋 A 向左输出', { priority: 10, capacity: 1 }),
+		edge('ref-edge-bag-a-lane-down', 'ref-a-bag-left', 'ref-post-bag-merge', '套袋 A 沿右上双排下行汇流', upperRightLane({ priority: 10, capacity: 8, sectionId: 'ref-edge-bag-a-lane-down' })),
+		edge('ref-edge-diverter-b', 'ref-inspection-diverter', 'ref-b-middle-west-turn', '外检后分入 B 排', { priority: 20, capacity: 4 }),
+		edge('ref-edge-b-left-down', 'ref-b-middle-west-turn', 'ref-b-middle-west', 'B 排西侧转接', { priority: 20, capacity: 4 }),
+		edge('ref-edge-b-middle-east', 'ref-b-middle-west', 'ref-b-middle-east', '外检上方双排 B 排向右去套袋', middleLane({ priority: 20, capacity: 12, sectionId: 'ref-edge-b-middle-east' })),
+		edge('ref-edge-b-bag-up', 'ref-b-middle-east', 'ref-bag-b-right-turn', 'B 排上行至套袋 B', { priority: 20, capacity: 5 }),
+		edge('ref-edge-bag-b-right-in', 'ref-bag-b-right-turn', 'ref-bag-b-right', '套袋 B 右侧接入', { priority: 20, capacity: 2 }),
+		edge('ref-edge-bag-b', 'ref-bag-b-right', 'ref-bag-b', '套袋 B 由右进入', { priority: 20, capacity: 1 }),
+		edge('ref-edge-bag-b-out', 'ref-bag-b', 'ref-b-bag-left', '套袋 B 向左输出', { priority: 20, capacity: 1 }),
+		edge('ref-edge-bag-b-merge', 'ref-b-bag-left', 'ref-post-bag-merge', '套袋 B 接入左侧汇流', { priority: 20, capacity: 2 }),
+
+		edge('ref-edge-post-bag-up', 'ref-post-bag-merge', 'ref-post-bag-up', '套袋汇流后向左接入右上双排', { capacity: 8 }),
+		edge('ref-edge-loaded-upper-right-in', 'ref-post-bag-up', 'ref-loaded-upper-right-in', '套袋后直接进入右上双排', { capacity: 8 }),
+		edge('ref-edge-loaded-upper-right', 'ref-loaded-upper-right-in', 'ref-loaded-upper-right-out', '右上双排内排向上', upperRightLane({ capacity: 8, sectionId: 'ref-edge-loaded-upper-right' })),
+		edge('ref-edge-loaded-upper-north', 'ref-loaded-upper-right-out', 'ref-gantry-pick', '顶部向左送至桁架', { capacity: 12 }),
+
+		edge('ref-gantry-edge-a-merge', 'ref-gantry-pick', 'ref-gantry-return-split', '桁架抓取后进入双排空托回流', { capacity: 2, sectionId: 'GantryEmptyReturn' }),
+		edge('ref-gantry-inner-down', 'ref-gantry-return-split', 'ref-return-inner-bottom', '桁架下内排向机器人回流', upperLeftLane({ priority: 10, capacity: 12, sectionId: 'GantryEmptyReturn' })),
+		edge('ref-gantry-merger-through', 'ref-return-inner-bottom', 'ref-gantry-merger', '桁架下内排接入公共汇流', { priority: 10, capacity: 4, sectionId: 'GantryEmptyReturn' }),
+		edge('ref-gantry-edge-out', 'ref-gantry-return-split', 'ref-return-outer-top', '桁架空托切入外排', { priority: 20, capacity: 4, sectionId: 'GantryEmptyReturn' }),
+		edge('ref-return-edge-outer-top', 'ref-return-outer-top', 'ref-gantry-merger', '桁架下外排向机器人回流', upperLeftLane({ priority: 20, capacity: 12, sectionId: 'GantryEmptyReturn' })),
+
+		edge('ref-empty-return-down', 'ref-empty-return-diverter', 'ref-empty-return-upper-entry', '外检后空托进入独立单排回流', { priority: 20, capacity: 8, sectionId: 'EmptyReturnAfterInspection' }),
+		edge('ref-empty-return-upper-west', 'ref-empty-return-upper-entry', 'ref-loaded-middle-tap', '外检上方独立单排空托向左回流', { priority: 20, capacity: 12, sectionId: 'EmptyReturnAfterInspection' }),
+		edge('ref-empty-return-west-down', 'ref-loaded-middle-tap', 'ref-empty-return-turn-b', '上排空托沿西侧下行', { priority: 20, capacity: 8, sectionId: 'EmptyReturnAfterInspection' }),
+		edge('ref-empty-return-merge', 'ref-empty-return-turn-b', 'ref-gantry-merger', '上排空托接入公共回机器人汇流', { priority: 20, capacity: 12, sectionId: 'EmptyReturnAfterInspection' }),
+		edge('ref-return-edge-outer-down', 'ref-gantry-merger', 'ref-return-outer-bottom', '公共空托回流下行', { capacity: 18 }),
+		edge('ref-return-edge-bottom-in-a', 'ref-return-outer-bottom', 'ref-return-bottom-a-turn', '空托分入底部 A 排', {
+			priority: 10,
+			capacity: 4,
+			releasePermitBindingId: 'reference-robot-cross-a-release-permit',
+			readyBindingId: 'reference-robot-cross-a-ready',
+			blockedBindingId: 'reference-robot-cross-a-blocked',
+			fullBindingId: 'reference-robot-cross-a-full',
+		}),
+		edge('ref-return-edge-bottom-a-turn', 'ref-return-bottom-a-turn', 'ref-return-bottom-a-in', '空托接入底部 A 排', { priority: 10, capacity: 4 }),
+		edge('ref-return-edge-bottom-a', 'ref-return-bottom-a-in', 'ref-robot-out', '底部 A 排回机器人', bottomLane({ capacity: 8, sectionId: 'ref-return-edge-bottom-a' })),
+		edge('ref-return-edge-bottom-in-b', 'ref-return-outer-bottom', 'ref-return-bottom-in', '空托分入底部 B 排', {
+			priority: 20,
+			capacity: 4,
+			releasePermitBindingId: 'reference-robot-cross-b-release-permit',
+			readyBindingId: 'reference-robot-cross-b-ready',
+			blockedBindingId: 'reference-robot-cross-b-blocked',
+			fullBindingId: 'reference-robot-cross-b-full',
+		}),
+		edge('ref-return-edge-bottom-b', 'ref-return-bottom-in', 'ref-robot-return', '底部 B 排回机器人', bottomLane({ capacity: 8, sectionId: 'ref-return-edge-bottom-b' })),
+	];
+
+	route.startPointId = 'ref-robot-out';
+	route.loop = true;
+	route.routingMode = 'automatic';
+	route.junctionDecisions = {
+		'ref-empty-return-diverter': 'ref-empty-return-loaded',
+		'ref-inspection-diverter': 'ref-edge-diverter-a',
+		'ref-gantry-return-split': 'ref-gantry-inner-down',
+		'ref-return-outer-bottom': 'ref-return-edge-bottom-in-a',
+	};
+	route.decisionRules = [
+		{ ruleId: 'reference-empty-return-rule', name: '外检后空托进入独立单排回流', junctionPointId: 'ref-empty-return-diverter', edgeId: 'ref-empty-return-down', source: 'payload', payloadKey: 'materialCount', operator: 'equals', matchValue: 0, priority: 200, enabled: true },
+		{ ruleId: 'ref-rule-bag-b', name: 'B 类产品进入套袋机 B', junctionPointId: 'ref-inspection-diverter', edgeId: 'ref-edge-diverter-b', source: 'payload', payloadKey: 'routeCode', operator: 'equals', matchValue: 'B', priority: 100, enabled: true },
+		{ ruleId: 'reference-gantry-return-inner', name: '桁架内排回流权重', junctionPointId: 'ref-gantry-return-split', edgeId: 'ref-gantry-inner-down', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+		{ ruleId: 'reference-gantry-return-outer', name: '桁架外排回流权重', junctionPointId: 'ref-gantry-return-split', edgeId: 'ref-gantry-edge-out', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+		{ ruleId: 'reference-bottom-lane-a-return-cross', name: '底部 A 排分流权重', junctionPointId: 'ref-return-outer-bottom', edgeId: 'ref-return-edge-bottom-in-a', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+		{ ruleId: 'reference-bottom-lane-b-forward', name: '底部 B 排分流权重', junctionPointId: 'ref-return-outer-bottom', edgeId: 'ref-return-edge-bottom-in-b', source: 'payload', payloadKey: 'palletId', operator: 'truthy', weight: 1, priority: 100, enabled: true },
+	];
+	route.sections = [
+		{ sectionId: 'EmptyReturnAfterInspection', name: '外检上方独立单排空托回流', enabled: true },
+		{ sectionId: 'GantryEmptyReturn', name: '桁架抓取后双排空托回流', enabled: true },
+	];
+	for (const routePoint of route.points) {
+		routePoint.authoring = { mode: 'manual', generatedKey: routePoint.pointId, locked: false, convertedFromGenerated: true };
+	}
+	for (const routeEdge of route.edges) {
+		routeEdge.authoring = { mode: 'manual', generatedKey: routeEdge.edgeId, locked: false, convertedFromGenerated: true };
+	}
+	// 运行时的挡停器和到位传感器按 edge.componentObjectId 定位实体组件。
+	// 手绘路线必须显式回指同一段辊道，否则托盘虽然沿线移动，实体挡停器不会动作。
+	const embeddedEdgeObjects = new Map<string, string>([
+		['ref-edge-inspection-in', 'reference-external-inspection'],
+		['ref-edge-inspection-out', 'reference-external-inspection'],
+		['ref-edge-bag-a', 'reference-bagging-a'],
+		['ref-edge-bag-a-out', 'reference-bagging-a'],
+		['ref-edge-bag-b', 'reference-bagging-b'],
+		['ref-edge-bag-b-out', 'reference-bagging-b'],
+		['ref-edge-bottom-a-merge', 'reference-bottom-b-to-inspection-merge'],
+		['ref-edge-bottom-b-merge-x', 'reference-bottom-b-to-inspection-merge'],
+		['ref-edge-bottom-b-merge', 'reference-bottom-b-to-inspection-merge'],
+	]);
+	const pointMap = new Map(route.points.map((item) => [item.pointId, item]));
+	for (const routeEdge of route.edges) {
+		if (routeEdge.componentObjectId) continue;
+		const embeddedObjectId = embeddedEdgeObjects.get(routeEdge.edgeId);
+		if (embeddedObjectId) {
+			routeEdge.componentObjectId = embeddedObjectId;
+			continue;
+		}
+		const from = pointMap.get(routeEdge.fromPointId);
+		const to = pointMap.get(routeEdge.toPointId);
+		if (from && to && Math.hypot(to.position[0] - from.position[0], to.position[2] - from.position[2]) >= 0.5) {
+			routeEdge.componentObjectId = `reference-conveyor-${routeEdge.edgeId}`;
+		}
+	}
+	for (const [pointId, componentPortId] of [
+		['ref-robot-east', 'a-output'],
+		['ref-robot-east-b', 'b-output'],
+		['ref-b-middle-east', 'b-output'],
+		['ref-loaded-middle-tap', 'a-output'],
+		['ref-post-bag-merge', 'b-output'],
+		['ref-loaded-upper-right-out', 'a-output'],
+		['ref-return-inner-bottom', 'a-output'],
+	] as const) {
+		const target = pointMap.get(pointId);
+		if (target) target.componentPortId = componentPortId;
+	}
+	return route;
+};
 
 const createSmallReturnRoute = (): TwinRouteDefinition => ({
 	routeId: 'reference-small-pallet-return',
@@ -471,25 +964,31 @@ const createUpperFrameRoute = (): TwinRouteDefinition => ({
 export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
 	const manifest = createBlankTwinSceneManifest();
 	manifest.name = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
-	manifest.description = 'V18 标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；外检、套袋、缠膜、贴标使用组件内部时间轴；木托从2×3×8码垛、隔板、天盖一直运行到缠膜、贴标和成品出库。';
+	manifest.description = '标准引擎完整闭环：机器人/桁架跨设备动作全部来自场景编排；机器人下直角交叉口 Simulation 仅按 weight 分流，Live 仅按 ReleasePermit/Ready/Blocked/Full 互锁放行。';
 	manifest.world.background = '#08111f';
-	const smallRoute = createSmallMainRoute();
+	// 物理布局退回 V9 基线。后续遥测、动作编排、Live/Simulation 等运行能力继续保留；
+	// 这里只恢复当时的设备/辊道几何脚手架，不做功能版本回退。
+	const smallRoute = createV9SmallMainLayoutRoute();
+	const returnRoute = createSmallReturnRoute();
+	const gantryMergeRoute = createGantryMergeRoute();
 	const largeRoute = createLargeRoute();
 	const ringRoute = createCentralBufferRoute();
-	// V15 小托盘只有一张工艺脚手架：机器人上料 -> 外检 -> 套袋 -> 桁架取丝 -> 空托回流。
-	// 最终仍只持久化 component-route；这里的坐标图只用于把组件 Port 连成正确拓扑。
-	const layoutScaffoldRoutes = [smallRoute, largeRoute, ringRoute];
+	const upperFrameRoute = createUpperFrameRoute();
+	const layoutScaffoldRoutes = [smallRoute, returnRoute, gantryMergeRoute, largeRoute, ringRoute, upperFrameRoute];
 
 	const objects: TwinV7SceneObjectDefinition[] = [];
 	const doubleVisualEdges = new Set([
-		// 这些脚手架 Edge 已由长双排小辊道的 lane / routeTap 承载，禁止再叠加单辊道。
+		// V9：这些 Route 已由双排小辊道实体承载，禁止再叠加单辊道。
 		'ref-edge-robot-east',
 		'ref-edge-a-left-up',
-		'ref-edge-b-left-down',
+		'ref-edge-diverter-b',
 		'ref-edge-b-middle-east',
-		'ref-edge-loaded-middle-return',
-		'ref-edge-loaded-upper-right',
-		'ref-return-edge-bottom-b',
+		'ref-return-edge-east-down',
+		'ref-return-edge-robot',
+		'ref-gantry-edge-a-down',
+		'ref-gantry-edge-b-merge',
+		'ref-upper-frame-west',
+		'ref-upper-frame-east',
 	]);
 	const processEmbeddedEdges = new Set([
 		// 外检和套袋组件内部已经包含真实辊道，再自动生成会产生重叠和闪烁。
@@ -507,38 +1006,21 @@ export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifes
 			if (conveyor) objects.push(conveyor);
 		}
 	}
-
-	// 图纸的双线结构按四个实体组件落位：左上竖向、右上竖向、中部横向、底部横向。
-	// 中部图形实际有三条横线：上层 A 路是单排辊道，下面两条才是双排组件。
+	// V9 的四组双排小辊道原始几何。
 	objects.push(
 		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-upper-left', '左上竖向双排小辊道', [-11.75, 0, -5.45], Math.PI / 2, {
 			length: 24.5, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 8,
-			referenceEdgeIds: ['ref-edge-a-left-up', 'ref-edge-b-left-down'],
-			routeTaps: [
-				{ tapId: 'a-bag', lane: 'A', localX: -4.65, terminal: true, side: 'positive' },
-				{ tapId: 'b-middle', lane: 'B', localX: -6.55, terminal: true, side: 'positive' },
-			],
+			laneAReverse: true, laneBReverse: true,
 		}, 'ref-double-upper-left'),
 		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-upper-right', '右上竖向双排小辊道', [5.85, 0, -11.5], Math.PI / 2, {
 			length: 12.4, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 8,
-			referenceEdgeIds: ['ref-edge-loaded-upper-right'],
 		}, 'ref-double-upper-right'),
-		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-middle', '中部横向双排小辊道', [5.35, 0, 2.05], 0, {
-			length: 32.3, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 12,
-			laneBReverse: true,
-			referenceEdgeIds: ['ref-edge-b-middle-east', 'ref-edge-loaded-middle-return'],
-			routeTaps: [
-				{ tapId: 'b-bag', lane: 'A', localX: 1.45, terminal: true, side: 'negative' },
-				{ tapId: 'loaded-to-gantry', lane: 'B', localX: 1.45, terminal: true, side: 'negative' },
-			],
+		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-middle', '中部横向双排小辊道', [6.3, 0, 2.05], 0, {
+			length: 30.4, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 12,
+			laneAReverse: true, laneBReverse: false,
 		}, 'ref-double-middle'),
-		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-bottom', '底部横向双排小辊道', [1.1, 0, 14.25], 0, {
+		componentObject('builtin-double-small-roller-conveyor', 'reference-double-small-bottom', '底部横向双排小辊道', [1.1, 0, 13.75], 0, {
 			length: 23.8, laneWidth: 1.55, laneSpacing: 1.9, height: SMALL_HEIGHT, capacityPerLane: 12,
-			referenceEdgeIds: ['ref-edge-robot-east', 'ref-return-edge-bottom-b'],
-			routeTaps: [
-				{ tapId: 'robot-out', lane: 'A', localX: -1.1, side: 'positive' },
-				{ tapId: 'robot-return', lane: 'B', localX: -1.1, side: 'negative' },
-			],
 		}, 'ref-double-bottom'),
 	);
 
@@ -564,8 +1046,6 @@ export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifes
 		componentObject('builtin-diverter-conveyor', 'reference-inspection-diverter', '外检后一分二辊道', [-10.8, 0, 6.8], Math.PI / 2, { capacity: 2 }, 'ref-inspection-diverter'),
 		componentObject('builtin-merger-conveyor', 'reference-bag-merger', '双套袋后二合一辊道', [21.5, 0, -5.5], 0, { capacity: 2 }, 'ref-post-bag-merge'),
 		componentObject('builtin-merger-conveyor', 'reference-gantry-merger', '桁架后二合一辊道', [-10.8, 0, -17.7], 0, { capacity: 2 }, 'ref-gantry-merger'),
-		// B 排机器人上料后必须沿自己的辊道继续前行，再通过真实 1.9m 横移辊道并入外检入口；禁止从 B 排瞬移到 A 排。
-		componentObject('builtin-small-roller-conveyor', 'reference-bottom-b-to-inspection-merge', '底部 B 排上料后合流短辊道', [13, 0, 14.25], Math.PI / 2, { length: 1.9, width: 1.55, height: SMALL_HEIGHT, capacity: 2, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet' }, 'ref-bottom-b-to-inspection-merge'),
 		// 丝锭桁架内部的暂存台位于本地 Z-；Y+90° 后它落到世界 X-，即大辊道左侧，符合图纸。
 		componentObject('builtin-silk-gantry', 'reference-stacking-gantry', '码垛桁架和暂存台', [LARGE_LINE_X, 0, -11], Math.PI / 2, { length: 7.2, width: 17.5, height: 7.2 }, 'ref-large-stack'),
 		// 固定对象只作为码垛语义锚点；初始化不画木托，真实/仿真木托由 RouteSlot runtime 进入。
@@ -579,62 +1059,31 @@ export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifes
 	);
 	manifest.objects = objects as TwinSceneManifest['objects'];
 	manifest.bindings = [];
+	for (const lane of ['a', 'b'] as const) {
+		for (const signal of ['release-permit', 'ready', 'blocked', 'full'] as const) {
+			const signalKey = signal === 'release-permit' ? 'ReleasePermit' : `${signal[0].toUpperCase()}${signal.slice(1)}`;
+			manifest.bindings.push({
+				bindingId: `reference-robot-cross-${lane}-${signal}`,
+				objectId: 'reference-double-small-bottom',
+				// 参考场景不硬编码租户设备。现场绑定设备后再把 source 切换为 telemetry 并启用。
+				source: { kind: 'simulation', key: `RobotCross.${lane.toUpperCase()}.${signalKey}` },
+				target: { kind: 'customProperty', property: `routeInterlock.${signalKey}` },
+				transform: { kind: 'routeEvent' },
+				staleAfterMs: 5000,
+				enabled: false,
+			});
+		}
+	}
 	manifest.routes = [];
 	const topologyConnections = buildReferenceTopologyConnections(manifest, layoutScaffoldRoutes);
-	const bottomLaneBConnections: ReferenceConnection[] = [
-		{
-			connectionId: 'reference-physical-bottom-b-output-to-merge',
-			from: { objectId: 'reference-double-small-bottom', portId: 'b-output' },
-			to: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'input' },
-			autoGenerated: true,
-			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
-		},
-		{
-			connectionId: 'reference-physical-bottom-b-merge-to-inspection',
-			from: { objectId: 'reference-bottom-b-to-inspection-merge', portId: 'output' },
-			to: { objectId: 'reference-conveyor-ref-edge-inspection-right-rise', portId: 'input' },
-			autoGenerated: true,
-			metadata: { topologyBridge: true, source: 'reference-physical-lane' },
-		},
-	];
-	const reservedConnections = [...topologyConnections, ...bottomLaneBConnections];
+	const reservedConnections = [...topologyConnections];
 	manifest.connections = [...reservedConnections, ...buildReferenceTouchingConnections(manifest, 0.18, reservedConnections)];
 	upsertGeneratedComponentRoutes(manifest);
-	const smallProcessRoute = manifest.routes
-		.filter((route) => route.edges.some((edge) => edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'))
-		.sort((left, right) => right.edges.length - left.edges.length)[0];
-	if (smallProcessRoute) {
-		const nearestPoint = (x: number, z: number) => [...smallProcessRoute.points].sort((left, right) => {
-			const leftDistance = Math.hypot(left.position[0] - x, left.position[2] - z);
-			const rightDistance = Math.hypot(right.position[0] - x, right.position[2] - z);
-			return leftDistance - rightDistance;
-		})[0];
-		const robotPointA = nearestPoint(0, 13.3);
-		const robotPointB = nearestPoint(0, 15.2);
-		const gantryPoint = nearestPoint(-12.7, -17.7);
-		const loadingLayout = { rows: 1, columns: 6, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z' as const, columnAxis: 'x' as const };
-		for (const [robotPoint, physicalLane] of [[robotPointA, 'A'], [robotPointB, 'B']] as const) {
-			if (!robotPoint) continue;
-			robotPoint.kind = 'processStation';
-			robotPoint.componentObjectId = 'reference-loading-robot';
-			robotPoint.process = { type: 'robot-loading', cycleSeconds: 2, batchSize: 12, batchLayout: loadingLayout, physicalLane, behaviorCompletionGroups: ['load'], behaviorCompletionRequirements: { load: 1 } };
-		}
-		if (robotPointA) smallProcessRoute.startPointId = robotPointA.pointId;
-		if (robotPointB) {
-			robotPointB.decisionMode = 'simulation';
-			const bForward = smallProcessRoute.edges.find((item) => item.fromPointId === robotPointB.pointId && item.componentObjectId === 'reference-double-small-bottom');
-			const aCross = smallProcessRoute.edges.find((item) => item.fromPointId === robotPointB.pointId && item.componentObjectId === 'reference-conveyor-ref-return-edge-robot-cross');
-			if (bForward) smallProcessRoute.decisionRules.push({ ruleId: 'reference-bottom-lane-b-forward', name: 'B排托盘保持B排前行', junctionPointId: robotPointB.pointId, edgeId: bForward.edgeId, source: 'payload', payloadKey: 'physicalLane', operator: 'equals', matchValue: 'B', priority: 100, enabled: true });
-			if (aCross) smallProcessRoute.decisionRules.push({ ruleId: 'reference-bottom-lane-a-return-cross', name: 'A排回流托盘经真实横移辊道回A排', junctionPointId: robotPointB.pointId, edgeId: aCross.edgeId, source: 'payload', payloadKey: 'physicalLane', operator: 'equals', matchValue: 'A', priority: 100, enabled: true });
-		}
-		if (gantryPoint) {
-			gantryPoint.kind = 'processStation';
-			gantryPoint.componentObjectId = 'reference-stacking-gantry';
-			gantryPoint.process = { type: 'gantry-stacking', cycleSeconds: 3, batchSize: 6, behaviorCompletionGroups: ['yarn', 'separator'], behaviorCompletionRequirements: { yarn: 2, separator: 2 } };
-		}
-		smallProcessRoute.name = '参考图小托盘完整工艺闭环（机器人→外检→套袋→桁架→空托回流）';
-		smallProcessRoute.loop = true;
-	}
+	const smallProcessRoute = createV9RuntimeSmallPalletRoute();
+	// V9 的物理组件网络仍全部保留；主运行路线单独放在第一位，避免中央马蹄缓存
+	// 因 edge 数量更大而被误判为 primarySmallPalletRouteId。
+	manifest.routes = manifest.routes.filter((route) => route.routeId !== smallProcessRoute.routeId);
+	manifest.routes.unshift(smallProcessRoute);
 	const woodenProcessRoute = manifest.routes
 		.filter((route) => route.edges.some((edge) => edge.conveyorSizeClass === 'large' && edge.transportUnitType === 'wooden-pallet'))
 		.sort((left, right) => right.edges.length - left.edges.length)[0];
@@ -669,12 +1118,14 @@ export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifes
  * 新建场景只实例化该资产并生成新的 sceneId；动作编排不再由 Builder/Runtime 注入。
  */
 export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
-	const manifest = structuredClone(referencePackagingSceneV18) as TwinSceneManifest;
+	const manifest = structuredClone(referencePackagingSceneV19) as TwinSceneManifest;
 	manifest.sceneId = createBlankTwinSceneManifest().sceneId;
 	return manifest;
 };
 
 const referenceRouteIds = new Set([
+	'component-route-d045206d',
+	'component-route-68147065',
 	'reference-small-pallet-main',
 	'reference-small-pallet-return',
 	'reference-gantry-merge-feed',
@@ -693,7 +1144,7 @@ const stableReferenceObjectIds = [
 	'reference-bagging-b',
 	'reference-stacking-gantry',
 ];
-const edgeBindingFields = ['occupancyBindingId', 'fullBindingId', 'blockedBindingId', 'conveyorObjectId'] as const;
+const edgeBindingFields = ['releasePermitBindingId', 'readyBindingId', 'occupancyBindingId', 'fullBindingId', 'blockedBindingId', 'conveyorObjectId'] as const;
 
 const mergeRouteForUpgrade = (canonical: TwinRouteDefinition, previous?: TwinRouteDefinition): TwinRouteDefinition => {
 	if (!previous) return structuredClone(canonical);
@@ -750,7 +1201,7 @@ const mergeReferenceObject = (
 };
 
 /**
- * 将旧参考图草稿或不可变发布 Manifest 在内存中升级为当前 V14。
+ * 将旧参考图草稿或不可变发布 Manifest 在内存中升级为当前布局版本。
  * 只替换参考图自带 routes / referenceDrawingLine objects；用户额外放入的对象、资源和 Binding 保留。
  */
 export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest): boolean => {
@@ -764,10 +1215,17 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	const currentBehaviorIds = new Set((manifest.behaviors || []).map((item) => item.behaviorId));
 	const currentMaterialSlotIds = new Set((manifest.materialSlots || []).map((item) => item.slotId));
 	const currentInterlockIds = new Set((manifest.interlocks || []).map((item) => item.interlockId));
+	const currentBindingIds = new Set((manifest.bindings || []).map((item) => item.bindingId));
 	const hasContactSafeRobotPlacement = ['reference-v12-robot-pick-west', 'reference-v12-robot-pick-east'].every((behaviorId) => {
 		const behavior = (manifest.behaviors || []).find((item) => item.behaviorId === behaviorId);
 		const placeAction = behavior?.actions.find((action) => action.actionId.endsWith('-detach'));
-		return placeAction?.kind === 'place' && Array.isArray(placeAction.approachOffset);
+		const safeTransferAction = behavior?.actions.find((action) => action.actionId.endsWith('-safe-transfer'));
+		return placeAction?.kind === 'place' && Array.isArray(placeAction.approachOffset)
+			&& safeTransferAction?.kind === 'moveTo'
+			&& safeTransferAction.workPointId === placeAction.workPointId
+			&& Array.isArray(safeTransferAction.approachOffset)
+			&& Number(safeTransferAction.approachOffset[1] || 0) >= 1.5
+			&& behavior!.actions.indexOf(safeTransferAction) < behavior!.actions.indexOf(placeAction);
 	});
 	const currentLargeOut = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
 	const canonicalLargeOut = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-conveyor-ref-large-edge-out');
@@ -782,12 +1240,22 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	const currentSmallObjects = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).filter(isReferenceSmallConveyor);
 	const canonicalSmallObjects = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).filter(isReferenceSmallConveyor);
 	const currentSmallById = new Map(currentSmallObjects.map((item) => [item.objectId, item]));
+	const canonicalSmallPropertyKeys = ['length', 'laneSpacing', 'laneAReverse', 'laneBReverse'] as const;
 	const hasCanonicalSmallPlane = canonicalSmallObjects.length > 0 && canonicalSmallObjects.every((canonicalObject) => {
 		const currentObject = currentSmallById.get(canonicalObject.objectId);
 		if (!currentObject) return false;
 		const canonicalHeight = Number(canonicalObject.component?.properties?.height ?? SMALL_HEIGHT);
 		const currentHeight = Number(currentObject.component?.properties?.height ?? SMALL_HEIGHT);
-		return Math.abs(currentObject.transform.position[1] - canonicalObject.transform.position[1]) < 0.001
+		const sameTransform = currentObject.transform.position.every((value, index) => Math.abs(value - canonicalObject.transform.position[index]) < 0.001)
+			&& currentObject.transform.rotation.every((value, index) => Math.abs(value - canonicalObject.transform.rotation[index]) < 0.001);
+		const sameRoutingProperties = canonicalSmallPropertyKeys.every((key) => {
+			const canonicalValue = canonicalObject.component?.properties?.[key];
+			const currentValue = currentObject.component?.properties?.[key];
+			if (typeof canonicalValue === 'number' || typeof currentValue === 'number') return Math.abs(Number(currentValue || 0) - Number(canonicalValue || 0)) < 0.001;
+			return Boolean(currentValue) === Boolean(canonicalValue);
+		});
+		return sameTransform
+			&& sameRoutingProperties
 			&& Math.abs(currentHeight - canonicalHeight) < 0.001;
 	});
 	const currentWoodRoute = canonicalWoodRouteId ? (manifest.routes || []).find((item) => item.routeId === canonicalWoodRouteId) : undefined;
@@ -799,6 +1267,8 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		const current = loadingPoints.find((point) => point.process?.physicalLane === lane);
 		const canonical = canonicalLoadingPoints.find((point) => point.process?.physicalLane === lane);
 		return Boolean(current && canonical
+			&& current.process?.simulationEntry === true
+			&& current.process?.releaseEdgeId === canonical.process?.releaseEdgeId
 			&& current.process?.batchLayout?.rows === 1
 			&& current.process?.batchLayout?.columns === 6
 			&& Math.abs(Number(current.process?.batchLayout?.columnSpacingMeters || 0) - 1.55) < 0.001
@@ -806,14 +1276,29 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 	});
 	const hasCanonicalSmallRouteTopology = Boolean(currentSmallRoute
 		&& hasCanonicalLoadingLanes
-		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'component-edge-reference-double-small-bottom-lane-b-segment-2')
-		&& currentSmallRoute.edges.some((edge) => edge.componentObjectId === 'reference-bottom-b-to-inspection-merge'));
+		&& currentSmallRoute.generatedBy !== 'component-connections'
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'ref-edge-robot-east-b')
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'ref-edge-bottom-b-merge')
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'ref-empty-return-down')
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'ref-empty-return-merge')
+		&& currentSmallRoute.edges.some((edge) => edge.edgeId === 'ref-gantry-merger-through')
+		&& currentSmallRoute.decisionRules.some((rule) => rule.ruleId === 'reference-empty-return-rule' && rule.payloadKey === 'materialCount' && rule.matchValue === 0));
+	const canonicalSmallRoute = canonicalForHealthCheck?.routes.find((item) => item.routeId === canonicalSmallRouteId);
+	const canonicalCrossRuleIds = ['reference-bottom-lane-b-forward', 'reference-bottom-lane-a-return-cross'];
+	const hasCanonicalRobotCrossRouting = Boolean(currentSmallRoute && canonicalSmallRoute
+		&& canonicalCrossRuleIds.every((ruleId) => {
+			const currentRule = currentSmallRoute.decisionRules.find((item) => item.ruleId === ruleId);
+			const canonicalRule = canonicalSmallRoute.decisionRules.find((item) => item.ruleId === ruleId);
+			if (!currentRule || !canonicalRule || currentRule.payloadKey !== 'palletId' || currentRule.operator !== 'truthy' || !(Number(currentRule.weight) > 0)) return false;
+			const edge = currentSmallRoute.edges.find((item) => item.edgeId === currentRule.edgeId);
+			return Boolean(edge?.releasePermitBindingId && edge.readyBindingId && edge.blockedBindingId && edge.fullBindingId);
+		}));
 	const currentStackingPallet = ((manifest.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-stacking-pallet');
 	const canonicalStackingPallet = ((canonicalForHealthCheck?.objects || []) as TwinV7SceneObjectDefinition[]).find((item) => item.objectId === 'reference-stacking-pallet');
 	const hasCanonicalWoodPalletSize = Boolean(currentStackingPallet && canonicalStackingPallet
 		&& Math.abs(Number(currentStackingPallet.component?.properties?.length || 0) - Number(canonicalStackingPallet.component?.properties?.length || 0)) < 0.001
 		&& Math.abs(Number(currentStackingPallet.component?.properties?.width || 0) - Number(canonicalStackingPallet.component?.properties?.width || 0)) < 0.001);
-	const hasCurrentV18Structure = Boolean(canonicalForHealthCheck
+	const hasCurrentLayoutStructure = Boolean(canonicalForHealthCheck
 		&& canonicalSmallRouteId
 		&& canonicalWoodRouteId
 		&& manifest.runtime.primarySmallPalletRouteId === canonicalSmallRouteId
@@ -823,13 +1308,15 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		&& hasCanonicalLargeAxis
 		&& hasCanonicalSmallPlane
 		&& hasCanonicalSmallRouteTopology
+		&& hasCanonicalRobotCrossRouting
 		&& hasCanonicalWoodPalletSize
 		&& hasContactSafeRobotPlacement
 		&& ['wood-stack-ready', 'top-cover', 'wrapping', 'labeling'].every((type) => currentWoodProcessTypes.includes(type))
 		&& (canonicalForHealthCheck.behaviors || []).every((item) => currentBehaviorIds.has(item.behaviorId))
 		&& (canonicalForHealthCheck.materialSlots || []).every((item) => currentMaterialSlotIds.has(item.slotId))
+		&& (canonicalForHealthCheck.bindings || []).every((item) => currentBindingIds.has(item.bindingId))
 		&& (canonicalForHealthCheck.interlocks || []).every((item) => currentInterlockIds.has(item.interlockId)));
-	if (currentLayoutVersion >= REFERENCE_PACKAGING_LAYOUT_VERSION && hasCurrentV18Structure) {
+	if (currentLayoutVersion >= REFERENCE_PACKAGING_LAYOUT_VERSION && hasCurrentLayoutStructure) {
 		const canonicalName = `参考图双套袋环形包装产线 V${REFERENCE_PACKAGING_LAYOUT_VERSION}`;
 		if (/^参考图双套袋环形包装产线\s*V\d+$/i.test(manifest.name || '') && manifest.name !== canonicalName) {
 			manifest.name = canonicalName;
@@ -898,6 +1385,29 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		return true;
 	});
 	upsertGeneratedComponentRoutes(manifest);
+	const canonicalEditableSmallRoute = canonical.routes.find((item) => item.routeId === canonical.runtime.primarySmallPalletRouteId);
+	if (canonicalEditableSmallRoute) {
+		const generatedSmallRoute = manifest.routes
+			.filter((route) => route.generatedBy === 'component-connections'
+				&& route.edges.some((edge) => edge.conveyorSizeClass === 'small' && edge.transportUnitType === 'plastic-pallet'))
+			.sort((left, right) => right.edges.length - left.edges.length)[0];
+		if (generatedSmallRoute) manifest.routes.splice(manifest.routes.indexOf(generatedSmallRoute), 1);
+		manifest.routes = manifest.routes.filter((item) => item.routeId !== canonicalEditableSmallRoute.routeId);
+		manifest.routes.unshift(mergeRouteForUpgrade(canonicalEditableSmallRoute, previousRouteMap.get(canonicalEditableSmallRoute.routeId)));
+	}
+	// 组件网络 Hash 会随辊道重布置变化，但主路线 ID 已被遥测键、发布场景和初始化器引用。
+	// 迁移时按组件重合度找到同一物理网络，再恢复 canonical 稳定 ID。
+	for (const canonicalRouteId of [canonical.runtime.primarySmallPalletRouteId, canonical.runtime.primaryWoodenPalletRouteId].filter(Boolean) as string[]) {
+		if (manifest.routes.some((item) => item.routeId === canonicalRouteId)) continue;
+		const canonicalRoute = canonical.routes.find((item) => item.routeId === canonicalRouteId);
+		if (!canonicalRoute) continue;
+		const canonicalComponentIds = new Set(canonicalRoute.edges.map((item) => item.componentObjectId).filter(Boolean));
+		const candidate = manifest.routes
+			.filter((item) => item.generatedBy === 'component-connections')
+			.map((route) => ({ route, score: route.edges.filter((edge) => edge.componentObjectId && canonicalComponentIds.has(edge.componentObjectId)).length }))
+			.sort((left, right) => right.score - left.score)[0];
+		if (candidate && candidate.score > 0) candidate.route.routeId = canonicalRouteId;
+	}
 
 	// V11+ 保存场景已经只剩 generated component routes。重建以后需要把当前 V18
 	// 主工艺路线上的 processStation 语义重新覆盖回来，否则物理拓扑虽然连通，
@@ -913,6 +1423,15 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		migratedRoute.junctionDecisions = structuredClone(canonicalRoute.junctionDecisions || {});
 		migratedRoute.decisionRules = structuredClone(canonicalRoute.decisionRules || []);
 		const previousRoute = previousRouteMap.get(routeId);
+		for (const canonicalEdge of canonicalRoute.edges) {
+			const migratedEdge = migratedRoute.edges.find((item) => item.edgeId === canonicalEdge.edgeId);
+			if (!migratedEdge) continue;
+			const previousEdge = previousRoute?.edges.find((item) => item.edgeId === canonicalEdge.edgeId);
+			for (const field of edgeBindingFields) {
+				if (previousEdge?.[field] !== undefined) (migratedEdge as any)[field] = previousEdge[field];
+				else if (canonicalEdge[field] !== undefined) (migratedEdge as any)[field] = canonicalEdge[field];
+			}
+		}
 		for (const canonicalPoint of canonicalRoute.points) {
 			const migratedPoint = migratedRoute.points.find((item) => item.pointId === canonicalPoint.pointId);
 			if (!migratedPoint || canonicalPoint.kind !== 'processStation' || !canonicalPoint.process) continue;
@@ -972,6 +1491,7 @@ export const upgradeReferencePackagingLineLayout = (manifest: TwinSceneManifest)
 		const customItems = (previous || []).filter((item) => !canonicalIds.has(idOf(item)));
 		return [...customItems.map((item) => structuredClone(item)), ...canonicalItems.map((item) => structuredClone(item))];
 	};
+	manifest.bindings = mergeCanonicalDefinitions(manifest.bindings, canonical.bindings || [], (item) => item.bindingId);
 	manifest.workPoints = mergeCanonicalDefinitions(manifest.workPoints, canonical.workPoints || [], (item) => item.workPointId);
 	manifest.materialSlots = mergeCanonicalDefinitions(manifest.materialSlots, canonical.materialSlots || [], (item) => item.slotId);
 	manifest.toolFrames = mergeCanonicalDefinitions(manifest.toolFrames, canonical.toolFrames || [], (item) => item.toolFrameId);

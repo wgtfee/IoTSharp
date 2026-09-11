@@ -11,7 +11,7 @@ export interface TwinRouteEngineSnapshot {
 	activeEdgeIds: string[];
 	currentEdgeId?: string;
 	unavailableEdgeIds: string[];
-	waitingReason?: 'ROUTE_NOT_READY' | 'DIVERTER_NOT_READY' | 'TARGET_SECTION_FULL' | 'TARGET_SECTION_BLOCKED' | 'TARGET_SECTION_SIGNAL_STALE';
+	waitingReason?: 'ROUTE_NOT_READY' | 'DIVERTER_NOT_READY' | 'TARGET_SECTION_NOT_READY' | 'TARGET_SECTION_FULL' | 'TARGET_SECTION_BLOCKED' | 'TARGET_SECTION_SIGNAL_STALE';
 	waitingEdgeId?: string;
 	waitingPointId?: string;
 }
@@ -26,6 +26,7 @@ export interface TwinResolvedRoutePath {
 }
 
 export interface TwinRouteRoutingContext {
+	dataMode?: 'simulation' | 'live';
 	payload?: Record<string, unknown>;
 	bindingValues?: Record<string, unknown>;
 	edgeOccupancy?: Record<string, number>;
@@ -76,28 +77,53 @@ const stableUnitHash = (value: string) => {
 	return (hash >>> 0) / 0x100000000;
 };
 
-const chooseWeightedRule = <T extends { weight?: number }>(rules: T[], seed: string) => {
-	const total = rules.reduce((sum, rule) => sum + Math.max(0.0001, Number(rule.weight || 1)), 0);
-	let cursor = stableUnitHash(seed) * total;
-	for (const rule of rules) {
-		cursor -= Math.max(0.0001, Number(rule.weight || 1));
-		if (cursor < 0) return rule;
+const chooseWeightedRule = <T extends { weight?: number }>(rules: T[], sequenceValue: unknown, fallbackSeed: string) => {
+	const weights = rules.map((rule) => Math.max(0.0001, Number(rule.weight || 1)));
+	const total = weights.reduce((sum, weight) => sum + weight, 0);
+	const sequence = Number(sequenceValue);
+	if (Number.isFinite(sequence) && sequence >= 0) {
+		// Simulation 使用稳定序号做 Smooth Weighted Round Robin，而不是 palletId 哈希抽签。
+		// 因此 12 托在 1:1 权重下严格得到 6:6；2:1 则长期严格趋近 2:1，
+		// 同一个托盘重复解析时仍得到同一条支路，不会在暂停/恢复时跳路。
+		const targetStep = Math.floor(sequence);
+		const scores = weights.map(() => 0);
+		let selectedIndex = 0;
+		for (let step = 0; step <= targetStep; step += 1) {
+			for (let index = 0; index < scores.length; index += 1) scores[index] += weights[index];
+			selectedIndex = 0;
+			for (let index = 1; index < scores.length; index += 1) {
+				if (scores[index] > scores[selectedIndex] + 0.0000001) selectedIndex = index;
+			}
+			scores[selectedIndex] -= total;
+		}
+		return rules[selectedIndex];
+	}
+	let cursor = stableUnitHash(fallbackSeed) * total;
+	for (let index = 0; index < rules.length; index += 1) {
+		cursor -= weights[index];
+		if (cursor < 0) return rules[index];
 	}
 	return rules[rules.length - 1];
 };
 
 const getEdgeUnavailableReason = (edge: TwinRouteEdgeDefinition, context: TwinRouteRoutingContext): TwinRouteEngineSnapshot['waitingReason'] | undefined => {
 	const staleBindingIds = new Set(context.staleBindingIds || []);
+	// 显式 Simulation 完全不消费 PLC 互锁；未给 dataMode 的旧调用保持历史行为，继续解释已有 live binding。
+	const useLiveSignals = context.dataMode !== 'simulation';
 	const routeSignalStale = Boolean(
+		useLiveSignals && ((edge.releasePermitBindingId && staleBindingIds.has(edge.releasePermitBindingId)) ||
+		(edge.readyBindingId && staleBindingIds.has(edge.readyBindingId)) ||
 		(edge.blockedBindingId && staleBindingIds.has(edge.blockedBindingId)) ||
 		(edge.occupancyBindingId && staleBindingIds.has(edge.occupancyBindingId)) ||
-		(edge.fullBindingId && staleBindingIds.has(edge.fullBindingId))
+		(edge.fullBindingId && staleBindingIds.has(edge.fullBindingId)))
 	);
 	if (routeSignalStale) return 'TARGET_SECTION_SIGNAL_STALE';
-	if (edge.blocked === true || (edge.blockedBindingId && isSignalTrue(context.bindingValues?.[edge.blockedBindingId]))) return 'TARGET_SECTION_BLOCKED';
-	const occupancyValue = edge.occupancyBindingId ? Number(context.bindingValues?.[edge.occupancyBindingId]) : Number(context.edgeOccupancy?.[edge.edgeId]);
+	if (edge.blocked === true || (useLiveSignals && edge.blockedBindingId && isSignalTrue(context.bindingValues?.[edge.blockedBindingId]))) return 'TARGET_SECTION_BLOCKED';
+	if (useLiveSignals && edge.releasePermitBindingId && !isSignalTrue(context.bindingValues?.[edge.releasePermitBindingId])) return 'TARGET_SECTION_NOT_READY';
+	if (useLiveSignals && edge.readyBindingId && !isSignalTrue(context.bindingValues?.[edge.readyBindingId])) return 'TARGET_SECTION_NOT_READY';
+	const occupancyValue = useLiveSignals && edge.occupancyBindingId ? Number(context.bindingValues?.[edge.occupancyBindingId]) : Number(context.edgeOccupancy?.[edge.edgeId]);
 	const capacityBlocked = Number.isFinite(occupancyValue) && occupancyValue >= Number(edge.capacity || 1);
-	const fullSignal = edge.fullBindingId ? isSignalTrue(context.bindingValues?.[edge.fullBindingId]) : false;
+	const fullSignal = useLiveSignals && edge.fullBindingId ? isSignalTrue(context.bindingValues?.[edge.fullBindingId]) : false;
 	if (capacityBlocked || fullSignal) return 'TARGET_SECTION_FULL';
 	return undefined;
 };
@@ -136,7 +162,9 @@ export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRoute
 			.sort((left, right) => (right.edge.priority || 0) - (left.edge.priority || 0) || left.edge.edgeId.localeCompare(right.edge.edgeId));
 		if (candidates.length === 0) break;
 		const currentPoint = pointsById.get(currentPointId);
-		const decisionMode = currentPoint?.decisionMode || (route.routingMode === 'automatic' ? 'simulation' : 'manual');
+		const configuredDecisionMode = currentPoint?.decisionMode || (route.routingMode === 'automatic' ? 'simulation' : 'manual');
+		// 同一 Manifest 切到 Live 后，Simulation 岔口自动转为 PLC/互锁决策；权重绝不进入 live 路径。
+		const decisionMode = context.dataMode === 'live' && configuredDecisionMode === 'simulation' ? 'plc' : configuredDecisionMode;
 		const matchingRules = decisionMode !== 'manual'
 			? (route.decisionRules || [])
 				.filter((rule) => rule.enabled !== false && rule.junctionPointId === currentPointId && (decisionMode !== 'plc' || rule.source === 'binding') && candidates.some((candidate) => candidate.edge.edgeId === rule.edgeId) && !(rule.source === 'binding' && rule.bindingId && staleBindingIds.has(rule.bindingId)))
@@ -150,14 +178,47 @@ export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRoute
 			// 只有显式配置过 weight 才改变旧版“同优先级取第一条”的行为。
 			if (weightedPeers.length > 1 && weightedPeers.some((rule) => rule.weight !== undefined)) {
 				const payloadKey = String(context.payload?.palletId ?? context.payload?.entityId ?? JSON.stringify(context.payload || {}));
-				matchedRule = chooseWeightedRule(weightedPeers, currentPointId + '|' + payloadKey);
+				matchedRule = chooseWeightedRule(weightedPeers, context.payload?.weightSequence, currentPointId + '|' + payloadKey);
 			}
 		}
-		if (decisionMode === 'plc' && !matchedRule) {
-			return { points: pointPath, edgeIds: edgePath, closed: false, unavailableEdgeIds: [...unavailableEdgeIds], unresolvedJunctionPointId: currentPointId, edgeEntryGuards };
+		let selected: TraversalEdge | undefined;
+		// A simulation route may start at a physical process-entry point that also
+		// has a balancing/weight rule for a later cross-over.  At that station the
+		// process contract is authoritative: an entity already assigned to this
+		// physical lane must leave through its configured release edge.  Without
+		// this guard a B-lane pallet could be weighted onto the A return-cross at
+		// the very first tick, skip its own loading station and pile up at the
+		// reverse robot lane.  Direct junction evaluation without a lane (used by
+		// design-time weight previews) continues to use the weighted rules below.
+		const processEntryEdgeId = context.dataMode === 'simulation'
+			&& currentPoint?.kind === 'processStation'
+			&& currentPoint.process?.simulationEntry === true
+			&& currentPoint.process.physicalLane
+			&& String(context.payload?.physicalLane || '') === currentPoint.process.physicalLane
+			? currentPoint.process.releaseEdgeId
+			: undefined;
+		const emptyReturnEdgeId = context.dataMode === 'simulation'
+			&& currentPoint?.kind === 'processStation'
+			&& currentPoint.process?.simulationEntry === true
+			&& Number(context.payload?.materialCount || 0) <= 0
+			&& String(context.payload?.physicalLane || '') === 'A'
+			? candidates.find((candidate) => candidate.edge.edgeId !== currentPoint.process.releaseEdgeId)?.edge.edgeId
+			: undefined;
+		if (emptyReturnEdgeId) selected = candidates.find((candidate) => candidate.edge.edgeId === emptyReturnEdgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
+		if (!selected && processEntryEdgeId) selected = candidates.find((candidate) => candidate.edge.edgeId === processEntryEdgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
+		if (decisionMode === 'plc') {
+			if (!selected && matchedRule) selected = candidates.find((candidate) => candidate.edge.edgeId === matchedRule!.edgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
+			if (!selected && matchingRules.length === 0) {
+				// 没有 PLC RouteCode 规则时由每条出边互锁直接放行；两边都不许可就保持 unresolved/waiting。
+				// 禁止回退到 junctionDecisions、首边或 simulation weight。
+				selected = candidates.find((candidate) => !unavailableEdgeIds.has(candidate.edge.edgeId)
+					&& Boolean(candidate.edge.releasePermitBindingId || candidate.edge.readyBindingId || candidate.edge.blockedBindingId || candidate.edge.fullBindingId || candidate.edge.occupancyBindingId));
+			}
+			if (!selected) return { points: pointPath, edgeIds: edgePath, closed: false, unavailableEdgeIds: [...unavailableEdgeIds], unresolvedJunctionPointId: currentPointId, edgeEntryGuards };
+		} else if (!selected) {
+			const decisionEdgeId = matchedRule?.edgeId || route.junctionDecisions?.[currentPointId];
+			selected = candidates.find((candidate) => candidate.edge.edgeId === decisionEdgeId) || candidates[0];
 		}
-		const decisionEdgeId = matchedRule?.edgeId || route.junctionDecisions?.[currentPointId];
-		const selected = candidates.find((candidate) => candidate.edge.edgeId === decisionEdgeId) || candidates[0];
 		if (matchedRule?.expectedActuatorValue !== undefined && currentPoint?.actuatorBindingId) {
 			edgeEntryGuards[selected.edge.edgeId] = { bindingId: currentPoint.actuatorBindingId, expectedValue: matchedRule.expectedActuatorValue };
 		}
@@ -251,14 +312,19 @@ export class RouteEngine {
 
 	setRoutingContext(context: TwinRouteRoutingContext) {
 		this.routingContext = {
+			// dataMode 是路线安全边界的一部分。新调用显式传入时覆盖，
+			// 旧调用未传入时保留已有模式，避免刷新 payload 时把 Simulation 误判成 Live。
+			dataMode: context.dataMode ?? this.routingContext.dataMode,
 			payload: { ...(context.payload || {}) },
 			bindingValues: { ...(context.bindingValues || {}) },
 			edgeOccupancy: { ...(context.edgeOccupancy || {}) },
 			staleBindingIds: [...(context.staleBindingIds || [])],
 		};
-		// 工艺站会暂停 RouteEngine，再由动作改变运输实体上的物料。
-		// 暂停期间允许按最新 payload/binding 重新解析后续分支，保持已走距离不变。
-		if (!this.pathLocked || !this.running || this.unresolvedJunctionPointId) {
+		// pathLocked 表示本周期已经进入确定路线。工艺站暂停时，机器人/桁架会
+		// 改变运输实体上的物料；若仅因 running=false 就重算整条路径，已经位于
+		// 下游工位的托盘会被 materialCount=0 截到较短空回流路径的末端。
+		// 只有尚未离开周期起点，或之前确实存在未解析岔口时才允许重建路径。
+		if (!this.pathLocked || this.unresolvedJunctionPointId) {
 			const preservedDistance = this.distanceMeters;
 			this.curve = this.createCurve(this.route);
 			this.lengthMeters = this.curve.getLength();

@@ -94,8 +94,8 @@ export class ProcessStationManager {
 		return [...this.stations.values()].map((station) => structuredClone(station.runtime));
 	}
 
-	arrive(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+	arrive(sectionId: string, entityId: string, context: TwinComponentProcessSignalContext = {}) {
+		const station = this.resolveStation(sectionId);
 		if (!station) return undefined;
 		if (station.entities.has(entityId)) return structuredClone(station.runtime);
 		if (station.entities.size >= station.runtime.capacity) {
@@ -116,7 +116,7 @@ export class ProcessStationManager {
 				station.definition.dataMode || 'simulation',
 			);
 			station.machines.set(entityId, machine);
-			this.applyEntitySnapshot(entity, machine.arrive());
+			this.applyEntitySnapshot(entity, machine.arrive(context));
 		}
 		this.syncStation(station);
 		return structuredClone(station.runtime);
@@ -178,14 +178,14 @@ export class ProcessStationManager {
 	}
 
 	canAccept(sectionId: string, entityId?: string) {
-		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		const station = this.resolveStation(sectionId);
 		if (!station) return true;
 		if (entityId && station.entities.has(entityId)) return true;
 		return station.entities.size < station.runtime.capacity;
 	}
 
 	canRelease(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		const station = this.resolveStation(sectionId);
 		if (!station) return { canRelease: true as const };
 		const entity = station.entities.get(entityId);
 		if (!entity || !entity.canRelease) {
@@ -195,7 +195,7 @@ export class ProcessStationManager {
 	}
 
 	release(sectionId: string, entityId: string) {
-		const station = [...this.stations.values()].find((item) => item.runtime.sectionId === sectionId);
+		const station = this.resolveStation(sectionId);
 		const entity = station?.entities.get(entityId);
 		if (!station || !entity?.canRelease) return false;
 		station.entities.delete(entityId);
@@ -220,6 +220,18 @@ export class ProcessStationManager {
 		entity.canRelease = snapshot.canRelease;
 		entity.waitingReason = snapshot.waitingReason as SilkProcessWaitingReason | undefined;
 		entity.result = snapshot.result;
+	}
+
+	/**
+	 * Prefer the generated station id when callers have one. Multiple process
+	 * points can legitimately share a conveyor section (for example robot A/B
+	 * loading lanes); resolving by section first would route both points into
+	 * the first station and leave the second lane permanently paused. Legacy
+	 * callers still pass section ids, so the section fallback is retained.
+	 */
+	private resolveStation(stationOrSectionId: string) {
+		return this.stations.get(stationOrSectionId)
+			|| [...this.stations.values()].find((item) => item.runtime.sectionId === stationOrSectionId);
 	}
 
 	private syncStation(station: TwinProcessStationInternal) {

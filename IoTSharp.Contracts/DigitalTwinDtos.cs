@@ -85,7 +85,8 @@ public enum TwinBindingTargetKind
     Animation,
     RouteProgress,
     RouteDistance,
-    CustomProperty
+    CustomProperty,
+    Actuator
 }
 
 /// <summary>
@@ -97,6 +98,10 @@ public sealed class TwinValidationDiagnosticDto
     public string Code { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public string? Path { get; set; }
+    public string? FlowId { get; set; }
+    public string? NodeId { get; set; }
+    public string? EdgeId { get; set; }
+    public string? Suggestion { get; set; }
 }
 
 /// <summary>
@@ -148,6 +153,7 @@ public sealed class DigitalTwinSceneDetailDto : DigitalTwinSceneDto
     public JsonElement DraftPayload { get; set; }
     public List<TwinObjectBindingDto> Bindings { get; set; } = [];
     public List<TwinRouteDto> Routes { get; set; } = [];
+    public List<TwinActionFlowDto> ActionFlows { get; set; } = [];
 }
 
 public sealed class DigitalTwinSceneCreateDto
@@ -236,6 +242,23 @@ public sealed class TwinRouteDto
     public bool Enabled { get; set; }
 }
 
+public sealed class TwinActionFlowDto
+{
+    public Guid Id { get; set; }
+    public Guid SceneId { get; set; }
+    public Guid? SceneVersionId { get; set; }
+    public string FlowKey { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string ContractVersion { get; set; } = "2.0";
+    public JsonElement ActorScope { get; set; }
+    public JsonElement GraphPayload { get; set; }
+    public string GraphHash { get; set; } = string.Empty;
+    public JsonElement CompiledPayload { get; set; }
+    public string CompiledPlanHash { get; set; } = string.Empty;
+    public long Revision { get; set; }
+    public bool Enabled { get; set; }
+}
+
 public sealed class TwinModelLicenseDto
 {
     public string LicenseType { get; set; } = "Proprietary";
@@ -305,6 +328,7 @@ public sealed class TwinRuntimeSnapshotRequestDto
 {
     public Guid SceneId { get; set; }
     public int? Version { get; set; }
+    public DateTime? SinceTimestamp { get; set; }
 }
 
 public sealed class TwinRuntimeSnapshotDto

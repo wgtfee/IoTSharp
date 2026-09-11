@@ -1168,9 +1168,6 @@
       "enabled": true,
       "loop": true,
       "stationCompletionGroup": "separator",
-      "interlockIds": [
-        "reference-v12-gantry-pallet-zone-exclusive"
-      ],
       "actions": [
         {
           "actionId": "separator-buffer",
@@ -3873,8 +3870,8 @@
               "separator"
             ],
             "behaviorCompletionRequirements": {
-              "yarn": 2,
-              "separator": 2
+              "yarn": 1,
+              "separator": 1
             }
           },
           "componentObjectId": "reference-stacking-gantry",

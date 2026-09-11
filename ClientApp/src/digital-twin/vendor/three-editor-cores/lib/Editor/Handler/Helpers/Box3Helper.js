@@ -58,6 +58,14 @@ export function resolveBox3Helper(scene, transformControls, box3) {
 
     }
 
+    if (transformControls.disableBox3Helper) {
+
+        box3.useBox3 = false
+
+        return
+
+    }
+
     if (box3.useBox3) {
 
         transformControls.box3Helper = setBox3Helper(box3.color)

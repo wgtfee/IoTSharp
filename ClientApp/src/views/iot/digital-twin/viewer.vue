@@ -35,6 +35,7 @@ import { cloneTwinManifest, type TwinSceneManifest } from '/@/digital-twin/contr
 import { TwinRuntime, type TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 import { upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { buildRuntimeStatusCardPlacement, buildRuntimeSummaryRows } from '/@/digital-twin/runtime/RuntimeStatusUiSupport';
+import { createCompiledRuntimeManifest, createPublishedRuntimeManifest } from '/@/digital-twin/routes/RouteAuthoringCompiler';
 
 const route = useRoute(), router = useRouter();
 const container = ref<HTMLDivElement>(), loading = ref(true), error = ref(''), title = ref('数字孪生场景'), versionLabel = ref('');
@@ -93,8 +94,12 @@ const rebuildRuntime = async () => {
 	statusAnchor.visible = false;
 	latestUpdates.value = {};
 	Object.assign(metrics, { fps: 0, triangles: 0, routeSlots: undefined, silkLine: undefined });
-	const runtimeManifest = cloneTwinManifest(sourceManifest.value);
-	if (runtimeMode.value === 'simulation') upgradeReferencePackagingLineLayout(runtimeManifest);
+	const runtimeMaterialization = publishedView.value
+		? createPublishedRuntimeManifest(sourceManifest.value)
+		: createCompiledRuntimeManifest(sourceManifest.value);
+	const runtimeManifest = runtimeMaterialization.manifest;
+	// 旧发布版本没有 routeGraph 时仍允许兼容升级；新发布版本直接运行不可变 compiled graph。
+	if (runtimeMode.value === 'simulation' && !publishedView.value) upgradeReferencePackagingLineLayout(runtimeManifest);
 	runtimeManifest.runtime.dataMode = runtimeMode.value;
 	manifestRef.value = runtimeManifest;
 	const targetRuntime = new TwinRuntime(container.value, runtimeManifest, {

@@ -179,6 +179,16 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 					cup.position.y = rowCount === 2 ? 0.39 : -0.34;
 					cup.userData.contactNormalLocal = rowCount === 2 ? [0, 1, 0] : [0, -1, 0];
 					head.add(cup);
+					if (rowCount === 2) {
+						const payloadAnchor = new THREE.Group();
+						payloadAnchor.name = `RobotPayloadAnchor-${index}`;
+						payloadAnchor.position.set(0, 0.44, 0);
+						payloadAnchor.userData.robotPayloadAnchor = true;
+						payloadAnchor.userData.anchorIndex = index;
+						payloadAnchor.userData.row = row + 1;
+						payloadAnchor.userData.column = column + 1;
+						head.add(payloadAnchor);
+					}
 					gripper.add(head);
 				}
 			}

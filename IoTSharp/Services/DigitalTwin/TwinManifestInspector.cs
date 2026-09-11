@@ -31,7 +31,29 @@ internal static class TwinManifestInspector
     };
     private static readonly HashSet<string> AllowedProcessTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "robot-loading", "external-inspection", "bagging", "gantry-stacking", "scan"
+        "robot-loading", "external-inspection", "bagging", "gantry-stacking", "scan",
+        "wood-stack-ready", "top-cover", "wrapping", "labeling"
+    };
+    private static readonly HashSet<string> AllowedBehaviorActionKinds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "moveTo", "movePose", "jointMove", "axisMove", "pick", "place", "gripOpen", "gripClose",
+        "waitSignal", "wait", "prepareSlot", "home", "attach", "detach"
+    };
+    private static readonly HashSet<string> AllowedMaterialSlotRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "source", "target", "buffer", "stack", "fixture"
+    };
+    private static readonly HashSet<string> AllowedActuatorKinds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rotary-joint", "linear-axis", "gripper"
+    };
+    private static readonly HashSet<string> AllowedActuatorUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rad", "degree", "meter", "boolean"
+    };
+    private static readonly HashSet<string> AllowedInterlockOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "equals", "notEquals", "truthy", "falsy"
     };
     private static readonly HashSet<string> AllowedConveyorSizeClasses = new(StringComparer.OrdinalIgnoreCase) { "small", "large" };
     private static readonly HashSet<string> AllowedTransportUnitTypes = new(StringComparer.OrdinalIgnoreCase) { "plastic-pallet", "wooden-pallet", "carton" };
@@ -66,6 +88,14 @@ internal static class TwinManifestInspector
         root["connections"] ??= new JsonArray();
         root["bindings"] ??= new JsonArray();
         root["routes"] ??= new JsonArray();
+        root["workPoints"] ??= new JsonArray();
+        root["materialSlots"] ??= new JsonArray();
+        root["toolFrames"] ??= new JsonArray();
+        root["actuators"] ??= new JsonArray();
+        root["poses"] ??= new JsonArray();
+        root["behaviors"] ??= new JsonArray();
+        root["interlocks"] ??= new JsonArray();
+        root["actionFlows"] ??= new JsonArray();
         root["runtime"] ??= new JsonObject
         {
             ["dataMode"] = "simulation",
@@ -91,7 +121,11 @@ internal static class TwinManifestInspector
         InspectConnections(manifest, objectIds, result);
         InspectBindings(manifest, objectIds, result);
         ValidateComponentBindingReferences(result);
+        InspectActionOrchestration(manifest, objectIds, result);
         InspectRoutes(manifest, objectIds, result);
+        var actionFlowInspection = TwinActionFlowServerCompiler.Inspect(manifest);
+        result.Diagnostics.AddRange(actionFlowInspection.Diagnostics);
+        result.ActionFlows.AddRange(actionFlowInspection.ActionFlows);
         return result;
     }
 
@@ -375,8 +409,22 @@ internal static class TwinManifestInspector
             result.Diagnostics.Add(Error("twin.component.generator.required", "组件 generator 不能为空。", $"{path}.component.generator"));
         if (generatorVersion <= 0)
             result.Diagnostics.Add(Error("twin.component.generator-version.invalid", "组件 generatorVersion 必须是正整数。", $"{path}.component.generatorVersion"));
+        var instancePorts = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!component.TryGetProperty("properties", out var properties) || properties.ValueKind != JsonValueKind.Object)
             result.Diagnostics.Add(Error("twin.component.properties.invalid", "组件 properties 必须是对象。", $"{path}.component.properties"));
+        else if (string.Equals(generator, "double-small-roller-conveyor-v1", StringComparison.Ordinal) &&
+                 properties.TryGetProperty("routeTaps", out var routeTaps) && routeTaps.ValueKind == JsonValueKind.Array)
+        {
+            // 双排小辊道的中间接驳口由实例 routeTaps 参数生成，不可能穷举在数据库模板端口中。
+            // 只登记生成器确实会创建的 A/B 排动态端口，连接校验仍拒绝任意伪造端口。
+            foreach (var routeTap in routeTaps.EnumerateArray())
+            {
+                var lane = GetString(routeTap, "lane")?.Trim().ToLowerInvariant();
+                var tapId = GetString(routeTap, "tapId")?.Trim();
+                if (lane is not ("a" or "b") || string.IsNullOrWhiteSpace(tapId)) continue;
+                instancePorts.TryAdd($"{lane}-{tapId}", "material-bidirectional");
+            }
+        }
 
         var componentBindings = new Dictionary<string, string>(StringComparer.Ordinal);
         if (component.TryGetProperty("bindings", out var bindings))
@@ -418,6 +466,7 @@ internal static class TwinManifestInspector
                 Generator = generator,
                 GeneratorVersion = generatorVersion,
                 Bindings = componentBindings,
+                InstancePorts = instancePorts,
                 Path = path
             });
         }
@@ -575,13 +624,321 @@ internal static class TwinManifestInspector
                 SourceKind = sourceKind,
                 SourceKey = GetString(source, "key"),
                 TargetKind = targetKind,
-                TargetPath = GetString(target, "property") ?? GetString(target, "path"),
+                TargetPath = targetKind == TwinBindingTargetKind.Actuator
+                    ? GetString(target, "actuatorId") ?? GetString(target, "property") ?? GetString(target, "path")
+                    : GetString(target, "property") ?? GetString(target, "path"),
                 TransformKind = transformKind,
                 TransformConfig = transformConfig,
                 Priority = GetInt(binding, "priority", 0),
                 StaleAfterMs = Math.Clamp(GetInt(binding, "staleAfterMs", 10000), 100, 86_400_000),
                 Enabled = GetBoolean(binding, "enabled", true)
             });
+            index += 1;
+        }
+    }
+
+    /// <summary>
+    /// 服务端独立校验动作编排引用。客户端诊断只用于即时提示，不能作为保存和发布的安全边界。
+    /// </summary>
+    private static void InspectActionOrchestration(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)
+    {
+        var bindingIds = result.Bindings.Select(item => item.BindingKey).ToHashSet(StringComparer.Ordinal);
+        var materialSlotIds = new HashSet<string>(StringComparer.Ordinal);
+        var toolFrameIds = new HashSet<string>(StringComparer.Ordinal);
+        var toolFrameObjectIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var workPointIds = new HashSet<string>(StringComparer.Ordinal);
+        var actuatorIds = new HashSet<string>(StringComparer.Ordinal);
+        var actuatorObjectIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var actuatorKinds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var poseIds = new HashSet<string>(StringComparer.Ordinal);
+        var poseObjectIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        var interlockIds = new HashSet<string>(StringComparer.Ordinal);
+        var allowedWorkPointRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "pick", "place", "safe", "home", "buffer", "tcp", "stack"
+        };
+
+        InspectObjectArray(manifest, "materialSlots", result, (slot, index) =>
+        {
+            var path = $"materialSlots[{index}]";
+            if (!TryGetNonEmptyString(slot, "slotId", out var slotId) || !materialSlotIds.Add(slotId))
+                result.Diagnostics.Add(Error("twin.behavior.material-slot.id.invalid", "MaterialSlot ID 不能为空且必须唯一。", $"{path}.slotId"));
+            if (!TryGetNonEmptyString(slot, "objectId", out var objectId) || !objectIds.Contains(objectId))
+                result.Diagnostics.Add(Error("twin.behavior.material-slot.object.invalid", "MaterialSlot 引用的场景对象不存在。", $"{path}.objectId"));
+            if (!TryGetNonEmptyString(slot, "role", out var role) || !AllowedMaterialSlotRoles.Contains(role))
+                result.Diagnostics.Add(Error("twin.behavior.material-slot.role.invalid", "MaterialSlot 角色不受支持。", $"{path}.role"));
+            if (!slot.TryGetProperty("localPosition", out var position) || !IsFiniteVector(position))
+                result.Diagnostics.Add(Error("twin.behavior.material-slot.position.invalid", "MaterialSlot 局部坐标必须是三个有限数值。", $"{path}.localPosition"));
+            ValidateOptionalVector(slot, "localRotation", path, "twin.behavior.material-slot.rotation.invalid", "MaterialSlot 局部旋转必须是三个有限数值。", result);
+            ValidateOptionalVector(slot, "contactNormalLocal", path, "twin.behavior.material-slot.contact-normal.invalid", "MaterialSlot 接触法向必须是三个有限数值。", result);
+            if (slot.TryGetProperty("capacity", out var capacity) &&
+                (!capacity.TryGetDouble(out var capacityValue) || !double.IsFinite(capacityValue) || capacityValue <= 0))
+                result.Diagnostics.Add(Error("twin.behavior.material-slot.capacity.invalid", "MaterialSlot 容量必须大于 0。", $"{path}.capacity"));
+        });
+
+        InspectObjectArray(manifest, "toolFrames", result, (frame, index) =>
+        {
+            var path = $"toolFrames[{index}]";
+            if (!TryGetNonEmptyString(frame, "toolFrameId", out var frameId) || !toolFrameIds.Add(frameId))
+                result.Diagnostics.Add(Error("twin.behavior.tool-frame.id.invalid", "TCP/ToolFrame ID 不能为空且必须唯一。", $"{path}.toolFrameId"));
+            if (!TryGetNonEmptyString(frame, "objectId", out var objectId) || !objectIds.Contains(objectId))
+                result.Diagnostics.Add(Error("twin.behavior.tool-frame.object.invalid", "TCP/ToolFrame 引用的场景对象不存在。", $"{path}.objectId"));
+            else if (!string.IsNullOrWhiteSpace(frameId)) toolFrameObjectIds[frameId] = objectId;
+            if (!TryGetNonEmptyString(frame, "nodePath", out _))
+                result.Diagnostics.Add(Error("twin.behavior.tool-frame.node.required", "TCP/ToolFrame 必须配置稳定节点路径。", $"{path}.nodePath"));
+            ValidateOptionalVector(frame, "localPosition", path, "twin.behavior.tool-frame.position.invalid", "TCP 局部坐标必须是三个有限数值。", result);
+            ValidateOptionalVector(frame, "localRotation", path, "twin.behavior.tool-frame.rotation.invalid", "TCP 局部旋转必须是三个有限数值。", result);
+            ValidateOptionalVector(frame, "approachDirectionLocal", path, "twin.behavior.tool-frame.approach.invalid", "TCP 接近方向必须是三个有限数值。", result);
+        });
+
+        InspectObjectArray(manifest, "workPoints", result, (workPoint, index) =>
+        {
+            var path = $"workPoints[{index}]";
+            if (!TryGetNonEmptyString(workPoint, "workPointId", out var workPointId) || !workPointIds.Add(workPointId))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.id.invalid", "工作点 ID 不能为空且必须唯一。", $"{path}.workPointId"));
+            if (!TryGetNonEmptyString(workPoint, "objectId", out var objectId) || !objectIds.Contains(objectId))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.object.invalid", "工作点引用的场景对象不存在。", $"{path}.objectId"));
+            if (!TryGetNonEmptyString(workPoint, "role", out var role) || !allowedWorkPointRoles.Contains(role))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.role.invalid", "工作点角色不受支持。", $"{path}.role"));
+            if (!workPoint.TryGetProperty("localPosition", out var position) || !IsFiniteVector(position))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.position.invalid", "工作点局部坐标必须是三个有限数值。", $"{path}.localPosition"));
+            ValidateOptionalVector(workPoint, "localRotation", path, "twin.behavior.workpoint.rotation.invalid", "工作点局部旋转必须是三个有限数值。", result);
+            if (TryGetNonEmptyString(workPoint, "materialSlotId", out var slotId) && !materialSlotIds.Contains(slotId))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.material-slot.invalid", "工作点引用的 MaterialSlot 不存在。", $"{path}.materialSlotId"));
+            if (TryGetNonEmptyString(workPoint, "toolFrameId", out var frameId) && !toolFrameIds.Contains(frameId))
+                result.Diagnostics.Add(Error("twin.behavior.workpoint.tool-frame.invalid", "工作点引用的 TCP/ToolFrame 不存在。", $"{path}.toolFrameId"));
+        });
+
+        InspectObjectArray(manifest, "actuators", result, (actuator, index) =>
+        {
+            var path = $"actuators[{index}]";
+            if (!TryGetNonEmptyString(actuator, "actuatorId", out var actuatorId) || !actuatorIds.Add(actuatorId))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.id.invalid", "执行机构 ID 不能为空且必须唯一。", $"{path}.actuatorId"));
+            if (!TryGetNonEmptyString(actuator, "objectId", out var objectId) || !objectIds.Contains(objectId))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.object.invalid", "执行机构引用的场景对象不存在。", $"{path}.objectId"));
+            else if (!string.IsNullOrWhiteSpace(actuatorId)) actuatorObjectIds[actuatorId] = objectId;
+            if (!TryGetNonEmptyString(actuator, "nodePath", out _))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.node.required", "执行机构必须配置稳定节点路径。", $"{path}.nodePath"));
+            if (!TryGetNonEmptyString(actuator, "kind", out var kind) || !AllowedActuatorKinds.Contains(kind))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.kind.invalid", "执行机构类型不受支持。", $"{path}.kind"));
+            else if (!string.IsNullOrWhiteSpace(actuatorId)) actuatorKinds[actuatorId] = kind;
+            if (!TryGetNonEmptyString(actuator, "unit", out var unit) || !AllowedActuatorUnits.Contains(unit))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.unit.invalid", "执行机构单位不受支持。", $"{path}.unit"));
+            if (!kind.Equals("gripper", StringComparison.OrdinalIgnoreCase) &&
+                (!TryGetNonEmptyString(actuator, "motionAxis", out var axis) || !(axis is "x" or "y" or "z")))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.axis.invalid", "旋转关节和直线轴必须配置 X/Y/Z 运动轴。", $"{path}.motionAxis"));
+            if (actuator.TryGetProperty("speed", out var speed) &&
+                (!speed.TryGetDouble(out var speedValue) || !double.IsFinite(speedValue) || speedValue <= 0))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.speed.invalid", "执行机构速度必须大于 0。", $"{path}.speed"));
+        });
+
+        InspectObjectArray(manifest, "poses", result, (pose, index) =>
+        {
+            var path = $"poses[{index}]";
+            if (!TryGetNonEmptyString(pose, "poseId", out var poseId) || !poseIds.Add(poseId))
+                result.Diagnostics.Add(Error("twin.behavior.pose.id.invalid", "Pose ID 不能为空且必须唯一。", $"{path}.poseId"));
+            if (!TryGetNonEmptyString(pose, "objectId", out var objectId) || !objectIds.Contains(objectId))
+                result.Diagnostics.Add(Error("twin.behavior.pose.object.invalid", "Pose 引用的场景对象不存在。", $"{path}.objectId"));
+            else if (!string.IsNullOrWhiteSpace(poseId)) poseObjectIds[poseId] = objectId;
+            if (TryGetNonEmptyString(pose, "workPointId", out var workPointId) && !workPointIds.Contains(workPointId))
+                result.Diagnostics.Add(Error("twin.behavior.pose.workpoint.invalid", "Pose 引用的工作点不存在。", $"{path}.workPointId"));
+            if (TryGetNonEmptyString(pose, "toolFrameId", out var frameId))
+            {
+                if (!toolFrameIds.Contains(frameId)) result.Diagnostics.Add(Error("twin.behavior.pose.tool-frame.invalid", "Pose 引用的 TCP/ToolFrame 不存在。", $"{path}.toolFrameId"));
+                else if (!string.IsNullOrWhiteSpace(objectId) && toolFrameObjectIds.TryGetValue(frameId, out var frameObjectId) && frameObjectId != objectId)
+                    result.Diagnostics.Add(Error("twin.behavior.pose.tool-frame-object.mismatch", "Pose 的 TCP 必须属于 Pose 执行对象。", $"{path}.toolFrameId"));
+            }
+            if (!pose.TryGetProperty("targets", out var targets) || targets.ValueKind != JsonValueKind.Array || targets.GetArrayLength() == 0)
+            {
+                result.Diagnostics.Add(Error("twin.behavior.pose.targets.empty", "Pose 至少需要一个执行机构目标值。", $"{path}.targets"));
+                return;
+            }
+            var targetActuatorIds = new HashSet<string>(StringComparer.Ordinal);
+            var targetIndex = 0;
+            foreach (var target in targets.EnumerateArray())
+            {
+                var targetPath = $"{path}.targets[{targetIndex}]";
+                if (!TryGetNonEmptyString(target, "actuatorId", out var targetActuatorId) || !actuatorIds.Contains(targetActuatorId))
+                    result.Diagnostics.Add(Error("twin.behavior.pose.actuator.invalid", "Pose 引用了不存在的执行机构。", $"{targetPath}.actuatorId"));
+                else
+                {
+                    if (!targetActuatorIds.Add(targetActuatorId)) result.Diagnostics.Add(Error("twin.behavior.pose.actuator.duplicate", "同一个 Pose 不能重复配置同一执行机构。", $"{targetPath}.actuatorId"));
+                    if (!string.IsNullOrWhiteSpace(objectId) && actuatorObjectIds.TryGetValue(targetActuatorId, out var actuatorObjectId) && actuatorObjectId != objectId)
+                        result.Diagnostics.Add(Error("twin.behavior.pose.actuator-object.mismatch", "Pose 只能引用所属对象自己的执行机构。", $"{targetPath}.actuatorId"));
+                    if (!target.TryGetProperty("value", out var targetValue) ||
+                        (actuatorKinds.GetValueOrDefault(targetActuatorId) == "gripper"
+                            ? targetValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+                            : !targetValue.TryGetDouble(out var number) || !double.IsFinite(number)))
+                        result.Diagnostics.Add(Error("twin.behavior.pose.target-value.invalid", "Pose 的执行机构目标值类型不正确。", $"{targetPath}.value"));
+                }
+                targetIndex += 1;
+            }
+        });
+
+        InspectObjectArray(manifest, "interlocks", result, (interlock, index) =>
+        {
+            var path = $"interlocks[{index}]";
+            if (!TryGetNonEmptyString(interlock, "interlockId", out var interlockId) || !interlockIds.Add(interlockId))
+                result.Diagnostics.Add(Error("twin.behavior.interlock.id.invalid", "联锁 ID 不能为空且必须唯一。", $"{path}.interlockId"));
+            if (!interlock.TryGetProperty("conditions", out var conditions) || conditions.ValueKind != JsonValueKind.Array || conditions.GetArrayLength() == 0)
+            {
+                result.Diagnostics.Add(Warning("twin.behavior.interlock.conditions.empty", "联锁没有配置任何结构化条件。", $"{path}.conditions"));
+                return;
+            }
+            var conditionIndex = 0;
+            foreach (var condition in conditions.EnumerateArray())
+            {
+                var conditionPath = $"{path}.conditions[{conditionIndex}]";
+                if (!TryGetNonEmptyString(condition, "source", out _))
+                    result.Diagnostics.Add(Error("twin.behavior.interlock.source.required", "联锁条件必须配置状态源。", $"{conditionPath}.source"));
+                if (!TryGetNonEmptyString(condition, "operator", out var operation) || !AllowedInterlockOperators.Contains(operation))
+                    result.Diagnostics.Add(Error("twin.behavior.interlock.operator.invalid", "联锁条件操作符不受支持。", $"{conditionPath}.operator"));
+                conditionIndex += 1;
+            }
+        });
+
+        var behaviorIds = new HashSet<string>(StringComparer.Ordinal);
+        InspectObjectArray(manifest, "behaviors", result, (behavior, behaviorIndex) =>
+        {
+            var path = $"behaviors[{behaviorIndex}]";
+            if (!TryGetNonEmptyString(behavior, "behaviorId", out var behaviorId) || !behaviorIds.Add(behaviorId))
+                result.Diagnostics.Add(Error("twin.behavior.id.invalid", "动作编排 ID 不能为空且必须唯一。", $"{path}.behaviorId"));
+            if (!TryGetNonEmptyString(behavior, "actorObjectId", out var actorObjectId) || !objectIds.Contains(actorObjectId))
+                result.Diagnostics.Add(Error("twin.behavior.actor.invalid", "动作编排引用的执行对象不存在。", $"{path}.actorObjectId"));
+            ValidateStateAssignments(behavior, "initialState", path, result);
+            if (behavior.TryGetProperty("interlockIds", out var behaviorInterlocks))
+            {
+                if (behaviorInterlocks.ValueKind != JsonValueKind.Array)
+                    result.Diagnostics.Add(Error("twin.behavior.interlocks.invalid", "动作编排联锁引用必须是数组。", $"{path}.interlockIds"));
+                else foreach (var interlockIdElement in behaviorInterlocks.EnumerateArray())
+                {
+                    var reference = interlockIdElement.ValueKind == JsonValueKind.String ? interlockIdElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(reference) || !interlockIds.Contains(reference))
+                        result.Diagnostics.Add(Error("twin.behavior.interlock.reference.invalid", "动作编排引用的联锁不存在。", $"{path}.interlockIds"));
+                }
+            }
+            if (!behavior.TryGetProperty("actions", out var actions) || actions.ValueKind != JsonValueKind.Array || actions.GetArrayLength() == 0)
+            {
+                result.Diagnostics.Add(Error("twin.behavior.actions.empty", "动作编排至少需要一个动作步骤。", $"{path}.actions"));
+                return;
+            }
+            var actionIds = new HashSet<string>(StringComparer.Ordinal);
+            var actionIndex = 0;
+            foreach (var action in actions.EnumerateArray())
+            {
+                var actionPath = $"{path}.actions[{actionIndex}]";
+                if (action.ValueKind != JsonValueKind.Object)
+                {
+                    result.Diagnostics.Add(Error("twin.behavior.action.invalid", "动作步骤必须是对象。", actionPath));
+                    actionIndex += 1;
+                    continue;
+                }
+                if (!TryGetNonEmptyString(action, "actionId", out var actionId) || !actionIds.Add(actionId))
+                    result.Diagnostics.Add(Error("twin.behavior.action.id.invalid", "动作步骤 actionId 不能为空且在同一编排内必须唯一。", $"{actionPath}.actionId"));
+                if (!TryGetNonEmptyString(action, "kind", out var actionKind) || !AllowedBehaviorActionKinds.Contains(actionKind))
+                    result.Diagnostics.Add(Error("twin.behavior.action.kind.invalid", "动作步骤类型不受支持。", $"{actionPath}.kind"));
+                var referencedWorkPointId = GetString(action, "workPointId");
+                if (actionKind is "moveTo" or "pick" or "place")
+                {
+                    if (string.IsNullOrWhiteSpace(referencedWorkPointId) || !workPointIds.Contains(referencedWorkPointId))
+                        result.Diagnostics.Add(Error("twin.behavior.action.workpoint.invalid", "移动、抓取或放置动作必须引用有效工作点。", $"{actionPath}.workPointId"));
+                }
+                else if (!string.IsNullOrWhiteSpace(referencedWorkPointId) && !workPointIds.Contains(referencedWorkPointId))
+                    result.Diagnostics.Add(Error("twin.behavior.action.workpoint-reference.invalid", "动作引用的工作点不存在。", $"{actionPath}.workPointId"));
+                if (TryGetNonEmptyString(action, "sourceSlotId", out var sourceSlotId) && !materialSlotIds.Contains(sourceSlotId))
+                    result.Diagnostics.Add(Error("twin.behavior.action.source-slot.invalid", "动作引用的来源 MaterialSlot 不存在。", $"{actionPath}.sourceSlotId"));
+                if (TryGetNonEmptyString(action, "targetSlotId", out var targetSlotId) && !materialSlotIds.Contains(targetSlotId))
+                    result.Diagnostics.Add(Error("twin.behavior.action.target-slot.invalid", "动作引用的目标 MaterialSlot 不存在。", $"{actionPath}.targetSlotId"));
+                if (actionKind == "prepareSlot" && (!TryGetNonEmptyString(action, "sourceSlotId", out sourceSlotId) || !materialSlotIds.Contains(sourceSlotId)))
+                    result.Diagnostics.Add(Error("twin.behavior.action.prepare-slot.invalid", "prepareSlot 必须引用有效来源 MaterialSlot。", $"{actionPath}.sourceSlotId"));
+                if (TryGetNonEmptyString(action, "toolFrameId", out var actionFrameId))
+                {
+                    if (!toolFrameIds.Contains(actionFrameId)) result.Diagnostics.Add(Error("twin.behavior.action.tool-frame.invalid", "动作引用的 TCP/ToolFrame 不存在。", $"{actionPath}.toolFrameId"));
+                    else if (!string.IsNullOrWhiteSpace(actorObjectId) && toolFrameObjectIds.TryGetValue(actionFrameId, out var frameObjectId) && frameObjectId != actorObjectId)
+                        result.Diagnostics.Add(Error("twin.behavior.action.tool-frame-actor.mismatch", "动作 TCP 必须属于当前执行对象。", $"{actionPath}.toolFrameId"));
+                }
+                var referencedPoseId = GetString(action, "poseId");
+                if (actionKind == "movePose" && (string.IsNullOrWhiteSpace(referencedPoseId) || !poseIds.Contains(referencedPoseId)))
+                    result.Diagnostics.Add(Error("twin.behavior.action.pose.invalid", "movePose 必须引用有效 Pose。", $"{actionPath}.poseId"));
+                else if (!string.IsNullOrWhiteSpace(referencedPoseId) &&
+                         (!poseIds.Contains(referencedPoseId) || poseObjectIds.GetValueOrDefault(referencedPoseId) != actorObjectId))
+                    result.Diagnostics.Add(Error("twin.behavior.action.pose-reference.invalid", "动作引用的 Pose 不存在或不属于当前执行对象。", $"{actionPath}.poseId"));
+                if (TryGetNonEmptyString(action, "actuatorId", out var actionActuatorId))
+                {
+                    if (!actuatorIds.Contains(actionActuatorId)) result.Diagnostics.Add(Error("twin.behavior.action.actuator.invalid", "动作引用的执行机构不存在。", $"{actionPath}.actuatorId"));
+                    else if (!string.IsNullOrWhiteSpace(actorObjectId) && actuatorObjectIds.GetValueOrDefault(actionActuatorId) != actorObjectId)
+                        result.Diagnostics.Add(Error("twin.behavior.action.actuator-actor.mismatch", "动作只能引用当前执行对象所属的执行机构。", $"{actionPath}.actuatorId"));
+                }
+                if (actionKind == "waitSignal")
+                {
+                    if (!TryGetNonEmptyString(action, "signalBindingId", out var signalBindingId) || !bindingIds.Contains(signalBindingId))
+                        result.Diagnostics.Add(Error("twin.behavior.action.signal.invalid", "waitSignal 必须引用已入库的数据绑定。", $"{actionPath}.signalBindingId"));
+                    if (!HasPositiveNumber(action, "timeoutSeconds"))
+                        result.Diagnostics.Add(Warning("twin.behavior.action.timeout.default", "阻塞动作未配置有限超时，将使用运行时 300 秒安全默认值。", $"{actionPath}.timeoutSeconds"));
+                }
+                if (TryGetNonEmptyString(action, "waitForInterlockId", out var waitInterlockId))
+                {
+                    if (!interlockIds.Contains(waitInterlockId)) result.Diagnostics.Add(Error("twin.behavior.action.interlock.invalid", "等待动作引用的联锁不存在。", $"{actionPath}.waitForInterlockId"));
+                    if (!HasPositiveNumber(action, "timeoutSeconds")) result.Diagnostics.Add(Warning("twin.behavior.action.timeout.default", "联锁等待未配置有限超时，将使用运行时 300 秒安全默认值。", $"{actionPath}.timeoutSeconds"));
+                }
+                ValidateOptionalNonNegativeNumber(action, "timeoutSeconds", actionPath, "twin.behavior.action.timeout.invalid", "动作超时秒数不能小于 0。", result);
+                ValidateOptionalNonNegativeNumber(action, "waitSeconds", actionPath, "twin.behavior.action.wait.invalid", "等待秒数不能小于 0。", result);
+                ValidateOptionalNonNegativeNumber(action, "durationSeconds", actionPath, "twin.behavior.action.duration.invalid", "动作最短持续秒数不能小于 0。", result);
+                ValidateOptionalVector(action, "approachOffset", actionPath, "twin.behavior.action.approach-offset.invalid", "动作接近偏移必须是三个有限数值。", result);
+                ValidateOptionalVector(action, "liftOffset", actionPath, "twin.behavior.action.lift-offset.invalid", "动作提升偏移必须是三个有限数值。", result);
+                ValidateStateAssignments(action, "onStartState", actionPath, result);
+                ValidateStateAssignments(action, "onCompleteState", actionPath, result);
+                actionIndex += 1;
+            }
+        });
+    }
+
+    private static void InspectObjectArray(JsonElement manifest, string propertyName, TwinManifestInspection result, Action<JsonElement, int> inspect)
+    {
+        if (!manifest.TryGetProperty(propertyName, out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            result.Diagnostics.Add(Error($"twin.{propertyName}.invalid", $"{propertyName} 必须是数组。", propertyName));
+            return;
+        }
+        var index = 0;
+        foreach (var item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+                result.Diagnostics.Add(Error($"twin.{propertyName}.item.invalid", $"{propertyName} 的成员必须是对象。", $"{propertyName}[{index}]"));
+            else inspect(item, index);
+            index += 1;
+        }
+    }
+
+    private static void ValidateOptionalVector(JsonElement element, string propertyName, string path, string code, string message, TwinManifestInspection result)
+    {
+        if (element.TryGetProperty(propertyName, out var value) && value.ValueKind != JsonValueKind.Null && !IsFiniteVector(value))
+            result.Diagnostics.Add(Error(code, message, $"{path}.{propertyName}"));
+    }
+
+    private static void ValidateOptionalNonNegativeNumber(JsonElement element, string propertyName, string path, string code, string message, TwinManifestInspection result)
+    {
+        if (element.TryGetProperty(propertyName, out var value) && value.ValueKind != JsonValueKind.Null &&
+            (!value.TryGetDouble(out var number) || !double.IsFinite(number) || number < 0))
+            result.Diagnostics.Add(Error(code, message, $"{path}.{propertyName}"));
+    }
+
+    private static bool HasPositiveNumber(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.TryGetDouble(out var number) && double.IsFinite(number) && number > 0;
+
+    private static void ValidateStateAssignments(JsonElement element, string propertyName, string path, TwinManifestInspection result)
+    {
+        if (!element.TryGetProperty(propertyName, out var assignments)) return;
+        if (assignments.ValueKind != JsonValueKind.Array)
+        {
+            result.Diagnostics.Add(Error("twin.behavior.state.invalid", "结构化状态赋值必须是数组。", $"{path}.{propertyName}"));
+            return;
+        }
+        var index = 0;
+        foreach (var assignment in assignments.EnumerateArray())
+        {
+            if (assignment.ValueKind != JsonValueKind.Object || !TryGetNonEmptyString(assignment, "source", out _))
+                result.Diagnostics.Add(Error("twin.behavior.state-source.required", "结构化状态赋值必须配置状态源。", $"{path}.{propertyName}[{index}].source"));
             index += 1;
         }
     }
@@ -679,12 +1036,17 @@ internal static class TwinManifestInspector
 								{
 									result.Diagnostics.Add(Error("twin.route.point.process-cycle.invalid", "工位仿真节拍必须大于 0 秒。", $"{processPath}.cycleSeconds"));
 								}
-								foreach (var bindingProperty in new[] { "readyBindingId", "busyBindingId", "completeBindingId", "resultBindingId", "faultBindingId" })
+								foreach (var bindingProperty in new[] { "readyBindingId", "ackBindingId", "busyBindingId", "completeBindingId", "cycleIdBindingId", "resultBindingId", "faultBindingId" })
 								{
 									if (TryGetNonEmptyString(process, bindingProperty, out var bindingId) && !routeBindingKeys.Contains(bindingId))
 									{
 										result.Diagnostics.Add(Error("twin.route.point.process-binding.invalid", "工位信号必须引用 routeEvent 数据绑定。", $"{processPath}.{bindingProperty}"));
 									}
+								}
+								if (process.TryGetProperty("timeoutSeconds", out var timeoutSeconds) &&
+									(!timeoutSeconds.TryGetDouble(out var timeoutValue) || !double.IsFinite(timeoutValue) || timeoutValue <= 0))
+								{
+									result.Diagnostics.Add(Error("twin.route.point.process-timeout.invalid", "工位超时必须大于 0 秒。", $"{processPath}.timeoutSeconds"));
 								}
 							}
 						}
@@ -1168,6 +1530,7 @@ internal sealed class TwinManifestInspection
     public List<Guid> ResourceIds { get; } = [];
     public List<TwinBindingDraft> Bindings { get; } = [];
     public List<TwinRouteDraft> Routes { get; } = [];
+    public List<TwinActionFlowDraft> ActionFlows { get; } = [];
     public List<TwinComponentReferenceDraft> Components { get; } = [];
     public List<TwinConnectionReferenceDraft> Connections { get; } = [];
     public bool Valid => Diagnostics.All(item => !string.Equals(item.Severity, "error", StringComparison.OrdinalIgnoreCase));
@@ -1182,6 +1545,7 @@ internal sealed class TwinComponentReferenceDraft
     public string Generator { get; set; } = string.Empty;
     public int GeneratorVersion { get; set; }
     public Dictionary<string, string> Bindings { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> InstancePorts { get; set; } = new(StringComparer.Ordinal);
     public string Path { get; set; } = string.Empty;
 }
 

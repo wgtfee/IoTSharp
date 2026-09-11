@@ -660,4 +660,77 @@ public sealed class DigitalTwinManifestInspectorTests
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.equipment.parent.invalid");
         Assert.Contains(result.Diagnostics, item => item.Code == "twin.equipment.duplicate");
     }
+
+    [Fact]
+    public void Inspect_AcceptsStructuredActionOrchestration()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "动作编排场景",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "robot-1", "name": "机器人", "kind": "visual",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [{
+            "bindingId": "robot-ready", "objectId": "robot-1",
+            "source": { "kind": "simulation", "key": "ready" },
+            "target": { "kind": "customProperty", "property": "ready" },
+            "transform": { "kind": "routeEvent" }, "staleAfterMs": 5000
+          }],
+          "materialSlots": [{ "slotId": "source-1", "name": "来源", "objectId": "robot-1", "role": "source", "localPosition": [0,0,0], "capacity": 1 }],
+          "toolFrames": [{ "toolFrameId": "tcp-1", "name": "TCP", "objectId": "robot-1", "nodePath": "Tool", "localPosition": [0,0,0] }],
+          "workPoints": [{ "workPointId": "pick-1", "name": "抓取点", "objectId": "robot-1", "role": "pick", "materialSlotId": "source-1", "toolFrameId": "tcp-1", "localPosition": [1,2,3] }],
+          "actuators": [{ "actuatorId": "axis-1", "name": "X轴", "objectId": "robot-1", "nodePath": "Axis", "kind": "linear-axis", "motionAxis": "x", "unit": "meter", "speed": 1 }],
+          "poses": [{ "poseId": "pose-1", "name": "待机位", "objectId": "robot-1", "targets": [{ "actuatorId": "axis-1", "value": 0 }] }],
+          "interlocks": [{ "interlockId": "ready-guard", "name": "机器人就绪", "mode": "all", "conditions": [{ "source": "robot-ready", "operator": "truthy" }] }],
+          "behaviors": [{
+            "behaviorId": "robot-flow", "name": "机器人取料", "actorObjectId": "robot-1", "interlockIds": ["ready-guard"],
+            "actions": [
+              { "actionId": "move-1", "kind": "moveTo", "workPointId": "pick-1", "toolFrameId": "tcp-1", "timeoutSeconds": 10 },
+              { "actionId": "wait-1", "kind": "waitSignal", "signalBindingId": "robot-ready", "timeoutSeconds": 5 }
+            ]
+          }],
+          "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(item => item.Message)));
+    }
+
+    [Fact]
+    public void Inspect_RejectsUnsafeActionOrchestrationReferences()
+    {
+        using var document = JsonDocument.Parse("""
+        {
+          "name": "错误动作编排",
+          "world": { "unit": "meter", "upAxis": "Y", "background": "#07111f" },
+          "resources": [],
+          "objects": [{
+            "objectId": "robot-1", "name": "机器人", "kind": "visual",
+            "transform": { "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] }
+          }],
+          "bindings": [],
+          "behaviors": [{
+            "behaviorId": "broken-flow", "name": "错误流程", "actorObjectId": "robot-1", "interlockIds": ["missing-guard"],
+            "actions": [
+              { "actionId": "duplicate", "kind": "waitSignal", "signalBindingId": "missing-binding" },
+              { "actionId": "duplicate", "kind": "javascript" }
+            ]
+          }],
+          "routes": []
+        }
+        """);
+
+        var result = TwinManifestInspector.Inspect(document.RootElement, Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.False(result.Valid);
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.behavior.interlock.reference.invalid");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.behavior.action.id.invalid");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.behavior.action.kind.invalid");
+        Assert.Contains(result.Diagnostics, item => item.Code == "twin.behavior.action.signal.invalid");
+    }
 }

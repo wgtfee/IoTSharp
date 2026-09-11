@@ -12,6 +12,7 @@
 			</div>
 			<div class="twin-toolbar__actions">
 				<el-button @click="router.push('/iot/digital-twin/2d-scene')">2D 场景</el-button>
+				<el-segmented v-model="workspaceMode" :options="workspaceModeOptions" />
 				<el-segmented v-model="viewportMode" :options="viewportModeOptions" @change="switchViewportMode" />
 				<el-button-group>
 					<el-button :disabled="!canWorkbenchUndo || viewportMode !== 'editor'" title="Ctrl+Z" @click="undoWorkbench">撤销</el-button>
@@ -19,7 +20,7 @@
 				</el-button-group>
 				<el-button @click="openCreateSceneDialog('blank')">新建场景</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
-				<el-button :type="routeEditMode ? 'warning' : 'default'" :disabled="routeIsGenerated" @click="toggleRouteEditMode">{{ routeEditMode ? '结束编辑' : '编辑路线' }}</el-button>
+				<el-button :type="routeEditMode ? 'warning' : 'default'" @click="toggleRouteEditMode">{{ routeEditMode ? '结束编辑' : '编辑路线' }}</el-button>
 				<el-button :type="playing ? 'danger' : 'primary'" @click="togglePlaying">{{ playing ? '暂停' : '运行' }}</el-button>
 				<el-button :loading="saving" :disabled="!currentScene" @click="saveDraft()">保存草稿</el-button>
 				<el-button type="success" :loading="publishing" :disabled="!currentScene" @click="publishScene">发布</el-button>
@@ -57,7 +58,7 @@
 			<div><span>等待与阻塞</span><strong>{{ metrics.silkLine.waitingPallets }} 个托盘 · {{ metrics.silkLine.blockedSections }} 段</strong></div>
 		</section>
 
-		<main class="twin-layout" :class="{ 'is-left-collapsed': leftPanelCollapsed, 'is-right-collapsed': rightPanelCollapsed }">
+		<main v-if="workspaceMode !== 'flow'" class="twin-layout" :class="{ 'is-left-collapsed': leftPanelCollapsed, 'is-right-collapsed': rightPanelCollapsed, 'is-flow-split': workspaceMode === 'split' }">
 			<aside v-show="!leftPanelCollapsed" class="twin-panel twin-panel--left">
 				<div class="twin-panel__heading">
 					<div><span>SCENE</span><strong>场景与路线</strong></div>
@@ -143,17 +144,31 @@
 				</section>
 
 				<div v-if="leftPanelTab === 'route'" class="twin-card">
-					<el-alert v-if="routeIsGenerated" type="info" :closable="false" show-icon title="当前路线由 V7 组件端口 Connection 自动生成；请移动组件或修改连接，路线控制点只读。" />
+					<el-alert v-if="routeIsGenerated" type="info" :closable="false" show-icon title="当前路线包含 V7 组件自动生成部分；自动点/边只读，但可从自动节点继续绘制手工路线。" />
+					<div v-if="routeHasGeneratedAuthoring(route)" class="twin-inline-control"><span>自动生成部分</span><el-button size="small" type="warning" plain @click="convertCurrentRouteToManual">转换为编辑路线</el-button></div>
 					<label>曲线类型</label><el-segmented v-model="route.curveKind" :options="curveOptions" @change="changeCurveKind" />
 					<div class="twin-inline-control"><label>循环运行</label><el-switch v-model="route.loop" @change="changeLoop" /></div>
 					<label>分流方式</label><el-segmented v-model="route.routingMode" :options="routingModeOptions" @change="syncRouteGraph" />
 					<label>运行速度 {{ route.defaultSpeed.toFixed(1) }} m/s</label>
 					<el-slider v-model="route.defaultSpeed" :min="0.1" :max="5" :step="0.1" @input="changeSpeed" />
+					<div class="twin-inline-control"><strong>语义区段</strong><el-button size="small" text type="primary" @click="addRouteSection">新增区段</el-button></div>
+					<div v-for="section in route.sections || []" :key="section.sectionId" class="twin-inline-control"><el-input v-model="section.name" size="small" @change="syncRouteGraph" /><small>{{ section.sectionId }}</small></div>
 				</div>
-				<div v-if="leftPanelTab === 'route'" class="twin-panel__subheading"><strong>路线控制点</strong><el-button size="small" text type="primary" :disabled="routeIsGenerated" @click="addRoutePoint">新增</el-button></div>
+				<div v-if="leftPanelTab === 'route' && routeSupportsPalletInitializer(route)" class="twin-card">
+					<div class="twin-inline-control"><strong>托盘初始化 / 当前托盘</strong><el-tag size="small" type="info">{{ routeTransportUnitLabel(route) }}</el-tag></div>
+					<template v-if="routePalletInitializer(route.routeId)">
+						<label>Simulation 初始化托盘数量</label>
+						<el-input-number :model-value="Number(routePalletInitializer(route.routeId)?.simulationDefaultCount || 0)" :min="0" :max="999" :step="1" size="small" controls-position="right" @change="setRouteSimulationPalletCount(route.routeId, $event)" />
+						<label>Live 托盘数组 Binding</label>
+						<el-select :model-value="routePalletInitializer(route.routeId)?.liveBindingId || ''" clearable filterable size="small" placeholder="选择 routeSlotArray Telemetry Binding" @change="setRouteLivePalletBinding(route.routeId, $event)"><el-option v-for="option in routeSlotBindingOptionsFor(route.routeId)" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+						<el-alert type="info" :closable="false" show-icon title="Simulation 只按上面的数量显示托盘；Live 忽略这个数量，只按实时数组显示。"><template #default><small>例如 Live 收到 [12,23,0,0,0,0]，当前只显示托盘 12、23 两个；0 表示空位。</small></template></el-alert>
+					</template>
+					<el-button v-else size="small" type="primary" plain @click="ensureRoutePalletInitializer(route)">启用托盘初始化</el-button>
+				</div>
+				<div v-if="leftPanelTab === 'route'" class="twin-panel__subheading"><strong>路线控制点</strong><el-button size="small" text type="primary" @click="addRoutePoint">新增手工点</el-button></div>
 				<div v-if="leftPanelTab === 'route'" class="twin-route-points">
 					<div v-for="(point, index) in route.points" :key="point.pointId" class="twin-route-point" :class="{ 'is-selected': selected?.routeId === route.routeId && selected?.routePointIndex === index }">
-						<div class="twin-route-point__title"><span>{{ index + 1 }}</span><el-input v-model="point.name" size="small" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" :disabled="routeIsGenerated || route.points.length <= 2" @click="removeRoutePoint(index)">×</el-button></div>
+						<div class="twin-route-point__title"><span>{{ index + 1 }}</span><el-input v-model="point.name" size="small" :disabled="routePointIsLocked(point)" @change="syncRouteGraph" /><el-tag size="small" :type="point.authoring?.mode === 'manual' ? 'warning' : 'info'">{{ point.authoring?.mode === 'manual' ? '手工' : '自动' }}</el-tag><el-button circle text type="danger" size="small" :disabled="routePointIsLocked(point) || route.points.length <= 2" @click="removeRoutePoint(index)">×</el-button></div>
 						<div class="twin-route-point__meta">
 							<el-select v-model="point.kind" size="small" @change="changeRoutePointKind(point)"><el-option v-for="option in routePointKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-radio v-model="route.startPointId" :value="point.pointId" size="small" @change="syncRouteGraph">运行起点</el-radio>
@@ -166,23 +181,46 @@
 							<el-select v-model="point.process.type" size="small" placeholder="工位类型" @change="syncRouteGraph"><el-option v-for="option in processTypeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-input-number v-model="point.process.cycleSeconds" :min="0.2" :max="300" :step="0.5" size="small" controls-position="right" @change="syncRouteGraph" />
 							<el-input-number v-model="point.process.batchSize" :min="1" :max="99" :step="1" size="small" controls-position="right" placeholder="工位批次托盘数" @change="syncRouteGraph" />
-							<el-select v-model="point.process.completeBindingId" size="small" clearable placeholder="完成信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
-							<el-select v-if="point.process.type === 'external-inspection'" v-model="point.process.resultBindingId" size="small" clearable placeholder="检测结果信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-checkbox v-model="point.process.simulationEntry" @change="syncRouteGraph">Simulation 入口工位</el-checkbox>
+							<el-input v-model="point.process.physicalLane" size="small" clearable placeholder="物理通道，如 A / B" @change="syncRouteGraph" />
+							<el-select v-model="point.process.releaseEdgeId" size="small" clearable filterable placeholder="物理离站出口" @change="syncRouteGraph"><el-option v-for="option in outgoingRouteEdgeOptions(point.pointId)" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-checkbox :model-value="Boolean(point.process.batchLayout)" @change="toggleProcessBatchLayout(point, Boolean($event))">配置批次物理排布</el-checkbox>
+							<div v-if="point.process.batchLayout" class="twin-route-process-grid">
+								<el-input-number v-model="point.process.batchLayout.rows" :min="1" :max="20" :step="1" size="small" controls-position="right" placeholder="行数" @change="syncRouteGraph" />
+								<el-input-number v-model="point.process.batchLayout.columns" :min="1" :max="20" :step="1" size="small" controls-position="right" placeholder="列数" @change="syncRouteGraph" />
+								<el-input-number v-model="point.process.batchLayout.rowSpacingMeters" :min="0" :max="20" :step="0.05" size="small" controls-position="right" placeholder="行距 m" @change="syncRouteGraph" />
+								<el-input-number v-model="point.process.batchLayout.columnSpacingMeters" :min="0" :max="20" :step="0.05" size="small" controls-position="right" placeholder="列距 m" @change="syncRouteGraph" />
+								<el-select v-model="point.process.batchLayout.rowAxis" size="small" placeholder="行方向" @change="syncRouteGraph"><el-option label="X" value="x" /><el-option label="Z" value="z" /></el-select>
+								<el-select v-model="point.process.batchLayout.columnAxis" size="small" placeholder="列方向" @change="syncRouteGraph"><el-option label="X" value="x" /><el-option label="Z" value="z" /></el-select>
+							</div>
+							<el-select v-model="point.process.readyBindingId" size="small" clearable placeholder="就绪信号 Ready" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.ackBindingId" size="small" clearable placeholder="接单信号 Ack（可选）" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.busyBindingId" size="small" clearable placeholder="运行信号 Busy（可选）" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.completeBindingId" size="small" clearable placeholder="完成信号 Done" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.cycleIdBindingId" size="small" clearable placeholder="周期号 CycleId（推荐）" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-select v-model="point.process.resultBindingId" size="small" clearable placeholder="工艺结果信号（可选）" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-model="point.process.faultBindingId" size="small" clearable placeholder="故障信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<el-input-number v-model="point.process.timeoutSeconds" :min="1" :max="3600" :step="1" size="small" controls-position="right" placeholder="工艺超时秒数" @change="syncRouteGraph" />
 						</div>
 						<div v-if="['junction','diverter'].includes(point.kind || '')" class="twin-route-binding-grid">
 							<el-select v-model="point.decisionMode" size="small" placeholder="岔口决策模式" @change="syncRouteGraph"><el-option v-for="option in junctionDecisionModeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-input-number v-model="point.decisionTimeoutSeconds" :min="1" :max="300" size="small" controls-position="right" aria-label="路由等待告警秒数" @change="syncRouteGraph" />
 						</div>
 						<div class="twin-coordinate-grid">
-							<el-input-number v-model="point.position[0]" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
-							<el-input-number v-model="point.position[1]" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
-							<el-input-number v-model="point.position[2]" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
+							<el-input-number v-model="point.position[0]" :disabled="routePointIsLocked(point)" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
+							<el-input-number v-model="point.position[1]" :disabled="routePointIsLocked(point)" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
+							<el-input-number v-model="point.position[2]" :disabled="routePointIsLocked(point)" :step="0.1" size="small" controls-position="right" @change="updateRoutePoint(index)" />
+						</div>
+						<div v-if="point.authoring?.mode === 'manual' && routePointEndpointRole(point)" class="twin-route-binding-grid">
+							<el-select :model-value="routePointAttachmentValue(point)" clearable filterable size="small" placeholder="吸附组件 Port" @change="setRoutePointAttachment(point, String($event || ''))">
+								<el-option v-for="option in routePointPortOptions(point)" :key="option.value" :label="option.label" :value="option.value" />
+							</el-select>
+							<el-tag size="small" :type="point.attachment ? 'success' : 'info'">{{ point.attachment ? 'Hard Port Attachment' : '未吸附' }}</el-tag>
 						</div>
 					</div>
 				</div>
 
-				<div v-if="leftPanelTab === 'route'" class="twin-panel__subheading"><strong>交叉口与分支</strong><el-button size="small" text type="primary" :disabled="routeIsGenerated" @click="addStandaloneRoutePoint">新增分支节点</el-button></div>
+				<div v-if="leftPanelTab === 'route'" class="twin-panel__subheading"><strong>交叉口与分支</strong><el-button size="small" text type="primary" @click="addStandaloneRoutePoint">新增手工分支节点</el-button></div>
 				<div v-if="leftPanelTab === 'route'" class="twin-card twin-route-graph-editor">
 					<small>先放置节点，再连接路线边。连接数达到 3 的节点会自动标记为交叉口。</small>
 					<div class="twin-route-edge-form">
@@ -193,11 +231,12 @@
 				</div>
 				<div v-if="leftPanelTab === 'route'" class="twin-route-edges">
 					<div v-for="edge in route.edges" :key="edge.edgeId" class="twin-route-edge" :class="{ 'is-blocked': edge.blocked }">
-						<div class="twin-route-edge__header"><div><strong>{{ routeEdgeLabel(edge) }}</strong><small>{{ edge.bidirectional ? '双向' : '单向' }} · 优先级 {{ edge.priority || 0 }}</small></div><el-switch v-model="edge.blocked" size="small" inline-prompt active-text="封" inactive-text="通" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" @click="removeRouteEdge(edge.edgeId)">×</el-button></div>
+						<div class="twin-route-edge__header"><div><strong>{{ routeEdgeLabel(edge) }}</strong><small>{{ edge.bidirectional ? '双向' : '单向' }} · {{ edge.authoring?.mode === 'manual' ? '手工' : '自动' }} · 优先级 {{ edge.priority || 0 }}</small></div><el-switch v-model="edge.blocked" size="small" inline-prompt active-text="封" inactive-text="通" @change="syncRouteGraph" /><el-button circle text type="danger" size="small" :disabled="routeEdgeIsLocked(edge)" @click="removeRouteEdge(edge.edgeId)">×</el-button></div>
 						<div class="twin-route-edge__settings">
 							<div><label>辊道规格</label><el-select v-model="edge.conveyorSizeClass" size="small" @change="changeConveyorSizeClass(edge)"><el-option v-for="option in conveyorSizeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
 							<div><label>输送对象</label><el-select v-model="edge.transportUnitType" size="small" @change="syncRouteGraph"><el-option v-for="option in transportUnitOptions(edge)" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
 						</div>
+						<label>语义区段</label><el-select v-model="edge.sectionId" clearable filterable size="small" placeholder="未分组" @change="syncRouteGraph"><el-option v-for="section in route.sections || []" :key="section.sectionId" :label="section.name" :value="section.sectionId" /></el-select>
 						<div class="twin-route-edge__settings">
 							<div><label>容量</label><el-input-number v-model="edge.capacity" :min="1" :max="999" size="small" controls-position="right" @change="syncRouteGraph" /></div>
 							<div><label>预览占用</label><el-input-number v-model="previewOccupancy[edge.edgeId]" :min="0" :max="999" size="small" controls-position="right" @change="applyRoutingPreview(false)" /></div>
@@ -211,10 +250,28 @@
 						<el-select v-model="edge.blockedBindingId" size="small" clearable placeholder="绑定故障/封锁信号" @change="syncRouteGraph"><el-option v-for="option in routeBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 					</div>
 				</div>
+				<div v-if="leftPanelTab === 'route'" class="twin-card twin-route-debug">
+					<div class="twin-inline-control"><strong>单路线 Run / 分流 / 合流</strong><el-tag size="small" type="success">复用 RouteEngine</el-tag></div>
+					<small>仅调试当前路线，不启动整线 Runtime；合流调试安全距离强制不低于 1.50m。</small>
+					<div class="twin-component-test-actions"><el-button size="small" type="success" @click="runCurrentRouteDebug">测试运行</el-button><el-button v-for="pair in routeMergePairs" :key="`merge-debug-${pair.pointId}`" size="small" type="warning" plain @click="runRouteMergeDebug(pair)">合流 · {{ pair.pointName || pair.pointId }}</el-button></div>
+					<div v-for="point in decisionPoints" :key="`route-debug-${point.pointId}`" class="twin-behavior-item">
+						<div class="twin-inline-control"><strong>{{ point.name }} 分流</strong><el-tag size="small">{{ point.pointId }}</el-tag></div>
+						<div class="twin-component-test-actions"><el-button v-for="option in junctionEdgeOptions(point.pointId)" :key="`debug-${point.pointId}-${option.value}`" size="small" :disabled="option.blocked" @click="runRouteBranchDebug(point.pointId, option.value)">{{ option.label }}</el-button></div>
+					</div>
+					<pre v-if="routeDebugResult" class="twin-runtime-detail">{{ routeDebugResult }}</pre>
+				</div>
 				<template v-if="leftPanelTab === 'route' && secondaryConveyorRoutes.length">
 					<div class="twin-panel__subheading"><strong>后包装大型辊道</strong><el-tag size="small" type="info">独立输送对象</el-tag></div>
 					<div v-for="secondaryRoute in secondaryConveyorRoutes" :key="secondaryRoute.routeId" class="twin-card twin-secondary-route">
 						<div class="twin-inline-control"><strong>{{ secondaryRoute.name }}</strong><small>{{ secondaryRoute.edges.length }} 段 · 随场景草稿入库</small></div>
+						<div v-if="routeSupportsPalletInitializer(secondaryRoute)" class="twin-behavior-item">
+							<div class="twin-inline-control"><strong>托盘初始化</strong><el-tag size="small" type="info">{{ routeTransportUnitLabel(secondaryRoute) }}</el-tag></div>
+							<template v-if="routePalletInitializer(secondaryRoute.routeId)">
+								<label>Simulation 初始化数量</label><el-input-number :model-value="Number(routePalletInitializer(secondaryRoute.routeId)?.simulationDefaultCount || 0)" :min="0" :max="999" :step="1" size="small" controls-position="right" @change="setRouteSimulationPalletCount(secondaryRoute.routeId, $event)" />
+								<label>Live 托盘数组 Binding</label><el-select :model-value="routePalletInitializer(secondaryRoute.routeId)?.liveBindingId || ''" clearable filterable size="small" placeholder="routeSlotArray Telemetry Binding" @change="setRouteLivePalletBinding(secondaryRoute.routeId, $event)"><el-option v-for="option in routeSlotBindingOptionsFor(secondaryRoute.routeId)" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							</template>
+							<el-button v-else size="small" text type="primary" @click="ensureRoutePalletInitializer(secondaryRoute)">启用托盘初始化</el-button>
+						</div>
 						<div v-for="edge in secondaryRoute.edges" :key="`${secondaryRoute.routeId}:${edge.edgeId}`" class="twin-route-edge">
 							<div class="twin-route-edge__header"><div><strong>{{ edge.name || edge.edgeId }}</strong><small>{{ edge.edgeId }}</small></div><el-switch v-model="edge.blocked" size="small" inline-prompt active-text="封" inactive-text="通" @change="refreshDiagnostics" /></div>
 							<div class="twin-route-edge__settings">
@@ -284,6 +341,10 @@
 				</div>
 			</section>
 
+			<section v-if="workspaceMode === 'split'" class="twin-flow-split-pane">
+				<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
+			</section>
+
 			<aside v-show="!rightPanelCollapsed" class="twin-panel twin-panel--right">
 				<div class="twin-panel__heading"><div><span>BINDING</span><strong>对象与数据绑定</strong></div></div>
 				<div class="twin-card twin-selection-card">
@@ -314,6 +375,9 @@
 					</div>
 				</div>
 				<div v-if="selected?.kind === 'scene-object' && selected?.objectId" class="twin-card twin-behavior-editor">
+					<div class="twin-inline-control"><span class="twin-card__label">工作点 / 动作 / 联锁</span><el-button text type="primary" size="small" @click="advancedInspectorExpanded = !advancedInspectorExpanded">{{ advancedInspectorExpanded ? '收起高级配置' : '展开高级配置' }}</el-button></div>
+					<small v-if="!advancedInspectorExpanded">高级动作配置按需加载，切换模型时不重建整套动作表单。</small>
+					<template v-if="advancedInspectorExpanded">
 					<div class="twin-inline-control"><span class="twin-card__label">工作点 / 动作 / 联锁</span><el-tag size="small" type="success">声明式</el-tag></div>
 					<small>优先选择 MaterialSlot / TCP；XYZ 只作为锚点附加偏移或旧场景兼容。Live 模式由 PLC / Telemetry 接管。</small>
 					<div class="twin-inline-control"><strong>工作点</strong><el-button text type="primary" size="small" @click="addWorkPoint">新增</el-button></div>
@@ -357,6 +421,10 @@
 						<div class="twin-behavior-grid"><el-select v-model="actuator.kind" size="small" @change="syncBehaviorManifest"><el-option label="旋转关节" value="rotary-joint" /><el-option label="直线轴" value="linear-axis" /><el-option label="夹具" value="gripper" /></el-select><el-input v-model="actuator.nodePath" size="small" placeholder="Three.js 节点路径" @change="syncBehaviorManifest" /></div>
 						<div class="twin-behavior-grid"><el-select v-model="actuator.unit" size="small" @change="syncBehaviorManifest"><el-option label="弧度 rad" value="rad" /><el-option label="角度 degree" value="degree" /><el-option label="米 meter" value="meter" /><el-option label="布尔 boolean" value="boolean" /></el-select><el-input-number v-model="actuator.speed" :min="0.001" :step="0.1" size="small" controls-position="right" placeholder="速度" @change="syncBehaviorManifest" /></div>
 						<div v-if="actuator.kind !== 'gripper'" class="twin-behavior-grid"><el-select v-model="actuator.motionAxis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="actuator.homeValue" :step="0.1" size="small" controls-position="right" placeholder="Home" @change="syncBehaviorManifest" /></div>
+						<div class="twin-inline-control"><small>{{ actuatorPositionBindingLabel(actuator) }}</small><span><el-button text type="primary" size="small" @click="prepareActuatorBinding(actuator)">配置实时绑定</el-button><el-button text size="small" :disabled="!actuator.bindings?.positionBindingId" @click="testActuatorLiveMapping(actuator)">实时映射测试</el-button></span></div>
+						<div class="twin-behavior-grid"><small>模式：{{ actuatorRuntimeDisplay(actuator).mode }} · Quality：{{ actuatorRuntimeDisplay(actuator).quality }}</small><small>状态：{{ actuatorRuntimeDisplay(actuator).motion }} · Fault：{{ actuatorRuntimeDisplay(actuator).fault }}</small></div>
+						<div class="twin-behavior-grid"><small>Current：{{ actuatorRuntimeDisplay(actuator).current }}</small><small>Target：{{ actuatorRuntimeDisplay(actuator).target }}</small></div>
+						<div class="twin-behavior-grid"><small>最后更新：{{ actuatorRuntimeDisplay(actuator).lastUpdated }}</small><small v-if="actuator.bindings?.readyBindingId">Ready：{{ actuatorRuntimeDisplay(actuator).ready }}</small><small v-else>Stale：{{ actuatorRuntimeDisplay(actuator).stale }}</small></div>
 					</div>
 					<div class="twin-inline-control"><strong>Pose 姿态</strong><el-tag size="small" type="info">{{ selectedPoses.length }}</el-tag><el-button text type="primary" size="small" @click="addPose">新增</el-button></div>
 					<div v-for="pose in selectedPoses" :key="pose.poseId" class="twin-behavior-item">
@@ -377,6 +445,11 @@
 							<div class="twin-action-row__head"><span>{{ actionIndex + 1 }}</span><el-select v-model="action.kind" size="small" @change="syncBehaviorManifest"><el-option v-for="option in behaviorActionKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-button text size="small" :disabled="actionIndex === 0" @click="moveBehaviorAction(behavior, actionIndex, -1)">↑</el-button><el-button text size="small" :disabled="actionIndex === behavior.actions.length - 1" @click="moveBehaviorAction(behavior, actionIndex, 1)">↓</el-button><el-button circle text type="danger" size="small" @click="removeBehaviorAction(behavior, action.actionId)">×</el-button></div>
 							<el-input-number v-model="action.speedRatio" :min="0.05" :max="2" :step="0.05" size="small" controls-position="right" placeholder="速度倍率" @change="syncBehaviorManifest" />
 							<el-select v-if="['moveTo','pick','place','home'].includes(action.kind)" v-model="action.workPointId" size="small" clearable filterable placeholder="语义工作点" @change="syncBehaviorManifest"><el-option v-for="option in workPointOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<div v-if="['moveTo','pick','place'].includes(action.kind)" class="twin-behavior-grid">
+								<el-input-number :model-value="Number(action.approachOffset?.[0] ?? 0)" :step="0.05" size="small" controls-position="right" placeholder="工作点偏移 X" @change="setActionApproachOffset(action, 0, $event)" />
+								<el-input-number :model-value="Number(action.approachOffset?.[1] ?? 0)" :step="0.05" size="small" controls-position="right" placeholder="工作点偏移 Y" @change="setActionApproachOffset(action, 1, $event)" />
+								<el-input-number :model-value="Number(action.approachOffset?.[2] ?? 0)" :step="0.05" size="small" controls-position="right" placeholder="工作点偏移 Z" @change="setActionApproachOffset(action, 2, $event)" />
+							</div>
 							<el-select v-if="['movePose','home'].includes(action.kind)" v-model="action.poseId" size="small" clearable filterable placeholder="Pose 姿态" @change="syncBehaviorManifest"><el-option v-for="option in poseOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-select v-if="action.kind === 'prepareSlot'" v-model="action.sourceSlotId" size="small" clearable filterable placeholder="准备来源 MaterialSlot" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<div v-if="['jointMove','axisMove','gripOpen','gripClose'].includes(action.kind)" class="twin-behavior-grid"><el-select v-model="action.actuatorId" size="small" clearable filterable placeholder="执行机构" @change="syncBehaviorManifest"><el-option v-for="option in actuatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input-number v-if="['jointMove','axisMove'].includes(action.kind)" v-model="action.targetValue" :step="0.1" size="small" controls-position="right" placeholder="目标值" @change="syncBehaviorManifest" /></div>
@@ -401,6 +474,7 @@
 						<div v-for="(condition, conditionIndex) in interlock.conditions" :key="`${interlock.interlockId}:${conditionIndex}`" class="twin-condition-row"><el-input v-model="condition.source" size="small" placeholder="状态源，如 equipment.channel.zoneOccupied" @change="syncBehaviorManifest" /><el-select v-model="condition.operator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-input v-if="condition.operator === 'equals' || condition.operator === 'notEquals'" :model-value="String(condition.value ?? '')" size="small" placeholder="比较值" @change="setInterlockConditionValue(condition, $event)" /><el-button circle text type="danger" size="small" @click="removeInterlockCondition(interlock, conditionIndex)">×</el-button></div>
 						<el-button text type="primary" size="small" @click="addInterlockCondition(interlock)">增加条件</el-button>
 					</div>
+					</template>
 				</div>
 				<div class="twin-card binding-form">
 					<span class="twin-card__label">新增持久化绑定</span>
@@ -409,7 +483,11 @@
 					<label>数据 Key</label>
 					<el-select v-model="bindingForm.key" filterable :allow-create="bindingForm.sourceKind !== 'connectivity'" :loading="bindingKeysLoading" :placeholder="bindingForm.sourceKind === 'connectivity' ? '在线状态固定为 online' : '从最新数据选择，也可输入新 Key'"><el-option v-for="key in bindingKeys" :key="key.value" :label="key.label" :value="key.value" /></el-select>
 					<small v-if="bindingForm.sourceKind !== 'connectivity'">Key 来自所选 Device 的最新{{ bindingForm.sourceKind === 'telemetry' ? '遥测' : '属性' }}；尚未上报的 Key 仍可手工输入。</small>
-					<label>驱动目标</label><el-select v-model="bindingForm.targetKind" @change="handleBindingTargetChange"><el-option label="颜色" value="color" /><el-option label="可见性" value="visible" /><el-option label="旋转动画" value="animation" /><el-option label="RGV 路线位置（米）" value="routeDistance" /><el-option label="路线进度（单个物料 0~1）" value="routeProgress" /><el-option label="托盘位置数组（槽位）" value="routeSlots" /><el-option label="分流/占用信号" value="customProperty" /><el-option label="透明度" value="opacity" /><el-option label="自定义数值" value="number" /></el-select>
+					<label>驱动目标</label><el-select v-model="bindingForm.targetKind" @change="handleBindingTargetChange"><el-option label="执行机构 Actuator" value="actuator" /><el-option label="颜色" value="color" /><el-option label="可见性" value="visible" /><el-option label="旋转动画" value="animation" /><el-option label="RGV 路线位置（米）" value="routeDistance" /><el-option label="路线进度（单个物料 0~1）" value="routeProgress" /><el-option label="托盘位置数组（槽位）" value="routeSlots" /><el-option label="分流/占用信号" value="customProperty" /><el-option label="透明度" value="opacity" /><el-option label="自定义数值" value="number" /></el-select>
+					<template v-if="bindingForm.targetKind === 'actuator'">
+						<label>执行机构</label><el-select v-model="bindingForm.actuatorId" filterable placeholder="选择当前组件执行机构"><el-option v-for="option in actuatorOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+						<small>Live 模式由遥测反馈接管轴位置；Simulation 仍由 Behavior / Action Flow 驱动。</small>
+					</template>
 					<template v-if="bindingForm.targetKind === 'routeSlots' || bindingForm.targetKind === 'routeDistance'">
 						<label>目标路线</label><el-select v-model="bindingForm.routeId" filterable :placeholder="bindingForm.targetKind === 'routeDistance' ? '选择 RGV / 堆垛机运行路线' : '选择托盘数组对应的路线'"><el-option v-for="item in manifest.routes" :key="item.routeId" :label="`${item.name} · ${item.routeId}`" :value="item.routeId" /></el-select>
 						<el-alert v-if="bindingForm.targetKind === 'routeSlots'" type="info" :closable="false" show-icon title="槽位数组语义"><template #default><small>[12,23,0,0,0,0] = 第 1 位托盘 12、第 2 位托盘 23，其余为空；0 固定表示空槽位。数组索引会自动映射到路线位置，不需要再绑定“路线进度”。</small></template></el-alert>
@@ -432,6 +510,9 @@
 					<div v-if="diagnostics.length === 0" class="is-success"><strong>通过</strong><span>当前 Manifest 未发现问题。</span></div>
 				</div>
 			</aside>
+		</main>
+		<main v-else class="twin-flow-only">
+			<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
 		</main>
 
 		<el-dialog v-model="createDialogVisible" title="新建数字孪生场景" width="520px">
@@ -481,6 +562,13 @@ import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue'
 import { applyComponentSnap, areComponentPortsCompatible, builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, resolveComponentPorts, snapSceneComponent, upsertGeneratedComponentRoute, upsertGeneratedComponentRoutes, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { createReferencePackagingLineTwinSceneManifest, upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { resolveTwinDiagnosticObjectId } from '/@/digital-twin/diagnostics/diagnosticLocator';
+import { attachRoutePointToPort, detachRoutePointFromPort, inferRouteEndpointRole, listRouteEndpointPortSnapOptions } from '/@/digital-twin/routes/RouteSnapEngine';
+import { convertGeneratedRouteToManual, ensureRouteSection, routeHasGeneratedAuthoring } from '/@/digital-twin/routes/RouteAuthoringTools';
+import { createCompiledRuntimeManifest, persistCompiledRouteGraph } from '/@/digital-twin/routes/RouteAuthoringCompiler';
+import { validateRouteAuthoringManifest } from '/@/digital-twin/routes/RouteAuthoringValidator';
+import { runDiverterRouteDebug, runMergeRouteDebug, runSingleRouteDebug } from '/@/digital-twin/routes/RouteDebugRunner';
+import ActionFlowDesigner from '/@/digital-twin/action-flow/components/ActionFlowDesigner.vue';
+import type { TwinActionFlowDefinitionV2 } from '/@/digital-twin/action-flow/contracts/action-flow-v2';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
 import { buildRuntimeStatusCardPlacement, buildRuntimeSummaryRows } from '/@/digital-twin/runtime/RuntimeStatusUiSupport';
@@ -496,6 +584,7 @@ const uploadInput = ref<HTMLInputElement>();
 const leftPanelCollapsed = ref(false);
 const rightPanelCollapsed = ref(false);
 const leftPanelTab = ref<'scene' | 'objects' | 'library' | 'route' | 'rules'>('scene');
+const workspaceMode = ref<'3d' | 'flow' | 'split'>('3d');
 const adapter = ref<ThreeJsEditorAdapter>();
 const professionalEditor = ref<any>();
 const manifest = ref<TwinSceneManifest>(createBlankTwinSceneManifest());
@@ -513,6 +602,7 @@ const bindingKeysLoading = ref(false);
 const models = ref<TwinModelResource[]>([]);
 const versions = ref<TwinSceneVersion[]>([]);
 const selected = ref<TwinSelectionInfo | null>(null);
+const advancedInspectorExpanded = ref(false);
 const diagnostics = ref(validateTwinSceneManifest(manifest.value));
 const pageLoading = ref(false), saving = ref(false), creating = ref(false), publishing = ref(false), uploading = ref(false), registeringComponents = ref(false);
 const playing = ref(false), liveMode = ref(false), routeEditMode = ref(false);
@@ -525,7 +615,9 @@ let runtimeStatusFrame = 0;
 const resourceDragOver = ref(false);
 const latestBindingUpdates = ref<Record<string, TwinDataUpdate>>({});
 let snapshotTimer: number | undefined;
+let lastSnapshotServerTimestamp: string | undefined;
 let workbenchHistoryTimer: number | undefined;
+let editorDiagnosticsTimer: number | undefined;
 let restoringWorkbenchHistory = false;
 const modelBufferCache = new Map<string, { fileName: string; buffer: ArrayBuffer }>();
 type TwinLibraryDragPayload =
@@ -569,16 +661,87 @@ const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packag
 	createDialogVisible.value = true;
 };
 const uploadForm = reactive({ licenseType: 'Proprietary', author: '', sourceUrl: '', commercialUseAllowed: false });
-const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind | 'routeSlots', routeId: '' });
+const bindingForm = reactive({ deviceId: '', sourceKind: 'telemetry' as 'telemetry' | 'attribute' | 'connectivity', key: '', targetKind: 'color' as TwinBindingTargetKind | 'routeSlots', routeId: '', actuatorId: '' });
 const branchForm = reactive({ fromPointId: '', toPointId: '', bidirectional: false });
 const ruleForm = reactive({ junctionPointId: '', edgeId: '', source: 'payload' as 'payload' | 'binding', payloadKey: 'sku', bindingId: '', operator: 'equals' as TwinRouteRuleOperator, matchValue: '', expectedActuatorValue: '', weight: 1 });
 const routingPayloadText = ref('{"sku":"A","weight":1}');
 const previewOccupancy = reactive<Record<string, number>>({});
 const route = computed(() => manifest.value.routes[0]);
+const addRouteSection = async () => {
+	if (!route.value) return;
+	ensureRouteSection(route.value, `路线区段 ${(route.value.sections?.length || 0) + 1}`);
+	await syncRouteGraph();
+};
+const convertCurrentRouteToManual = async () => {
+	if (!route.value) return;
+	const converted = convertGeneratedRouteToManual(route.value);
+	manifest.value.routes.splice(0, 1, converted.route);
+	professionalEditor.value?.setRoute(converted.route);
+	professionalEditor.value?.refreshRouteOverlay();
+	routeEditMode.value = true;
+	professionalEditor.value?.setRouteEditMode(true);
+	refreshDiagnostics();
+	scheduleWorkbenchHistory();
+	ElMessage.success(`已转换为编辑路线：${converted.convertedEdgeIds.length} 段 Edge，ID/Binding/Section 均保持不变`);
+};
+const outgoingRouteEdgeOptions = (pointId: string) => (route.value?.edges || [])
+	.filter((edge) => edge.enabled !== false && edge.fromPointId === pointId)
+	.map((edge) => ({ label: edge.name || edge.edgeId, value: edge.edgeId }));
+const toggleProcessBatchLayout = (point: TwinRoutePointDefinition, enabled: boolean) => {
+	if (!point.process) return;
+	if (enabled) point.process.batchLayout ||= { rows: 1, columns: 1, rowSpacingMeters: 0, columnSpacingMeters: 1.55, rowAxis: 'z', columnAxis: 'x' };
+	else delete point.process.batchLayout;
+	syncRouteGraph();
+};
 const routeIsGenerated = computed(() => route.value?.generatedBy === 'component-connections');
+const routePointIsLocked = (point: TwinRoutePointDefinition) => point.authoring?.mode === 'generated' && point.authoring.locked !== false;
+const routeEdgeIsLocked = (edge: TwinRouteEdgeDefinition) => edge.authoring?.mode === 'generated' && edge.authoring.locked !== false;
+const routePointEndpointRole = (point: TwinRoutePointDefinition) => inferRouteEndpointRole(route.value, point.pointId);
+const routePointAttachmentValue = (point: TwinRoutePointDefinition) => point.attachment ? `${point.attachment.objectId}::${point.attachment.portId}` : '';
+const routePointPortOptions = (point: TwinRoutePointDefinition) => listRouteEndpointPortSnapOptions(manifest.value, route.value.routeId, point.pointId)
+	.map((item) => ({ value: `${item.objectId}::${item.portId}`, label: `${item.objectName}.${item.portName} · ${item.portType}` }));
+const setRoutePointAttachment = async (point: TwinRoutePointDefinition, value: string) => {
+	if (point.authoring?.mode !== 'manual') return;
+	if (!value) detachRoutePointFromPort(manifest.value, route.value.routeId, point.pointId);
+	else {
+		const separator = value.indexOf('::');
+		const objectId = separator >= 0 ? value.slice(0, separator) : '';
+		const portId = separator >= 0 ? value.slice(separator + 2) : '';
+		if (!objectId || !portId || !attachRoutePointToPort(manifest.value, route.value.routeId, point.pointId, objectId, portId)) {
+			ElMessage.error('该 Port 不兼容、已占用或当前节点不是路线端点');
+			return;
+		}
+	}
+	await syncRouteGraph();
+};
 const secondaryConveyorRoutes = computed(() => manifest.value.routes.slice(1).filter((item) => item.edges.length > 0));
 const junctionPoints = computed(() => route.value.points.filter((point) => ['junction', 'diverter', 'merger'].includes(point.kind || '')));
 const decisionPoints = computed(() => junctionPoints.value.filter((point) => route.value.edges.filter((edge) => edge.enabled !== false && (edge.fromPointId === point.pointId || (edge.bidirectional && edge.toPointId === point.pointId))).length >= 2));
+const routeDebugResult = ref('');
+const routeMergePairs = computed(() => (route.value?.points || []).flatMap((point) => {
+	const incoming = (route.value?.edges || []).filter((edge) => edge.enabled !== false && edge.toPointId === point.pointId);
+	return incoming.length >= 2 ? [{ pointId: point.pointId, pointName: point.name, edgeAId: incoming[0].edgeId, edgeBId: incoming[1].edgeId }] : [];
+}));
+const routeDebugContext = () => ({
+	dataMode: 'simulation' as const,
+	payload: parsePreviewPayload(false) || {},
+	edgeOccupancy: { ...previewOccupancy },
+});
+const showRouteDebugResult = (title: string, result: unknown) => {
+	routeDebugResult.value = `${title}\n${JSON.stringify(result, null, 2)}`;
+};
+const runCurrentRouteDebug = () => {
+	if (!route.value) return;
+	showRouteDebugResult('单路线 Run · 复用 RouteEngine', runSingleRouteDebug(route.value, routeDebugContext()));
+};
+const runRouteBranchDebug = (pointId: string, edgeId: string) => {
+	if (!route.value) return;
+	showRouteDebugResult(`分流调试 · ${pointId} -> ${edgeId}`, runDiverterRouteDebug(route.value, pointId, edgeId, routeDebugContext()));
+};
+const runRouteMergeDebug = (pair: { pointId: string; pointName: string; edgeAId: string; edgeBId: string }) => {
+	if (!route.value) return;
+	showRouteDebugResult(`合流调试 · ${pair.pointName || pair.pointId}`, runMergeRouteDebug(route.value, pair.edgeAId, pair.edgeBId, 1.5, routeDebugContext()));
+};
 const modelObjects = computed(() => manifest.value.objects.filter((item) => item.kind === 'model' || item.kind === 'equipment' || (item as any).kind === 'component'));
 const glbModels = computed(() => models.value.filter((item) => item.runtimeFormat !== 'application/vnd.iotsharp.twin-component+json'));
 const componentTemplates = builtInComponentTemplates;
@@ -707,6 +870,51 @@ const workPointOptions = computed(() => (manifest.value.workPoints || []).map((i
 const materialSlotOptions = computed(() => (manifest.value.materialSlots || []).map((item) => ({ value: item.slotId, label: `${item.name} · ${item.role}${item.payloadType ? ` · ${item.payloadType}` : ''}` })));
 const toolFrameOptions = computed(() => (manifest.value.toolFrames || []).map((item) => ({ value: item.toolFrameId, label: item.name })));
 const actuatorOptions = computed(() => selectedActuators.value.map((item) => ({ value: item.actuatorId, label: `${item.name} · ${item.kind}` })));
+const actuatorPositionBinding = (actuator: TwinActuatorDefinition) => manifest.value.bindings.find((item) => item.bindingId === actuator.bindings?.positionBindingId);
+const actuatorPositionBindingLabel = (actuator: TwinActuatorDefinition) => {
+	const binding = actuatorPositionBinding(actuator);
+	return binding ? `实时位置：${binding.source.key || binding.bindingId}` : '实时位置：未绑定';
+};
+const actuatorRuntimeDisplay = (actuator: TwinActuatorDefinition) => {
+	void latestBindingUpdates.value[actuator.bindings?.positionBindingId || ''];
+	void metrics.fps;
+	const state = adapter.value?.getActuatorSnapshot().find((item) => item.actuatorId === actuator.actuatorId);
+	const formatValue = (value: number | boolean | undefined) => {
+		if (value === undefined) return '-';
+		if (actuator.kind === 'gripper') return value === true ? 'Closed' : 'Open';
+		return typeof value === 'number' ? `${Number(value.toFixed(3))} ${actuator.unit}` : String(value);
+	};
+	const readyBindingId = actuator.bindings?.readyBindingId;
+	const readyUpdate = readyBindingId ? latestBindingUpdates.value[readyBindingId] : undefined;
+	return {
+		mode: liveMode.value ? 'LIVE' : 'SIMULATION',
+		quality: state?.quality || (liveMode.value ? 'waiting' : 'simulation'),
+		current: formatValue(state?.currentValue),
+		target: formatValue(state?.targetValue),
+		motion: state ? (state.moving ? 'Moving' : 'Stable') : 'Waiting',
+		lastUpdated: state?.lastUpdatedAt ? new Date(state.lastUpdatedAt).toLocaleString('zh-CN', { hour12: false }) : '-',
+		stale: state?.stale === true ? 'true' : 'false',
+		fault: state?.fault === true ? 'true' : 'false',
+		ready: readyUpdate ? formatStatusValue(readyUpdate.value) : '等待数据',
+	};
+};
+const prepareActuatorBinding = async (actuator: TwinActuatorDefinition) => {
+	bindingForm.targetKind = 'actuator';
+	bindingForm.actuatorId = actuator.actuatorId;
+	bindingForm.sourceKind = 'telemetry';
+	await refreshBindingKeys();
+};
+const testActuatorLiveMapping = async (actuator: TwinActuatorDefinition) => {
+	const binding = actuatorPositionBinding(actuator);
+	if (!binding) { ElMessage.warning('该执行机构还没有实时位置 Binding'); return; }
+	const update = latestBindingUpdates.value[binding.bindingId];
+	if (!update) { ElMessage.warning('当前还没有收到该执行机构的 Telemetry，请先进入 Live 模式取得一次 Snapshot'); return; }
+	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
+	adapter.value?.applyDataUpdates([update]);
+	await nextTick();
+	const state = adapter.value?.getActuatorSnapshot().find((item) => item.actuatorId === actuator.actuatorId);
+	ElMessage.success(state ? `${actuator.name}：目标 ${String(state.targetValue)} · ${state.quality}` : `${actuator.name} 已应用实时遥测`);
+};
 const poseOptions = computed(() => selectedPoses.value.map((item) => ({ value: item.poseId, label: item.name })));
 const signalBindingOptions = computed(() => (manifest.value.bindings || []).map((item) => ({ value: item.bindingId, label: `${item.source.key} · ${item.bindingId}` })));
 const interlockOptions = computed(() => (manifest.value.interlocks || []).map((item) => ({ value: item.interlockId, label: item.name })));
@@ -775,6 +983,7 @@ const updateRuntimeStatusAnchor = () => {
 	runtimeStatusFrame = requestAnimationFrame(updateRuntimeStatusAnchor);
 };
 const canAddBinding = computed(() => {
+	if (bindingForm.targetKind === 'actuator') return Boolean(selected.value?.objectId && bindingForm.sourceKind === 'telemetry' && bindingForm.deviceId && bindingForm.key && bindingForm.actuatorId);
 	if (bindingForm.targetKind === 'routeSlots') return Boolean(bindingForm.sourceKind === 'telemetry' && bindingForm.deviceId && bindingForm.key && bindingForm.routeId);
 	if (bindingForm.targetKind === 'routeDistance') return Boolean(selected.value?.objectId && bindingForm.sourceKind === 'telemetry' && bindingForm.deviceId && bindingForm.key && bindingForm.routeId);
 	return Boolean(selected.value?.objectId && bindingForm.deviceId && (bindingForm.key || bindingForm.sourceKind === 'connectivity'));
@@ -785,6 +994,44 @@ const routeBindingOptions = computed(() => manifest.value.bindings
 	.map((binding) => ({ value: binding.bindingId, label: `${binding.source.key || binding.bindingId} · ${binding.source.kind}` })));
 const routeIdFromSlotBinding = (binding: TwinObjectBindingDefinition) => String((binding.transform as Record<string, unknown>).routeId || '').trim()
 	|| String(binding.target.property || '').replace(/^routeSlots:/, '');
+const routePalletInitializer = (routeId: string) => (manifest.value.runtime.routePalletInitializers || []).find((item) => item.routeId === routeId);
+const routeSupportsPalletInitializer = (targetRoute: TwinRouteDefinition) => targetRoute.edges.some((edge) => edge.enabled !== false && Boolean(edge.transportUnitType));
+const routeTransportUnitLabel = (targetRoute: TwinRouteDefinition) => {
+	const types = [...new Set(targetRoute.edges.map((edge) => edge.transportUnitType).filter(Boolean))];
+	return types.length ? types.join(' / ') : '未指定输送对象';
+};
+const routeSlotBindingOptionsFor = (routeId: string) => manifest.value.bindings
+	.filter((binding) => binding.enabled !== false && binding.transform.kind === 'routeSlotArray' && routeIdFromSlotBinding(binding) === routeId)
+	.map((binding) => ({ value: binding.bindingId, label: `${binding.source.key || binding.bindingId} · ${binding.bindingId}` }));
+const ensureRoutePalletInitializer = (targetRoute: TwinRouteDefinition) => {
+	manifest.value.runtime.routePalletInitializers ||= [];
+	let initializer = routePalletInitializer(targetRoute.routeId);
+	if (!initializer) {
+		initializer = { routeId: targetRoute.routeId, telemetryKey: '托盘数组', simulationDefaultCount: 0, emptyValue: 0 };
+		manifest.value.runtime.routePalletInitializers.push(initializer);
+	}
+	syncRouteGraph();
+	return initializer;
+};
+const setRouteSimulationPalletCount = (routeId: string, raw: unknown) => {
+	const targetRoute = manifest.value.routes.find((item) => item.routeId === routeId);
+	if (!targetRoute) return;
+	const initializer = ensureRoutePalletInitializer(targetRoute);
+	initializer.simulationDefaultCount = Math.max(0, Math.floor(Number(raw) || 0));
+	syncRouteGraph();
+};
+const setRouteLivePalletBinding = (routeId: string, raw: unknown) => {
+	const targetRoute = manifest.value.routes.find((item) => item.routeId === routeId);
+	if (!targetRoute) return;
+	const initializer = ensureRoutePalletInitializer(targetRoute);
+	const bindingId = String(raw || '').trim();
+	if (bindingId) {
+		initializer.liveBindingId = bindingId;
+		const binding = manifest.value.bindings.find((item) => item.bindingId === bindingId);
+		if (binding?.source.key) initializer.telemetryKey = binding.source.key;
+	} else delete initializer.liveBindingId;
+	syncRouteGraph();
+};
 const routeNameForSlotBinding = (binding: TwinObjectBindingDefinition) => {
 	const routeId = routeIdFromSlotBinding(binding);
 	return manifest.value.routes.find((item) => item.routeId === routeId)?.name || routeId || '未指定路线';
@@ -805,6 +1052,26 @@ const processTypeOptions = [{ label: '机器人上料', value: 'robot-loading' }
 const conveyorSizeOptions = [{ label: '小辊道', value: 'small' }, { label: '大辊道', value: 'large' }];
 const ruleOperatorOptions = [{ label: '等于', value: 'equals' }, { label: '不等于', value: 'notEquals' }, { label: '大于', value: 'greaterThan' }, { label: '大于等于', value: 'greaterThanOrEqual' }, { label: '小于', value: 'lessThan' }, { label: '小于等于', value: 'lessThanOrEqual' }, { label: '包含', value: 'contains' }, { label: '为真', value: 'truthy' }, { label: '为假', value: 'falsy' }];
 const viewportModeOptions = [{ label: '专业编辑', value: 'editor' }, { label: '运行预览', value: 'runtime' }];
+const workspaceModeOptions = [{ label: '3D', value: '3d' }, { label: '流程', value: 'flow' }, { label: '分屏', value: 'split' }];
+const flowFocusObjectId = computed(() => selected.value?.objectId || undefined);
+const updateActionFlows = (flows: TwinActionFlowDefinitionV2[]) => { manifest.value.actionFlows = flows; refreshDiagnostics(); scheduleWorkbenchHistory(); };
+const markActionFlowChanged = () => { refreshDiagnostics(); scheduleWorkbenchHistory(); };
+const createFlowInterlock = (definition: TwinInterlockDefinition) => {
+	addInterlockDefinition(manifest.value, definition);
+	syncBehaviorManifest();
+};
+const createFlowMaterialSlot = (definition: TwinMaterialSlotDefinition) => {
+	addMaterialSlotDefinition(manifest.value, definition.objectId, definition);
+	syncBehaviorManifest();
+};
+const focusActionFlowObject = async (objectId?: string) => {
+	if (!objectId) return;
+	if (workspaceMode.value === 'flow') workspaceMode.value = 'split';
+	if (viewportMode.value !== 'editor') await switchViewportMode('editor');
+	await nextTick();
+	professionalEditor.value?.selectObject(objectId);
+	professionalEditor.value?.focusSelected();
+};
 const metrics = reactive<TwinRuntimeMetrics>({ state: 'paused', distanceMeters: 0, lengthMeters: 0, progress: 0, speed: 1.2, activePointIds: [], activeEdgeIds: [], unavailableEdgeIds: [], fps: 0, drawCalls: 0, triangles: 0, geometries: 0, textures: 0 });
 
 const apiData = <T,>(response: any): T => response.data as T;
@@ -1034,6 +1301,7 @@ const normalizeManifest = (value: TwinSceneManifest): TwinSceneManifest => {
 	normalized.bindings ||= [];
 	normalized.resources ||= [];
 	normalized.objects ||= [];
+	normalized.actionFlows ||= [];
 	normalized.connections ||= [];
 	normalized.routes = (normalized.routes?.length ? normalized.routes : createBlankTwinSceneManifest().routes).map(normalizeTwinRoute);
 	normalized.editorExtension ||= { source: 'threejs-editor', payloadVersion: 2 };
@@ -1089,12 +1357,20 @@ const diagnosticIdentity = (item: { severity: string; code: string; message: str
 const diagnosticRenderKey = (item: { severity: string; code: string; message: string; path?: string }, index: number) => `${diagnosticIdentity(item)}|${index}`;
 const refreshDiagnostics = () => {
 	const seen = new Set<string>();
-	diagnostics.value = [...validateTwinSceneManifest(manifest.value), ...validateV7ComponentManifest(manifest.value)].filter((item) => {
+	const compiled = createCompiledRuntimeManifest(manifest.value).compile;
+	diagnostics.value = [...validateTwinSceneManifest(manifest.value), ...validateV7ComponentManifest(manifest.value), ...validateRouteAuthoringManifest(manifest.value), ...compiled.diagnostics].filter((item) => {
 		const key = diagnosticIdentity(item);
 		if (seen.has(key)) return false;
 		seen.add(key);
 		return true;
 	});
+};
+const scheduleEditorDiagnostics = () => {
+	if (editorDiagnosticsTimer !== undefined) window.clearTimeout(editorDiagnosticsTimer);
+	editorDiagnosticsTimer = window.setTimeout(() => {
+		editorDiagnosticsTimer = undefined;
+		refreshDiagnostics();
+	}, 300);
 };
 const routePointName = (pointId: string) => route.value.points.find((point) => point.pointId === pointId)?.name || pointId;
 const routeEdgeLabel = (edge: TwinRouteEdgeDefinition) => `${routePointName(edge.fromPointId)} ${edge.bidirectional ? '↔' : '→'} ${routePointName(edge.toPointId)}`;
@@ -1168,6 +1444,7 @@ const applyRuntimeRoute = (value: TwinRouteDefinition) => {
 };
 
 const handleSelectionChange = (value: TwinSelectionInfo | null) => {
+	if (value?.objectId !== selected.value?.objectId) advancedInspectorExpanded.value = false;
 	selected.value = value;
 	if (viewportMode.value === 'runtime' && value && value.kind !== 'route-point') deviceStatusDialogVisible.value = true;
 };
@@ -1324,6 +1601,12 @@ const addBehaviorAction = (behavior: TwinBehaviorDefinition) => {
 	addBehaviorActionDefinition(behavior);
 	syncBehaviorManifest();
 };
+const setActionApproachOffset = (action: TwinBehaviorActionDefinition, index: number, raw: unknown) => {
+	const next: TwinVector3 = [...(action.approachOffset || [0, 0, 0])] as TwinVector3;
+	next[Math.max(0, Math.min(2, index))] = Number.isFinite(Number(raw)) ? Number(raw) : 0;
+	action.approachOffset = next;
+	syncBehaviorManifest();
+};
 const removeBehaviorAction = (behavior: TwinBehaviorDefinition, actionId: string) => {
 	removeBehaviorActionDefinition(behavior, actionId);
 	syncBehaviorManifest();
@@ -1379,7 +1662,7 @@ const formatStatusValue = (value: unknown) => {
 const initializeRuntime = () => {
 	if (!viewport.value) return;
 	adapter.value?.dispose();
-	const previewManifest = cloneTwinManifest(manifest.value);
+	const previewManifest = createCompiledRuntimeManifest(manifest.value).manifest;
 	previewManifest.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
 	adapter.value = new ThreeJsEditorAdapter(viewport.value, previewManifest, {
 		onSelectionChange: handleSelectionChange,
@@ -1436,6 +1719,12 @@ const refreshBindingKeys = async () => {
 const handleBindingDeviceChange = async () => { await refreshBindingKeys(); };
 const handleBindingSourceChange = async () => { await refreshBindingKeys(); };
 const handleBindingTargetChange = async () => {
+	if (bindingForm.targetKind === 'actuator') {
+		if (bindingForm.sourceKind !== 'telemetry') bindingForm.sourceKind = 'telemetry';
+		if (!selectedActuators.value.some((item) => item.actuatorId === bindingForm.actuatorId)) bindingForm.actuatorId = selectedActuators.value[0]?.actuatorId || '';
+		await refreshBindingKeys();
+		return;
+	}
 	if (bindingForm.targetKind !== 'routeSlots' && bindingForm.targetKind !== 'routeDistance') return;
 	if (bindingForm.sourceKind !== 'telemetry') {
 		bindingForm.sourceKind = 'telemetry';
@@ -1653,6 +1942,7 @@ const saveDraft = async (silent = false) => {
 	try {
 		await ensureManifestComponentResourcesRegistered();
 		if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
+		persistCompiledRouteGraph(manifest.value);
 	} catch (error: any) {
 		ElMessage.error(apiErrorMessage(error, '组件资源入库或 Three Editor 状态提取失败，请检查权限与场景数据'));
 		return false;
@@ -1693,7 +1983,7 @@ const saveDraft = async (silent = false) => {
 	try {
 		const persistedManifest = normalizeManifest(detail.draftPayload);
 		if (viewportMode.value === 'editor') Object.assign(manifest.value, persistedManifest);
-		else { manifest.value = persistedManifest; adapter.value?.loadManifest(manifest.value); }
+		else { manifest.value = persistedManifest; adapter.value?.loadManifest(createCompiledRuntimeManifest(manifest.value).manifest); }
 	} catch { ElMessage.warning(`草稿 r${detail.revision} 已提交成功，但本地视图重载失败；重新打开场景即可恢复`); }
 	refreshDiagnostics();
 	try { await loadScenes(); }
@@ -1972,6 +2262,7 @@ const handleWorkbenchKeydown = (event: KeyboardEvent) => {
 };
 
 const bindingTransform = (target: TwinBindingTargetKind | 'routeSlots'): TwinObjectBindingDefinition['transform'] => {
+	if (target === 'actuator') return { kind: 'identity' };
 	if (target === 'color') return { kind: 'booleanColor', trueColor: '#22c55e', falseColor: '#ef4444' };
 	if (target === 'visible') return { kind: 'booleanVisibility' };
 	if (target === 'animation') return { kind: 'booleanAnimation', trueValue: { speed: 2 }, falseValue: { speed: 0 } };
@@ -1985,6 +2276,17 @@ const bindingTransform = (target: TwinBindingTargetKind | 'routeSlots'): TwinObj
 const addBinding = () => {
 	if (!canAddBinding.value) return;
 	const key = bindingForm.sourceKind === 'connectivity' ? (bindingForm.key || 'online') : bindingForm.key;
+	if (bindingForm.targetKind === 'actuator') {
+		const actuator = selectedActuators.value.find((item) => item.actuatorId === bindingForm.actuatorId);
+		if (!actuator) return ElMessage.error('请选择有效的执行机构');
+		if (actuator.bindings?.positionBindingId) return ElMessage.warning('当前执行机构已经绑定实时位置，请先删除原绑定');
+		const bindingId = createId('binding');
+		manifest.value.bindings.push({ bindingId, objectId: actuator.objectId, source: { kind: 'telemetry', assetId: manifest.value.rootAssetId || undefined, deviceId: bindingForm.deviceId, key }, target: { kind: 'actuator', actuatorId: actuator.actuatorId }, transform: bindingTransform('actuator'), staleAfterMs: 3000, priority: 0, enabled: true });
+		actuator.bindings ||= {};
+		actuator.bindings.positionBindingId = bindingId;
+		adapter.value?.loadManifest(manifest.value); refreshDiagnostics(); ElMessage.success(`已绑定 ${actuator.name} ← ${key}`);
+		return;
+	}
 	if (bindingForm.targetKind === 'routeSlots') {
 		const routeDefinition = manifest.value.routes.find((item) => item.routeId === bindingForm.routeId);
 		if (!routeDefinition) return ElMessage.error('请选择有效的目标路线');
@@ -2012,6 +2314,13 @@ const addBinding = () => {
 const removeBinding = (bindingId: string) => {
 	const removedBinding = manifest.value.bindings.find((item) => item.bindingId === bindingId);
 	manifest.value.bindings = manifest.value.bindings.filter((item) => item.bindingId !== bindingId);
+	for (const actuator of manifest.value.actuators || []) {
+		if (actuator.bindings?.positionBindingId === bindingId) delete actuator.bindings.positionBindingId;
+		if (actuator.bindings?.openBindingId === bindingId) delete actuator.bindings.openBindingId;
+		if (actuator.bindings?.closeBindingId === bindingId) delete actuator.bindings.closeBindingId;
+		if (actuator.bindings?.readyBindingId === bindingId) delete actuator.bindings.readyBindingId;
+		if (actuator.bindings?.faultBindingId === bindingId) delete actuator.bindings.faultBindingId;
+	}
 	for (const point of route.value.points) {
 		if (point.actuatorBindingId === bindingId) delete point.actuatorBindingId;
 		if (point.sensorBindingId === bindingId) delete point.sensorBindingId;
@@ -2030,8 +2339,9 @@ const removeBinding = (bindingId: string) => {
 const refreshSnapshot = async () => {
 	if (!liveMode.value || !currentScene.value?.publishedVersionId) return;
 	try {
-		const snapshot = apiData<TwinRuntimeSnapshot>(await digitalTwinApi.snapshot(currentScene.value.id));
+		const snapshot = apiData<TwinRuntimeSnapshot>(await digitalTwinApi.snapshot(currentScene.value.id, undefined, lastSnapshotServerTimestamp));
 		const updates = snapshot.updates || [];
+		lastSnapshotServerTimestamp = snapshot.serverTimestamp || lastSnapshotServerTimestamp;
 		if (updates.length) {
 			const next = { ...latestBindingUpdates.value };
 			for (const update of updates) {
@@ -2044,7 +2354,9 @@ const refreshSnapshot = async () => {
 	} catch { /* 下一轮自动重试。 */ }
 };
 const stopSnapshotPolling = () => { if (snapshotTimer !== undefined) window.clearInterval(snapshotTimer); snapshotTimer = undefined; };
-const startSnapshotPolling = () => { stopSnapshotPolling(); refreshSnapshot(); snapshotTimer = window.setInterval(refreshSnapshot, 2000); };
+const resetSnapshotCursor = () => { lastSnapshotServerTimestamp = undefined; };
+const telemetryRefreshMs = computed(() => Math.min(5000, Math.max(250, Number((manifest.value.runtime as any).telemetryRefreshMs || 300))));
+const startSnapshotPolling = () => { stopSnapshotPolling(); resetSnapshotCursor(); refreshSnapshot(); snapshotTimer = window.setInterval(refreshSnapshot, telemetryRefreshMs.value); };
 const switchViewportMode = async (value: string | number | boolean) => {
 	// 从专业编辑器离开前先把尚未保存的变换写回内存 Manifest，路线运行才能立即看到最新位置。
 	try {
@@ -2069,7 +2381,7 @@ const toggleLiveMode = async (value: string | number | boolean) => {
 	liveMode.value = Boolean(value); manifest.value.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
 	if (liveMode.value && viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 	if (viewportMode.value === 'runtime' && adapter.value) {
-		const previewManifest = cloneTwinManifest(manifest.value);
+		const previewManifest = createCompiledRuntimeManifest(manifest.value).manifest;
 		previewManifest.runtime.dataMode = liveMode.value ? 'live' : 'simulation';
 		adapter.value.loadManifest(previewManifest);
 		adapter.value.setRunning(!liveMode.value && playing.value);
@@ -2093,9 +2405,7 @@ const restoreGeneratedRoute = (notify = true) => {
 	if (notify) ElMessage.warning('自动路线只读，请通过移动参数化组件或修改端口 Connection 调整路线。');
 };
 const ensureManualRouteEditing = () => {
-	if (!routeIsGenerated.value) return true;
-	restoreGeneratedRoute();
-	return false;
+	return true;
 };
 const toggleRouteEditMode = async () => {
 	if (!ensureManualRouteEditing()) return;
@@ -2131,7 +2441,6 @@ const ensureRuntimeViewport = async () => {
 	if (viewportMode.value !== 'runtime') await switchViewportMode('runtime');
 };
 const syncRouteGraph = async () => {
-	if (routeIsGenerated.value) { restoreGeneratedRoute(); return; }
 	const nextRoute = cloneTwinManifest({ ...manifest.value, routes: [route.value] }).routes[0];
 	if (viewportMode.value === 'editor') {
 		professionalEditor.value?.setRoute(nextRoute);
@@ -2173,6 +2482,7 @@ const addStandaloneRoutePoint = async () => {
 	if (!ensureManualRouteEditing()) return;
 	const last = route.value.points[route.value.points.length - 1]?.position || [0, 0.72, 0];
 	const point = createRoutePoint([last[0], last[1], last[2] + 2], route.value.points.length);
+	point.authoring = { mode: 'manual', locked: false };
 	point.name = `分支节点 ${route.value.points.length + 1}`;
 	route.value.points.push(point);
 	branchForm.toPointId = point.pointId;
@@ -2184,6 +2494,7 @@ const addRouteEdge = async () => {
 	const duplicate = route.value.edges.some((edge) => edge.fromPointId === branchForm.fromPointId && edge.toPointId === branchForm.toPointId);
 	if (duplicate) { ElMessage.warning('这两个节点已经存在同向连线'); return; }
 	const edge = createRouteEdge(branchForm.fromPointId, branchForm.toPointId, route.value.edges.length);
+	edge.authoring = { mode: 'manual', locked: false };
 	edge.bidirectional = branchForm.bidirectional;
 	route.value.edges.push(edge);
 	previewOccupancy[edge.edgeId] = 0;
@@ -2241,6 +2552,7 @@ const updateRoutePoint = async (index: number) => {
 	if (!ensureManualRouteEditing()) return;
 	const point = route.value.points[index];
 	if (!point) return;
+	if (routePointIsLocked(point)) { ElMessage.warning('自动生成控制点只读，请移动组件或修改 Connection。'); return; }
 	if (viewportMode.value === 'editor') professionalEditor.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
 	else adapter.value?.updateRoutePoint(index, [...point.position] as TwinVector3);
 };
@@ -2291,8 +2603,7 @@ const locateDiagnostic = async (diagnostic: { path?: string | null }) => {
 	professionalEditor.value?.focusSelected();
 };
 const markEditorChanged = () => {
-	professionalEditor.value?.captureManifest(manifest.value);
-	refreshDiagnostics();
+	scheduleEditorDiagnostics();
 	scheduleWorkbenchHistory();
 };
 const exportManifest = () => { const blob = new Blob([JSON.stringify(manifest.value, null, 2)], { type: 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = `${manifest.value.name.replace(/[\\/:*?"<>|]/g, '-')}.twin.json`; anchor.click(); URL.revokeObjectURL(url); };
@@ -2300,13 +2611,16 @@ const formatNumber = (value: number) => new Intl.NumberFormat('zh-CN', { maximum
 const formatBytes = (value: number) => value >= 1048576 ? `${(value / 1048576).toFixed(1)} MB` : `${Math.ceil(value / 1024)} KB`;
 const formatDate = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 
+let workbenchAlive = true;
 onMounted(async () => {
 	runtimeStatusFrame = requestAnimationFrame(updateRuntimeStatusAnchor);
 	window.addEventListener('keydown', handleWorkbenchKeydown);
 	pageLoading.value = true;
 	try {
 		await Promise.all([loadAssets(), loadModels(), loadScenes()]);
+		if (!workbenchAlive) return;
 		await nextTick();
+		if (!workbenchAlive) return;
 		const requestedSceneId = typeof currentRoute.query.sceneId === 'string' ? currentRoute.query.sceneId : '';
 		const targetScene = requestedSceneId ? scenes.value.find((item) => item.id === requestedSceneId) : undefined;
 		if (targetScene) await loadScene(targetScene.id);
@@ -2319,17 +2633,18 @@ onMounted(async () => {
 			resetWorkbenchHistory();
 		}
 	}
-	finally { pageLoading.value = false; }
+	finally { if (workbenchAlive) pageLoading.value = false; }
 });
 watch(manifest, () => scheduleWorkbenchHistory(), { deep: true });
-onBeforeUnmount(() => { if (runtimeStatusFrame) cancelAnimationFrame(runtimeStatusFrame); runtimeStatusFrame = 0; window.removeEventListener('keydown', handleWorkbenchKeydown); if (workbenchHistoryTimer !== undefined) window.clearTimeout(workbenchHistoryTimer); stopSnapshotPolling(); adapter.value?.dispose(); adapter.value = undefined; professionalEditor.value = undefined; modelBufferCache.clear(); });
+onBeforeUnmount(() => { workbenchAlive = false; if (runtimeStatusFrame) cancelAnimationFrame(runtimeStatusFrame); runtimeStatusFrame = 0; window.removeEventListener('keydown', handleWorkbenchKeydown); if (workbenchHistoryTimer !== undefined) window.clearTimeout(workbenchHistoryTimer); if (editorDiagnosticsTimer !== undefined) window.clearTimeout(editorDiagnosticsTimer); stopSnapshotPolling(); adapter.value?.dispose(); adapter.value = undefined; professionalEditor.value = undefined; modelBufferCache.clear(); });
 </script>
 
 <style scoped lang="scss">
+.twin-layout.is-flow-split{grid-template-columns:300px minmax(360px,.8fr) minmax(560px,1.2fr) 310px}.twin-layout.is-flow-split.is-left-collapsed{grid-template-columns:0 minmax(360px,.8fr) minmax(560px,1.2fr) 310px}.twin-layout.is-flow-split.is-right-collapsed{grid-template-columns:300px minmax(360px,.8fr) minmax(560px,1.2fr) 0}.twin-layout.is-flow-split.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(360px,.8fr) minmax(560px,1.2fr) 0}.twin-layout.is-flow-split .twin-panel--right{grid-column:4}.twin-flow-split-pane{grid-column:3;min-width:0;min-height:0;padding:8px;border-left:1px solid var(--border);background:#07111f;overflow:hidden}.twin-flow-only{display:block;flex:1;min-height:0;padding:10px;background:#07111f;overflow:hidden}
 .twin-workbench{--border:rgba(148,163,184,.2);--panel:rgba(8,19,34,.97);display:flex;flex-direction:column;height:calc(100vh - 132px);height:calc(100dvh - 132px);min-height:560px;margin:-15px;color:#dbeafe;background:#07111f;overflow:hidden}.twin-toolbar{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-start;gap:12px;min-height:56px;padding:7px 12px;border-bottom:1px solid var(--border);background:#07111f;overflow-x:auto;overflow-y:hidden;white-space:nowrap}.twin-toolbar__title,.twin-toolbar__actions{display:flex;flex:0 0 auto;align-items:center;gap:7px;flex-wrap:nowrap}.twin-toolbar__title{min-width:0}.twin-toolbar__actions{margin-left:auto}.scene-select{width:200px}.twin-toolbar :deep(.el-button){flex:0 0 auto}.twin-toolbar__eyebrow,.twin-panel__heading span{font-size:10px;font-weight:800;letter-spacing:.15em;color:#38bdf8}.is-hidden{display:none}
 .twin-status-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-bottom:1px solid var(--border);background:#0a1728}.twin-status-strip>div{display:flex;flex-direction:column;gap:4px;padding:9px 15px;border-right:1px solid var(--border)}.twin-status-strip span,.twin-card__label{font-size:11px;color:#7f95ad}.twin-status-strip strong{font-size:12px}.twin-status-strip strong small{font:inherit}.is-running{color:#4ade80}.is-paused{color:#fbbf24}.is-waiting{color:#fb7185}.is-completed{color:#38bdf8}
-.twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1;overflow:hidden;transition:grid-template-columns .2s ease}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(420px,1fr) 310px}.twin-layout.is-right-collapsed{grid-template-columns:300px minmax(420px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(420px,1fr) 0}.twin-panel{height:100%;min-height:0;padding:14px;background:var(--panel);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.twin-panel--left{grid-column:1;border-right:1px solid var(--border)}.twin-panel--right{grid-column:3;border-left:1px solid var(--border)}.twin-panel__heading{position:sticky;top:-14px;z-index:4;margin:-14px -14px 0;padding:14px;border-bottom:1px solid var(--border);background:var(--panel)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}.root-asset-help{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border:1px solid rgba(245,158,11,.32);border-radius:8px;background:rgba(245,158,11,.08)}.root-asset-help span{display:flex;flex-shrink:0}.root-asset-warning{color:#fbbf24!important}
-.twin-left-tabs{position:sticky;top:54px;z-index:3;margin:0 -6px 8px;padding:7px 6px 0;background:var(--panel)}.twin-left-tabs :deep(.el-tabs__header){margin:0}.twin-left-tabs :deep(.el-tabs__content){display:none}.twin-left-tabs :deep(.el-tabs__item){height:34px;padding:0 5px;font-size:11px}.twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}.twin-library-panel{display:flex;flex-direction:column;gap:9px;padding-bottom:12px}.twin-library-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.twin-library-actions{display:flex;gap:6px}.twin-library-actions :deep(.el-button){flex:1;margin:0}.twin-library-tip{color:#64748b;font-size:10px;line-height:1.45}.twin-library-group-title{display:flex;align-items:center;justify-content:space-between;margin-top:5px;padding-top:8px;border-top:1px solid var(--border)}.twin-library-group-title strong{font-size:11px;color:#e2e8f0}.twin-library-group-title span{font-size:10px;color:#64748b}.twin-library-list{display:flex;flex-direction:column;gap:6px}.twin-library-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(15,31,52,.65);transition:border-color .15s ease,background .15s ease,opacity .15s ease}.twin-library-item.is-draggable{cursor:grab;user-select:none}.twin-library-item.is-draggable:hover{border-color:rgba(56,189,248,.55);background:rgba(14,40,65,.75)}.twin-library-item.is-draggable:active{cursor:grabbing}.twin-library-item.is-disabled{opacity:.55}.twin-library-item__main{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-library-item__main strong,.twin-library-item__main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.twin-library-item__main strong{font-size:11px;color:#f8fafc}.twin-library-item__main small{font-size:9px;color:#7890a8}.twin-library-item :deep(.el-tag){max-width:62px}.twin-library-item :deep(.el-button){margin:0;padding-left:4px;padding-right:4px}
+.twin-layout{display:grid;grid-template-columns:300px minmax(420px,1fr) 310px;min-height:0;flex:1;overflow:hidden;}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(420px,1fr) 310px}.twin-layout.is-right-collapsed{grid-template-columns:300px minmax(420px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(420px,1fr) 0}.twin-panel{height:100%;min-height:0;padding:14px;background:var(--panel);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.twin-panel--left{grid-column:1;border-right:1px solid var(--border)}.twin-panel--right{grid-column:3;border-left:1px solid var(--border)}.twin-panel__heading{position:sticky;top:-14px;z-index:4;margin:-14px -14px 0;padding:14px;border-bottom:1px solid var(--border);background:var(--panel)}.twin-panel__heading,.twin-panel__subheading,.twin-inline-control{display:flex;align-items:center;justify-content:space-between;gap:10px}.twin-panel__heading>div{display:flex;flex-direction:column;gap:5px}.twin-panel__heading strong,.twin-panel__subheading strong{color:#f8fafc}.twin-panel__subheading{margin-top:18px}.root-asset-help{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border:1px solid rgba(245,158,11,.32);border-radius:8px;background:rgba(245,158,11,.08)}.root-asset-help span{display:flex;flex-shrink:0}.root-asset-warning{color:#fbbf24!important}
+.twin-left-tabs{position:sticky;top:54px;z-index:3;margin:0 -6px 8px;padding:7px 6px 0;background:var(--panel)}.twin-left-tabs :deep(.el-tabs__header){margin:0}.twin-left-tabs :deep(.el-tabs__content){display:none}.twin-panel :deep(.el-tabs__item){height:34px;padding:0 5px;color:#e5eef8;font-size:11px;font-weight:650;text-shadow:0 1px 1px rgba(0,0,0,.35)}.twin-panel :deep(.el-tabs__item:hover){color:#fff}.twin-panel :deep(.el-tabs__item.is-active){color:#fff;font-weight:800;background:rgba(56,189,248,.08)}.twin-panel :deep(.el-tabs__active-bar){height:2px;background:#38bdf8;box-shadow:0 0 8px rgba(56,189,248,.55)}.twin-panel--right .twin-card__label,.twin-panel--right .twin-card label{color:#e5eef8}.twin-card{display:flex;flex-direction:column;gap:9px;margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:12px;background:rgba(15,31,52,.82)}.twin-card label{font-size:12px;color:#9fb2c8}.twin-card small,.compact-list small,.binding-list small,.resource-card small,.version-card small{line-height:1.5;color:#7890a8;word-break:break-all}.twin-selection-card>strong,.resource-card strong{color:#f8fafc}.compact-list,.binding-list,.resource-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}.compact-list>div,.binding-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.binding-list>div>div{display:flex;flex-direction:column;gap:3px}.twin-library-panel{display:flex;flex-direction:column;gap:9px;padding-bottom:12px}.twin-library-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}.twin-library-actions{display:flex;gap:6px}.twin-library-actions :deep(.el-button){flex:1;margin:0}.twin-library-tip{color:#64748b;font-size:10px;line-height:1.45}.twin-library-group-title{display:flex;align-items:center;justify-content:space-between;margin-top:5px;padding-top:8px;border-top:1px solid var(--border)}.twin-library-group-title strong{font-size:11px;color:#e2e8f0}.twin-library-group-title span{font-size:10px;color:#64748b}.twin-library-list{display:flex;flex-direction:column;gap:6px}.twin-library-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(15,31,52,.65);transition:border-color .15s ease,background .15s ease,opacity .15s ease}.twin-library-item.is-draggable{cursor:grab;user-select:none}.twin-library-item.is-draggable:hover{border-color:rgba(56,189,248,.55);background:rgba(14,40,65,.75)}.twin-library-item.is-draggable:active{cursor:grabbing}.twin-library-item.is-disabled{opacity:.55}.twin-library-item__main{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-library-item__main strong,.twin-library-item__main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.twin-library-item__main strong{font-size:11px;color:#f8fafc}.twin-library-item__main small{font-size:9px;color:#7890a8}.twin-library-item :deep(.el-tag){max-width:62px}.twin-library-item :deep(.el-button){margin:0;padding-left:4px;padding-right:4px}
 .twin-runtime-detail{max-height:230px;margin:0;padding:9px;border:1px solid rgba(56,189,248,.22);border-radius:8px;background:rgba(2,8,23,.72);overflow:auto;color:#bae6fd;font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
 .twin-behavior-editor{border-color:rgba(34,197,94,.28)}.twin-behavior-item{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(2,8,23,.38)}.twin-behavior-item__head{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:5px}.twin-behavior-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}.twin-action-row{display:flex;flex-direction:column;gap:5px;padding:7px;border-left:2px solid rgba(56,189,248,.5);background:rgba(15,31,52,.55)}.twin-action-row__head{display:grid;grid-template-columns:22px minmax(0,1fr) 28px;align-items:center;gap:5px}.twin-action-row__head>span{display:grid;place-items:center;height:22px;border-radius:6px;background:rgba(14,165,233,.18);font-size:10px;color:#7dd3fc}.twin-condition-row{display:grid;grid-template-columns:minmax(0,1fr) 82px 28px;gap:5px}.twin-behavior-editor :deep(.el-input-number){width:100%}
 .twin-port-connect-editor{border-color:rgba(56,189,248,.32)}.twin-port-connect-row{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);align-items:center;gap:7px;padding:7px;border:1px solid var(--border);border-radius:8px;background:rgba(2,8,23,.34)}.twin-port-connect-row>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-port-connect-row strong{font-size:11px;color:#e0f2fe}.twin-port-connect-row small{overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.twin-port-connect-row :deep(.el-select){width:100%}
@@ -2337,7 +2652,7 @@ onBeforeUnmount(() => { if (runtimeStatusFrame) cancelAnimationFrame(runtimeStat
 .silk-simulation-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.silk-simulation-grid>label{display:flex;flex-direction:column;gap:4px}.silk-simulation-grid>label>span{display:flex;gap:3px}.silk-simulation-grid :deep(.el-input-number){width:100%}.twin-status-strip--silk{background:#0b1d27}.twin-status-strip--silk strong{color:#a7f3d0}
 .twin-route-points{display:flex;flex-direction:column;gap:8px;margin-top:10px}.twin-route-point{padding:9px;border:1px solid var(--border);border-radius:10px;background:rgba(15,31,52,.65)}.twin-route-point.is-selected{border-color:#38bdf8}.twin-route-point__title{display:grid;grid-template-columns:24px 1fr 28px;align-items:center;gap:6px}.twin-route-point__title>span{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;font-size:11px;background:rgba(14,165,233,.2);color:#7dd3fc}.twin-route-point__meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}.twin-route-point__meta :deep(.el-select){width:130px}.twin-route-binding-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.twin-route-process-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px;padding:7px;border:1px solid rgba(56,189,248,.26);border-radius:7px}.twin-route-process-grid :deep(.el-input-number){width:100%}.twin-coordinate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:7px}.twin-coordinate-grid :deep(.el-input-number){width:100%}.twin-route-graph-editor{gap:8px}.twin-route-edge-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edges{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-edge{display:flex;flex-direction:column;align-items:stretch;gap:7px;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-edge.is-blocked{border-color:rgba(239,68,68,.5)}.twin-route-edge__header{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px}.twin-route-edge__header>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-edge__settings{display:grid;grid-template-columns:1fr 1fr;gap:6px}.twin-route-edge__settings>div{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px}.twin-route-edge__settings label{font-size:10px}.twin-route-edge strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.twin-route-edge small{font-size:10px;color:#7890a8}.twin-junction-decision{border-color:rgba(245,158,11,.35)}.twin-routing-preview{border-color:rgba(34,197,94,.32)}.twin-route-rules{display:flex;flex-direction:column;gap:7px;margin-top:9px}.twin-route-rules>div{display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:7px;padding:8px 9px;border:1px solid rgba(34,197,94,.3);border-radius:9px;background:rgba(15,31,52,.65)}.twin-route-rules>div>div{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-route-rules strong{font-size:11px}.twin-route-rules small{overflow:hidden;font-size:10px;color:#7890a8;text-overflow:ellipsis;white-space:nowrap}
 .twin-secondary-route{border-color:rgba(168,85,247,.28)}.twin-secondary-route>.twin-inline-control strong{font-size:12px;color:#e9d5ff}.twin-secondary-route>.twin-inline-control small{text-align:right}
-.twin-viewport-shell{grid-column:2;position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport-shell.is-resource-drag-over{box-shadow:inset 0 0 0 2px #38bdf8}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:12;width:30px;height:30px;border-color:rgba(56,189,248,.42);background:rgba(7,17,31,.88);color:#7dd3fc;font-size:20px}.twin-panel-toggle--left{left:10px}.twin-panel-toggle--right{right:10px}.twin-resource-drop-target{position:absolute;inset:18px;z-index:30;display:grid;place-content:center;gap:5px;border:2px dashed rgba(56,189,248,.8);border-radius:18px;color:#e0f2fe;background:rgba(3,15,28,.58);text-align:center;pointer-events:none;backdrop-filter:blur(2px)}.twin-resource-drop-target strong{font-size:18px}.twin-resource-drop-target span{font-size:11px;color:#7dd3fc}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}.twin-object-status{position:absolute;z-index:20;width:344px;padding:12px;border:1px solid rgba(56,189,248,.42);border-radius:12px;background:rgba(5,16,29,.94);box-shadow:0 16px 42px rgba(0,0,0,.48),0 0 0 1px rgba(56,189,248,.08) inset;color:#dbeafe;backdrop-filter:blur(10px)}.twin-object-status__arrow{position:absolute;width:13px;height:13px;background:#07111f}.twin-object-status.is-above .twin-object-status__arrow{bottom:-7px;border-right:1px solid rgba(56,189,248,.42);border-bottom:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.twin-object-status.is-below .twin-object-status__arrow{top:-7px;border-left:1px solid rgba(56,189,248,.42);border-top:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.twin-object-status__head{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;padding-bottom:8px;border-bottom:1px solid rgba(148,163,184,.15)}.twin-object-status__head>div:first-child{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-object-status__head>div:last-child{display:flex;align-items:center;gap:6px}.twin-object-status__head small{font-size:8px;letter-spacing:.14em;color:#38bdf8}.twin-object-status__head strong{overflow:hidden;font-size:14px;color:#f8fafc;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__head span{max-width:205px;overflow:hidden;font-size:9px;color:#64748b;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__head button{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:rgba(148,163,184,.12);color:#94a3b8;font-size:17px;cursor:pointer}.twin-object-status__grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.twin-object-status__grid>div{display:flex;min-width:0;flex-direction:column;gap:2px;padding:6px 7px;border-radius:7px;background:rgba(15,31,52,.72)}.twin-object-status__grid label{font-size:8px;color:#64748b}.twin-object-status__grid b{overflow:hidden;font-size:10px;font-weight:500;color:#cbd5e1;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__signals{display:grid;gap:4px;margin-top:8px}.twin-object-status__signals>div{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;background:rgba(15,31,52,.58);font-size:9px}.twin-object-status__signals span{overflow:hidden;color:#94a3b8;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__signals code{color:#f8fafc}.twin-object-status__signals i{font-style:normal;color:#94a3b8}.twin-object-status__signals i.is-good{color:#4ade80}.twin-object-status__signals i.is-stale,.twin-object-status__signals i.is-waiting{color:#facc15}.twin-object-status__signals i.is-bad,.twin-object-status__signals i.is-missing{color:#f87171}.twin-object-status__signals>small,.twin-object-status__empty{margin-top:3px;font-size:9px;color:#64748b}.twin-object-status__runtime{max-height:82px;margin:8px 0 0;padding:7px;overflow:auto;border:0;border-radius:7px;background:#030914;color:#86efac;font-size:9px}.twin-object-status__summary{display:grid;grid-template-columns:1fr 1fr;gap:4px 7px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,.12)}.twin-object-status__summary>div{display:flex;min-width:0;justify-content:space-between;gap:7px;padding:4px 6px;border-radius:5px;background:rgba(15,31,52,.45)}.twin-object-status__summary label{color:#64748b;font-size:8px}.twin-object-status__summary b{overflow:hidden;color:#dbeafe;font-size:9px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__binding{margin-top:4px;padding-left:0}
+.twin-viewport-shell{grid-column:2;position:relative;min-width:0;min-height:560px;background:#050c16}.twin-viewport-shell.is-resource-drag-over{box-shadow:inset 0 0 0 2px #38bdf8}.twin-viewport{position:absolute;inset:0}.twin-viewport :deep(canvas){display:block;width:100%;height:100%;outline:none}.twin-panel-toggle{position:absolute;top:12px;z-index:40;width:30px;height:34px;margin:0!important;border-color:rgba(56,189,248,.52);background:rgba(7,17,31,.95);color:#7dd3fc;font-size:20px;box-shadow:0 6px 18px rgba(0,0,0,.3)}.twin-panel-toggle--left{left:0;border-top-left-radius:0;border-bottom-left-radius:0}.twin-panel-toggle--right{right:0;border-top-right-radius:0;border-bottom-right-radius:0}.twin-resource-drop-target{position:absolute;inset:18px;z-index:30;display:grid;place-content:center;gap:5px;border:2px dashed rgba(56,189,248,.8);border-radius:18px;color:#e0f2fe;background:rgba(3,15,28,.58);text-align:center;pointer-events:none;backdrop-filter:blur(2px)}.twin-resource-drop-target strong{font-size:18px}.twin-resource-drop-target span{font-size:11px;color:#7dd3fc}.twin-viewport__hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--border);border-radius:20px;font-size:11px;color:#9fb2c8;background:rgba(3,10,19,.8);pointer-events:none}.twin-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(56,189,248,.12)}.twin-progress i{display:block;height:100%;background:#38bdf8;transition:width .15s linear}.twin-object-status{position:absolute;z-index:20;width:344px;padding:12px;border:1px solid rgba(56,189,248,.42);border-radius:12px;background:rgba(5,16,29,.94);box-shadow:0 16px 42px rgba(0,0,0,.48),0 0 0 1px rgba(56,189,248,.08) inset;color:#dbeafe;backdrop-filter:blur(10px)}.twin-object-status__arrow{position:absolute;width:13px;height:13px;background:#07111f}.twin-object-status.is-above .twin-object-status__arrow{bottom:-7px;border-right:1px solid rgba(56,189,248,.42);border-bottom:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.twin-object-status.is-below .twin-object-status__arrow{top:-7px;border-left:1px solid rgba(56,189,248,.42);border-top:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.twin-object-status__head{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;padding-bottom:8px;border-bottom:1px solid rgba(148,163,184,.15)}.twin-object-status__head>div:first-child{display:flex;min-width:0;flex-direction:column;gap:2px}.twin-object-status__head>div:last-child{display:flex;align-items:center;gap:6px}.twin-object-status__head small{font-size:8px;letter-spacing:.14em;color:#38bdf8}.twin-object-status__head strong{overflow:hidden;font-size:14px;color:#f8fafc;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__head span{max-width:205px;overflow:hidden;font-size:9px;color:#64748b;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__head button{width:22px;height:22px;padding:0;border:0;border-radius:6px;background:rgba(148,163,184,.12);color:#94a3b8;font-size:17px;cursor:pointer}.twin-object-status__grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.twin-object-status__grid>div{display:flex;min-width:0;flex-direction:column;gap:2px;padding:6px 7px;border-radius:7px;background:rgba(15,31,52,.72)}.twin-object-status__grid label{font-size:8px;color:#64748b}.twin-object-status__grid b{overflow:hidden;font-size:10px;font-weight:500;color:#cbd5e1;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__signals{display:grid;gap:4px;margin-top:8px}.twin-object-status__signals>div{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:5px 7px;border-radius:6px;background:rgba(15,31,52,.58);font-size:9px}.twin-object-status__signals span{overflow:hidden;color:#94a3b8;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__signals code{color:#f8fafc}.twin-object-status__signals i{font-style:normal;color:#94a3b8}.twin-object-status__signals i.is-good{color:#4ade80}.twin-object-status__signals i.is-stale,.twin-object-status__signals i.is-waiting{color:#facc15}.twin-object-status__signals i.is-bad,.twin-object-status__signals i.is-missing{color:#f87171}.twin-object-status__signals>small,.twin-object-status__empty{margin-top:3px;font-size:9px;color:#64748b}.twin-object-status__runtime{max-height:82px;margin:8px 0 0;padding:7px;overflow:auto;border:0;border-radius:7px;background:#030914;color:#86efac;font-size:9px}.twin-object-status__summary{display:grid;grid-template-columns:1fr 1fr;gap:4px 7px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,.12)}.twin-object-status__summary>div{display:flex;min-width:0;justify-content:space-between;gap:7px;padding:4px 6px;border-radius:5px;background:rgba(15,31,52,.45)}.twin-object-status__summary label{color:#64748b;font-size:8px}.twin-object-status__summary b{overflow:hidden;color:#dbeafe;font-size:9px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.twin-object-status__binding{margin-top:4px;padding-left:0}
 .twin-diagnostics{display:flex;flex-direction:column;gap:7px;margin-top:14px}.twin-diagnostics>div{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:start;gap:7px;padding:8px;border-radius:8px;font-size:11px;line-height:1.45}.twin-diagnostics>div.is-locatable{cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}.twin-diagnostics>div.is-locatable:hover{transform:translateX(-2px);box-shadow:0 0 0 1px rgba(56,189,248,.3)}.twin-diagnostics>div:not(.is-locatable)>span{grid-column:2/4}.twin-diagnostics .is-error{background:rgba(239,68,68,.12);color:#fca5a5}.twin-diagnostics .is-warning{background:rgba(245,158,11,.12);color:#fcd34d}.twin-diagnostics .is-success{background:rgba(34,197,94,.12);color:#86efac}.resource-actions{display:flex;gap:8px;margin-bottom:12px}.resource-grid{margin-top:14px}.resource-card{display:grid;grid-template-columns:1fr auto;gap:8px;padding:13px;border:1px solid var(--el-border-color);border-radius:10px;transition:border-color .15s ease,box-shadow .15s ease,opacity .15s ease}.resource-card.is-draggable{cursor:grab;user-select:none}.resource-card.is-draggable:hover{border-color:#409eff;box-shadow:0 5px 18px rgba(64,158,255,.14)}.resource-card.is-draggable:active{cursor:grabbing}.resource-card.is-disabled{opacity:.62}.resource-card>div,.version-card{display:flex;flex-direction:column;gap:5px}.resource-card>.el-button{grid-column:1/-1}.version-card>span{color:var(--el-text-color-regular)}
 .device-status-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding-right:26px}.device-status-heading>div{display:flex;min-width:0;flex-direction:column;gap:4px}.device-status-heading small{font-size:10px;font-weight:800;letter-spacing:.16em;color:#0ea5e9}.device-status-heading strong{font-size:20px;color:var(--el-text-color-primary)}.device-status-heading span{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.device-status-section{display:flex;flex-direction:column;gap:12px;margin-top:18px}.device-status-section>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.device-status-section>div small{color:var(--el-text-color-secondary)}.device-status-section code{color:#0284c7;font-weight:700}
 @media(max-width:1200px){.twin-layout{grid-template-columns:260px minmax(360px,1fr) 280px}.twin-layout.is-left-collapsed{grid-template-columns:0 minmax(360px,1fr) 280px}.twin-layout.is-right-collapsed{grid-template-columns:260px minmax(360px,1fr) 0}.twin-layout.is-left-collapsed.is-right-collapsed{grid-template-columns:0 minmax(360px,1fr) 0}.twin-toolbar{align-items:center;flex-direction:row}.twin-status-strip{grid-template-columns:repeat(3,1fr)}}

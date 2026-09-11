@@ -83,17 +83,29 @@ export class ThreeEditorRouteOverlay {
 			const from = points.get(edge.fromPointId);
 			const to = points.get(edge.toPointId);
 			if (!from || !to) continue;
-			const geometry = new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(...from.position),
-				new THREE.Vector3(...to.position),
-			]);
-			const color = edge.blocked ? 0xef4444 : edge.enabled === false ? 0x64748b : route.generatedBy === 'component-connections' ? 0x06b6d4 : 0x38bdf8;
+			const fromVector = new THREE.Vector3(...from.position);
+			const toVector = new THREE.Vector3(...to.position);
+			const geometry = new THREE.BufferGeometry().setFromPoints([fromVector, toVector]);
+			const manual = edge.authoring?.mode === 'manual';
+			const color = edge.blocked ? 0xef4444 : edge.enabled === false ? 0x64748b : manual ? 0x38bdf8 : route.generatedBy === 'component-connections' ? 0x06b6d4 : 0x38bdf8;
 			const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: edge.enabled === false ? 0.35 : 0.9, depthTest: false, depthWrite: false });
 			const line = new THREE.Line(geometry, material);
 			line.name = edge.name || edge.edgeId;
 			line.renderOrder = 950;
 			line.userData = { iotsharpTwinHelper: true, iotsharpRouteEdge: true, routeId: route.routeId, edgeId: edge.edgeId };
 			this.edgeGroup.add(line);
+			const delta = toVector.clone().sub(fromVector);
+			const distance = delta.length();
+			if (distance > 0.25) {
+				const direction = delta.normalize();
+				const arrowLength = Math.min(0.9, Math.max(0.35, distance * 0.18));
+				const origin = fromVector.clone().lerp(toVector, 0.5).addScaledVector(direction, -arrowLength * 0.5);
+				const arrow = new THREE.ArrowHelper(direction, origin, arrowLength, color, Math.min(0.24, arrowLength * 0.42), Math.min(0.14, arrowLength * 0.25));
+				arrow.name = `${edge.edgeId}-direction`;
+				arrow.userData = { iotsharpTwinHelper: true, iotsharpRouteDirection: true, routeId: route.routeId, edgeId: edge.edgeId };
+				arrow.traverse((child) => { child.renderOrder = 960; });
+				this.edgeGroup.add(arrow);
+			}
 		}
 
 		for (let index = 0; index < route.points.length; index += 1) {
@@ -163,6 +175,7 @@ export class ThreeEditorRouteOverlay {
 		const route = this.manifest.routes.find((candidate) => candidate.routeId === routeId);
 		const point = route?.points.find((candidate) => candidate.pointId === pointId);
 		if (!route || !point) return undefined;
+		if (point.authoring?.mode === 'generated' && point.authoring.locked !== false) return undefined;
 		point.position = [mesh.position.x, mesh.position.y, mesh.position.z];
 		this.rebuild(this.manifest);
 		return route;
@@ -172,12 +185,13 @@ export class ThreeEditorRouteOverlay {
 		const route = this.manifest.routes?.[routeIndex];
 		const point = route?.points?.[pointIndex];
 		if (!route || !point) return undefined;
+		if (point.authoring?.mode === 'generated' && point.authoring.locked !== false) return undefined;
 		point.position = [...position] as TwinVector3;
 		this.rebuild(this.manifest);
 		return route;
 	}
 
-	addPoint(position?: TwinVector3, routeIndex = 0) {
+	addPoint(position?: TwinVector3, routeIndex = 0, connectFromPointId?: string | null) {
 		const route = this.manifest.routes?.[routeIndex];
 		if (!route) return undefined;
 		const last = route.points[route.points.length - 1];
@@ -187,8 +201,14 @@ export class ThreeEditorRouteOverlay {
 			last?.position?.[2] ?? 0,
 		] as TwinVector3);
 		const point = createRoutePoint([...target] as TwinVector3, route.points.length);
+		point.authoring = { mode: 'manual', locked: false };
 		route.points.push(point);
-		if (last) route.edges.push(createRouteEdge(last.pointId, point.pointId, route.edges.length));
+		const sourcePoint = connectFromPointId === null ? undefined : connectFromPointId ? route.points.find((item) => item.pointId === connectFromPointId) : last;
+		if (sourcePoint) {
+			const edge = createRouteEdge(sourcePoint.pointId, point.pointId, route.edges.length);
+			edge.authoring = { mode: 'manual', locked: false };
+			route.edges.push(edge);
+		}
 		this.rebuild(this.manifest);
 		this.setSelectedPoint(route.routeId, point.pointId);
 		return { route, point };
@@ -201,6 +221,7 @@ export class ThreeEditorRouteOverlay {
 			if (index < 0) return undefined;
 			if (route.points.length <= 2) return undefined;
 			const removed = route.points[index];
+			if (removed.authoring?.mode === 'generated' && removed.authoring.locked !== false) return undefined;
 			const removedEdgeIds = new Set(route.edges.filter((edge) => edge.fromPointId === removed.pointId || edge.toPointId === removed.pointId).map((edge) => edge.edgeId));
 			route.points.splice(index, 1);
 			route.edges = route.edges.filter((edge) => !removedEdgeIds.has(edge.edgeId));

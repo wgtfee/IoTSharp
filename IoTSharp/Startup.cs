@@ -21,6 +21,7 @@ using Industrial.Security.AspNetCore;
 using Industrial.Health;
 using IoTSharp.Health;
 using IoTSharp.Services.DigitalTwin;
+using IoTSharp.Services.DigitalTwin.ActionFlow;
 using IoTSharp.Services.Mcp;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
@@ -165,6 +166,17 @@ namespace IoTSharp
             }).AddJwtBearer(options =>
             {
                 options.SaveToken = true;
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"].FirstOrDefault();
+                        if (!string.IsNullOrWhiteSpace(accessToken)
+                            && context.HttpContext.Request.Path.StartsWithSegments("/hubs/digital-twin/action-flows"))
+                            context.Token = accessToken;
+                        return Task.CompletedTask;
+                    }
+                };
                 if (centralizedAuthentication)
                 {
                     options.Authority = Configuration["Security:Central:Authority"] ?? "http://localhost:5100";
@@ -229,6 +241,11 @@ namespace IoTSharp
             services.AddTransient<ApplicationDBInitializer>();
             services.AddScoped<DigitalTwinSceneService>();
             services.AddScoped<TwinModelResourceService>();
+            services.AddScoped<TwinActionFlowRuntimeService>();
+            services.AddScoped<ITwinActionFlowCommandAdapter, TwinActionFlowRpcCommandAdapter>();
+            services.AddScoped<ITwinActionFlowEventPublisher, TwinActionFlowSignalREventPublisher>();
+            services.AddHostedService<TwinActionFlowRecoveryWorker>();
+            services.AddSignalR();
             services.Configure<TwinModelGenerationOptions>(Configuration.GetSection("DigitalTwin:ModelGeneration"));
             services.AddScoped<TwinModelGenerationService>();
             services.AddHttpClient<Img2ThreeJsGenerationClient>();
@@ -486,6 +503,7 @@ namespace IoTSharp
                 });
                 endpoints.MapHealthChecksUI();
                 endpoints.MapControllers();
+                endpoints.MapHub<TwinActionFlowRunEventHub>("/hubs/digital-twin/action-flows");
                 endpoints.MapIndustrialSecurityCacheInvalidation();
                 endpoints.MapIndustrialLocalUserManagementInfo();
                 endpoints.MapIndustrialEmergencyValidation();

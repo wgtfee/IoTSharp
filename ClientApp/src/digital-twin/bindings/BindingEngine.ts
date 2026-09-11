@@ -28,6 +28,7 @@ export class BindingEngine {
 		private readonly applyRouteSignal?: (bindingId: string, value: unknown, stale: boolean) => void,
 		private readonly applyRouteSlotArray?: (binding: TwinObjectBindingDefinition, value: unknown, stale: boolean) => void,
 		private readonly applyRouteDistance?: (binding: TwinObjectBindingDefinition, object: any, distanceMeters: number) => void,
+		private readonly applyActuatorValue?: (binding: TwinObjectBindingDefinition, value: unknown, update: TwinDataUpdate) => void,
 	) {
 		this.setManifest(manifest);
 	}
@@ -85,6 +86,10 @@ export class BindingEngine {
 		}
 		if (binding.transform.kind === 'routeEvent') {
 			this.applyRouteSignal?.(binding.bindingId, update.value, update.stale || update.quality === 'bad' || update.quality === 'missing');
+			return;
+		}
+		if (binding.target.kind === 'actuator') {
+			this.applyActuatorValue?.(binding, this.transform(binding, update.value), update);
 			return;
 		}
 		const root = this.resolveObject(binding.objectId);

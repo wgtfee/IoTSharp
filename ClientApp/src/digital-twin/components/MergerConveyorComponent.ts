@@ -16,6 +16,7 @@ export class MergerConveyorComponent implements TwinComponentGenerator {
 		const outputLength = resolveNumber(props, 'outputLength', 2.2, 0.8, 12);
 		const branchAngleDeg = resolveNumber(props, 'branchAngle', 35, 10, 80);
 		const branchAngle = THREE.MathUtils.degToRad(branchAngleDeg);
+		const branchSide = props.branchSide === 'negative' ? -1 : 1;
 		const rollerDiameter = resolveNumber(props, 'rollerDiameter', 0.14, 0.05, 0.6);
 		const rollerPitch = resolveNumber(props, 'rollerPitch', 0.5, rollerDiameter * 1.1, 2);
 		const root = new THREE.Group();
@@ -36,17 +37,17 @@ export class MergerConveyorComponent implements TwinComponentGenerator {
 		root.add(inputA);
 		const inputB = buildSegment(inputLength);
 		inputB.name = 'InputBranch';
-		inputB.rotation.y = branchAngle;
-		inputB.position.set(-Math.cos(branchAngle) * inputLength / 2, 0, Math.sin(branchAngle) * inputLength / 2);
+		inputB.rotation.y = branchAngle * branchSide;
+		inputB.position.set(-Math.cos(branchAngle) * inputLength / 2, 0, branchSide * Math.sin(branchAngle) * inputLength / 2);
 		root.add(inputB);
 		const output = buildSegment(outputLength);
 		output.name = 'OutputConveyor';
 		output.position.x = outputLength / 2;
 		root.add(output);
-		const inputBStart = new THREE.Vector3(-Math.cos(branchAngle) * inputLength, height, Math.sin(branchAngle) * inputLength);
+		const inputBStart = new THREE.Vector3(-Math.cos(branchAngle) * inputLength, height, branchSide * Math.sin(branchAngle) * inputLength);
 		const ports: TwinComponentPortDefinition[] = [
 			{ portId: 'input-a', name: '直行入口', type: 'material-input', localPosition: [-inputLength, height, 0], localDirection: [-1, 0, 0] },
-			{ portId: 'input-b', name: '汇流入口', type: 'material-input', localPosition: [inputBStart.x, height, inputBStart.z], localDirection: [-Math.cos(branchAngle), 0, Math.sin(branchAngle)] },
+			{ portId: 'input-b', name: '汇流入口', type: 'material-input', localPosition: [inputBStart.x, height, inputBStart.z], localDirection: [-Math.cos(branchAngle), 0, branchSide * Math.sin(branchAngle)] },
 			{ portId: 'output', name: '出口', type: 'material-output', localPosition: [outputLength, height, 0], localDirection: [1, 0, 0] },
 		];
 		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
@@ -66,7 +67,8 @@ export class MergerConveyorComponent implements TwinComponentGenerator {
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;
 		root.userData.merger = true;
-		root.userData.properties = { ...props, width, height, inputLength, outputLength, branchAngle: branchAngleDeg };
+		root.userData.branchSide = branchSide < 0 ? 'negative' : 'positive';
+		root.userData.properties = { ...props, width, height, inputLength, outputLength, branchAngle: branchAngleDeg, branchSide: branchSide < 0 ? 'negative' : 'positive' };
 		setTransform(root, definition.transform);
 		return createComponentResult(root, ports, internalFlows);
 	}

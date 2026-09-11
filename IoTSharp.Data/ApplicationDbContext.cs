@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using System;
@@ -45,6 +45,13 @@ namespace IoTSharp.Data
             modelBuilder.ApplyConfiguration(new TwinModelGenerationJobConfiguration());
             modelBuilder.ApplyConfiguration(new TwinObjectBindingConfiguration());
             modelBuilder.ApplyConfiguration(new TwinRouteConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinActionFlowConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinActionFlowRunConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinActionFlowRunStepConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinActionFlowEventConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinDeviceCommandConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinResourceReservationConfiguration());
+            modelBuilder.ApplyConfiguration(new TwinMaterialRuntimeConfiguration());
             modelBuilder.ApplyConfiguration(new McpToolDefinitionConfiguration());
             modelBuilder.ApplyConfiguration(new McpToolInvocationLogConfiguration());
             ConfigureProviderSpecificMappings(modelBuilder);
@@ -100,6 +107,16 @@ namespace IoTSharp.Data
             modelBuilder.Entity<TwinModelGenerationJob>().Property(c => c.ProviderMetadata).HasColumnType("NCLOB");
             modelBuilder.Entity<TwinObjectBinding>().Property(c => c.TransformConfig).HasColumnType("NCLOB");
             modelBuilder.Entity<TwinRoute>().Property(c => c.GraphPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlow>().Property(c => c.ActorScope).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlow>().Property(c => c.GraphPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlow>().Property(c => c.CompiledPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlowRun>().Property(c => c.InputPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlowRun>().Property(c => c.RuntimePayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlowRunStep>().Property(c => c.InputPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlowRunStep>().Property(c => c.OutputPayload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinActionFlowEvent>().Property(c => c.Payload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinDeviceCommand>().Property(c => c.Payload).HasColumnType("NCLOB");
+            modelBuilder.Entity<TwinMaterialRuntime>().Property(c => c.Metadata).HasColumnType("NCLOB");
         }
 
         public DbSet<Tenant> Tenant { get; set; }
@@ -180,6 +197,14 @@ namespace IoTSharp.Data
         public DbSet<TwinModelGenerationJob> TwinModelGenerationJobs { get; set; }
         public DbSet<TwinObjectBinding> TwinObjectBindings { get; set; }
         public DbSet<TwinRoute> TwinRoutes { get; set; }
+        public DbSet<TwinActionFlow> TwinActionFlows { get; set; }
+        public DbSet<TwinActionFlowRun> TwinActionFlowRuns { get; set; }
+        public DbSet<TwinActionFlowRunStep> TwinActionFlowRunSteps { get; set; }
+        public DbSet<TwinActionFlowEvent> TwinActionFlowEvents { get; set; }
+        public DbSet<TwinDeviceCommand> TwinDeviceCommands { get; set; }
+        public DbSet<TwinResourceReservation> TwinResourceReservations { get; set; }
+        public DbSet<TwinMaterialRuntime> TwinMaterialRuntimes { get; set; }
     }
 
 }
+

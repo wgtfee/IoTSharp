@@ -483,6 +483,8 @@ export class ProceduralPackagingLine {
 		renderLegacyGantryConveyors?: boolean;
 		renderLegacyPostProcessConveyor?: boolean;
 		woodPackagingRoute?: TwinRouteDefinition;
+		/** false = 专业编辑静态参考：只构建设备，不创建运行时托盘/丝锭/木托。默认 true，运行预览行为不变。 */
+		renderRuntimeMaterials?: boolean;
 	} = {}) {
 		this.options = {
 			robotCycleSeconds: options.robotCycleSeconds ?? 5,
@@ -516,12 +518,15 @@ export class ProceduralPackagingLine {
 		this.buildRobot();
 		this.buildGantryCell(visualOptions.renderLegacyGantryConveyors !== false);
 		this.buildPostProcessLine(visualOptions.renderLegacyPostProcessConveyor !== false);
-		this.buildPlasticPallets();
-		this.replaceSilkCart(true);
-		this.feedInitialPlasticPallets();
-		this.feedNewWoodPallet();
+		const renderRuntimeMaterials = visualOptions.renderRuntimeMaterials !== false;
+		if (renderRuntimeMaterials) {
+			this.buildPlasticPallets();
+			this.replaceSilkCart(true);
+			this.feedInitialPlasticPallets();
+			this.feedNewWoodPallet();
+		}
 		markShadow(this.group);
-		this.applyAllPoses();
+		if (renderRuntimeMaterials) this.applyAllPoses();
 	}
 
 	setRunning(running: boolean) {

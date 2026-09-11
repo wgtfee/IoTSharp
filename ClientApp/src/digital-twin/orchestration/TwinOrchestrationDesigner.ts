@@ -77,6 +77,9 @@ export const removeMaterialSlotDefinition = (manifest: TwinSceneManifest, slotId
 		if (action.sourceSlotId === slotId) delete action.sourceSlotId;
 		if (action.targetSlotId === slotId) delete action.targetSlotId;
 	}
+	for (const flow of manifest.actionFlows || []) for (const node of flow.nodes || []) {
+		for (const key of ['slotId', 'sourceSlotId', 'targetSlotId']) if (node.config?.[key] === slotId) delete node.config[key];
+	}
 };
 
 export const addToolFrameDefinition = (manifest: TwinSceneManifest, objectId: string, patch: Partial<TwinToolFrameDefinition> = {}) => {
@@ -166,5 +169,9 @@ export const removeInterlockDefinition = (manifest: TwinSceneManifest, interlock
 	for (const behavior of manifest.behaviors || []) {
 		behavior.interlockIds = (behavior.interlockIds || []).filter((item) => item !== interlockId);
 		for (const action of behavior.actions || []) if (action.waitForInterlockId === interlockId) delete action.waitForInterlockId;
+	}
+	for (const flow of manifest.actionFlows || []) for (const node of flow.nodes || []) {
+		if (!Array.isArray(node.config?.interlockIds)) continue;
+		node.config.interlockIds = node.config.interlockIds.filter((item) => String(item) !== interlockId);
 	}
 };

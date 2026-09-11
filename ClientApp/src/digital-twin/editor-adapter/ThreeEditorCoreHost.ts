@@ -6,6 +6,7 @@ import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPacka
 import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
 import { clearTransportRouteAttachment, defaultComponentRegistry, isComponentSceneObject, isTransportUnitSceneObject, revalidateComponentConnections, snapSceneComponent, upsertGeneratedComponentRoute, type TwinComponentDefinition } from '/@/digital-twin/components';
 import { ThreeEditorRouteOverlay } from '/@/digital-twin/editor-adapter/ThreeEditorRouteOverlay';
+import { detachRoutePointFromPort, snapRoutePointToNearestPort } from '/@/digital-twin/routes/RouteSnapEngine';
 import { EngineeringOverlayManager, type EngineeringOverlayLayer } from '/@/digital-twin/editor-adapter/EngineeringOverlayManager';
 import { normalizeScreenRect, projectWorldBoundsToScreen, screenRectsIntersect, type TwinScreenRect } from '/@/digital-twin/editor-adapter/MultiSelectionGeometry';
 
@@ -102,6 +103,11 @@ export class ThreeEditorCoreHost {
 	private readonly resizeObserver: ResizeObserver;
 	private readonly objectUrls = new Set<string>();
 	private readonly loadedModels = new Map<string, LoadedEditorModel>();
+	private readonly selectionRaycaster = new THREE.Raycaster();
+	private readonly selectionPointer = new THREE.Vector2();
+	private readonly selectionBounds = new Map<string, THREE.Box3>();
+	private readonly selectionMaterials = new Map<string, THREE.Material[]>();
+	private readonly selectionHighlightGroup = new THREE.Group();
 	private readonly routeOverlay: ThreeEditorRouteOverlay;
 	private readonly engineeringOverlay: EngineeringOverlayManager;
 	private transportUnitPreview?: RouteSlotArrayRuntime;
@@ -122,6 +128,17 @@ export class ThreeEditorCoreHost {
 	private routeDrawMode = false;
 	private latestSceneParams: Record<string, unknown> = {};
 	private latestModelParams: ThreeEditorModelSnapshot[] = [];
+	private suspendedBox3Helper?: any;
+	private dragComposerRenderWay?: string;
+	private dragShadowAutoUpdate?: boolean;
+	private interactionPixelRatio?: number;
+	private resizeRenderFrame = 0;
+	private lastViewportWidth = 0;
+	private lastViewportHeight = 0;
+	private dragRouteOverlayVisible?: boolean;
+	private dragEngineeringOverlayVisible?: boolean;
+	private dragTransportPreviewVisible?: boolean;
+	private readonly highlightedMaterials = new Map<THREE.Material, { emissive?: number; emissiveIntensity?: number; color?: number }>();
 	private disposed = false;
 
 	constructor(container: HTMLDivElement, guiContainer: HTMLDivElement, manifest: TwinSceneManifest, events: ThreeEditorCoreHostEvents = {}) {
@@ -137,9 +154,19 @@ export class ThreeEditorCoreHost {
 			threeBoxRef: container,
 			rendererParams: {
 				fps: null,
-				pixelRatio: Math.min(window.devicePixelRatio || 1, manifest.runtime.maxPixelRatio || 2),
-				webglRenderParams: { antialias: true, alpha: true, logarithmicDepthBuffer: true },
+				// 工程编辑优先交互响应。高 DPI 2x 会让像素填充量接近 4 倍；运行预览不受这里影响。
+				pixelRatio: Math.min(window.devicePixelRatio || 1, manifest.runtime.maxPixelRatio || 2, 1.5),
+				webglRenderParams: { antialias: true, alpha: true, logarithmicDepthBuffer: false, powerPreference: 'high-performance', stencil: false },
 				userPermissions: { autoPlace: false, proxy: false },
+				performanceMode: true,
+				sourceRender: true,
+				preferComposerWhenIdle: true,
+				// Scene Designer is an engineering authoring surface. Models may carry
+				// mixers/frame callbacks, but their mere presence must not keep the
+				// editor on a permanent RAF loop. Runtime/action preview owns playback.
+				continuousAnimation: false,
+				disableCssRender: true,
+				disableStats: true,
 			},
 			sceneParams: this.latestSceneParams,
 			meshListParams: [],
@@ -150,6 +177,14 @@ export class ThreeEditorCoreHost {
 			},
 		});
 		this.ensureIndustrialEditorEnvironment();
+		const transformControls = this.editor.viewer.transformControls;
+		transformControls.disableBox3Helper = true;
+		if (transformControls.box3Helper) {
+			this.editor.viewer.scene.remove(transformControls.box3Helper);
+			transformControls.box3Helper.geometry?.dispose?.();
+			transformControls.box3Helper.material?.dispose?.();
+			transformControls.box3Helper = null;
+		}
 
 		this.editor.setGUIDomPosition(guiContainer);
 		this.editor.setSceneControlMode('变换');
@@ -158,10 +193,16 @@ export class ThreeEditorCoreHost {
 		this.multiSelectionPivot.name = 'IoTSharp 多选移动中心';
 		this.multiSelectionPivot.userData.iotsharpTwinHelper = true;
 		this.editor.viewer.scene.add(this.multiSelectionPivot);
+		this.selectionHighlightGroup.name = 'IoTSharpSelectionHighlight';
+		this.selectionHighlightGroup.userData.iotsharpTwinHelper = true;
+		this.editor.viewer.scene.add(this.selectionHighlightGroup);
 		this.routeOverlay = new ThreeEditorRouteOverlay(this.editor.viewer.scene, this.manifest);
 		this.engineeringOverlay = new EngineeringOverlayManager(this.editor.viewer.scene, this.manifest, this.routeOverlay);
+		this.editor.viewer.controls.addEventListener('start', this.handleViewportInteractionStart);
+		this.editor.viewer.controls.addEventListener('end', this.handleViewportInteractionEnd);
 		this.editor.viewer.transformControls.dragChangeCallback = (dragging: boolean) => {
 			if (dragging) {
+				this.beginFastTransformInteraction();
 				this.suppressNextClick = true;
 				if (this.editor.viewer.transformControls.object === this.multiSelectionPivot && this.selectedObjectIds.size > 1) {
 					this.groupMoveSnapshot = {
@@ -171,6 +212,7 @@ export class ThreeEditorCoreHost {
 				}
 				return;
 			}
+			this.endFastTransformInteraction();
 
 			if (this.groupMoveSnapshot && this.editor.viewer.transformControls.object === this.multiSelectionPivot) {
 				this.applyMultiSelectionTranslation();
@@ -187,13 +229,21 @@ export class ThreeEditorCoreHost {
 
 			if (this.selectedRouteId && this.selectedRoutePointId) {
 				const selectedRoute = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId);
-				if (selectedRoute?.generatedBy === 'component-connections') {
+				const selectedPoint = selectedRoute?.points.find((candidate) => candidate.pointId === this.selectedRoutePointId);
+				if (selectedPoint?.authoring?.mode === 'generated' && selectedPoint.authoring.locked !== false) {
 					this.routeOverlay.rebuild(this.manifest);
-					this.events.onError?.('自动路线由组件端口连接生成，请移动组件或修改 Connection。');
+					this.events.onError?.('该控制点由组件端口生成，只能通过移动组件或修改 Connection 调整。');
 					return;
 				}
 				const route = this.routeOverlay.updatePointFromMesh(this.selectedRouteId, this.selectedRoutePointId);
 				if (route) {
+					const selectedPoint = route.points.find((item) => item.pointId === this.selectedRoutePointId);
+					if (selectedPoint?.authoring?.mode === 'manual') {
+						// 手工 Endpoint 拖到 Port 附近时重新建立 hard Attachment；中间点不会参与端口吸附。
+						detachRoutePointFromPort(this.manifest, this.selectedRouteId, this.selectedRoutePointId);
+						snapRoutePointToNearestPort(this.manifest, this.selectedRouteId, this.selectedRoutePointId, { maxDistance: 0.45, maxAngleDegrees: 30 });
+						this.routeOverlay.rebuild(this.manifest);
+					}
 					this.events.onRouteChange?.(cloneJson(route));
 					this.events.onChanged?.();
 					return;
@@ -223,6 +273,8 @@ export class ThreeEditorCoreHost {
 				upsertGeneratedComponentRoute(this.manifest);
 				this.syncLoadedComponentTransformsFromManifest();
 			}
+			this.refreshSelectionBounds(selectedId);
+			this.updateSelectionHighlight(this.getSelectedRoots());
 			this.routeOverlay.rebuild(this.manifest);
 			this.engineeringOverlay.rebuild(this.manifest);
 			this.events.onChanged?.();
@@ -232,11 +284,25 @@ export class ThreeEditorCoreHost {
 		this.container.addEventListener('pointerdown', this.handleMarqueePointerDown, true);
 		window.addEventListener('pointermove', this.handleMarqueePointerMove, true);
 		window.addEventListener('pointerup', this.handleMarqueePointerUp, true);
-		this.resizeObserver = new ResizeObserver(() => this.editor?.viewer?.renderSceneResize?.());
+		this.resizeObserver = new ResizeObserver(() => {
+			if (this.resizeRenderFrame || this.disposed) return;
+			this.resizeRenderFrame = requestAnimationFrame(() => {
+				this.resizeRenderFrame = 0;
+				if (this.disposed) return;
+				const width = Math.round(container.clientWidth);
+				const height = Math.round(container.clientHeight);
+				if (width <= 0 || height <= 0 || (width === this.lastViewportWidth && height === this.lastViewportHeight)) return;
+				this.lastViewportWidth = width;
+				this.lastViewportHeight = height;
+				this.editor?.viewer?.renderSceneResize?.();
+			});
+		});
 		this.resizeObserver.observe(container);
 		this.loadManifestComponents();
 		this.loadManifestProceduralReferences();
+		this.refreshSelectionBounds();
 		this.rebuildTransportUnitPreview();
+		this.requestShadowUpdate();
 	}
 
 	async loadGlbBuffer(object: TwinSceneObjectDefinition, fileName: string, buffer: ArrayBuffer) {
@@ -256,6 +322,8 @@ export class ThreeEditorCoreHost {
 					root.rotation.set(...object.transform.rotation);
 					root.scale.set(...object.transform.scale);
 					this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root, kind: 'model' });
+					this.refreshSelectionBounds(object.objectId);
+					this.requestShadowUpdate();
 					this.editor.setOutlinePass([root]);
 					this.editor.viewer.transformControls.attach(root);
 					this.selectRoot(root);
@@ -294,7 +362,9 @@ export class ThreeEditorCoreHost {
 			root.scale.set(1, 1, 1);
 			this.editor.viewer.scene.add(root);
 			this.loadedModels.set(object.objectId, { objectId: object.objectId, resourceId: object.resourceId, root, dispose: built.dispose, kind: 'component' });
+			this.refreshSelectionBounds(object.objectId);
 			this.editor.viewer.renderScene?.();
+			this.requestShadowUpdate();
 		} catch (error) {
 			this.events.onError?.(`V7 组件 ${object.name} 加载失败：${error instanceof Error ? error.message : String(error)}`);
 		}
@@ -340,6 +410,7 @@ export class ThreeEditorCoreHost {
 			this.syncLoadedComponentTransformsFromManifest();
 		} else model.root.scale.set(...object.transform.scale);
 		model.root.updateMatrixWorld?.(true);
+		this.refreshSelectionBounds(objectId);
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.rebuildTransportUnitPreview();
@@ -403,6 +474,8 @@ export class ThreeEditorCoreHost {
 		model.root.position.copy(localPosition);
 		model.root.updateMatrixWorld?.(true);
 		object.transform.position = [localPosition.x, localPosition.y, localPosition.z];
+		this.refreshSelectionBounds(objectId);
+		this.requestShadowUpdate();
 		this.editor.viewer.renderScene?.();
 		this.selectObject(objectId);
 		this.events.onChanged?.();
@@ -414,11 +487,15 @@ export class ThreeEditorCoreHost {
 		this.editor.viewer.transformControls.detach();
 		for (const item of [...this.loadedModels.values()].filter((candidate) => candidate.kind === 'equipment')) {
 			this.loadedModels.delete(item.objectId);
+			this.selectionBounds.delete(item.objectId);
+			this.selectionMaterials.delete(item.objectId);
 		}
 		for (const item of [...this.loadedModels.values()].filter((candidate) => candidate.kind === 'procedural')) {
 			this.removeObject(item.objectId, false);
 		}
 		this.loadManifestProceduralReferences();
+		this.refreshSelectionBounds();
+		this.requestShadowUpdate();
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.editor.viewer.renderScene?.();
 		this.events.onChanged?.();
@@ -446,6 +523,8 @@ export class ThreeEditorCoreHost {
 					renderLegacyPreProcessStations: false,
 					renderLegacyGantryConveyors: false,
 					renderLegacyPostProcessConveyor: false,
+					// 专业编辑器只需要设备工程参考。80 个运行托盘、丝锭和木托只属于运行预览。
+					renderRuntimeMaterials: false,
 					woodPackagingRoute: woodPackagingRoute ? cloneJson(woodPackagingRoute) : undefined,
 				});
 				const root: any = reference.group;
@@ -511,10 +590,20 @@ export class ThreeEditorCoreHost {
 			renderer.outputColorSpace = THREE.SRGBColorSpace;
 			renderer.toneMapping = THREE.ACESFilmicToneMapping;
 			renderer.toneMappingExposure = 1.08;
-			renderer.shadowMap.enabled = true;
-			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-			renderer.setClearColor(this.manifest.world.background || '#07111f', 1);
+			// Professional editing prioritizes interaction latency. Runtime preview keeps its own full-quality renderer.
+			renderer.shadowMap.enabled = false;
 		}
+		// Direct interaction frames and idle Composer/FXAA frames must share exactly the same opaque background.
+		// Otherwise switching render paths makes the canvas flash to the host's near-black CSS background while dragging.
+		const editorBackground = this.manifest.world.background || '#07111f';
+		scene.background = new THREE.Color(editorBackground);
+		renderer.setClearColor(editorBackground, 1);
+		renderer.setClearAlpha(1);
+
+		// 编辑器场景绝大多数时间是静态的；阴影贴图只在模型加载/变换后刷新，避免每帧重绘整场景阴影。
+		const shadowMap = renderer.shadowMap;
+		shadowMap.autoUpdate = false;
+		shadowMap.needsUpdate = true;
 
 		if (!scene.children.some((item) => item instanceof THREE.Light)) {
 			const hemisphere = new THREE.HemisphereLight(0xd9efff, 0x17243a, 1.8);
@@ -586,7 +675,8 @@ export class ThreeEditorCoreHost {
 	updateRoutePoint(index: number, position: TwinVector3) {
 		const routeIndex = this.manifest.routes.findIndex((candidate) => candidate.routeId === this.selectedRouteId);
 		const targetIndex = routeIndex >= 0 ? routeIndex : 0;
-		if (this.manifest.routes[targetIndex]?.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return; }
+		const point = this.manifest.routes[targetIndex]?.points?.[index];
+		if (point?.authoring?.mode === 'generated' && point.authoring.locked !== false) { this.events.onError?.('自动生成控制点只读，请调整组件或 Connection。'); return; }
 		const route = this.routeOverlay.updatePoint(targetIndex, index, position);
 		if (!route) return;
 		this.events.onRouteChange?.(cloneJson(route));
@@ -596,9 +686,14 @@ export class ThreeEditorCoreHost {
 	addRoutePoint(position?: TwinVector3) {
 		const routeIndex = this.manifest.routes.findIndex((candidate) => candidate.routeId === this.selectedRouteId);
 		const targetIndex = routeIndex >= 0 ? routeIndex : 0;
-		if (this.manifest.routes[targetIndex]?.generatedBy === 'component-connections') { this.events.onError?.('自动路线不能手工增加控制点，请先创建手工路线。'); return; }
-		const created = this.routeOverlay.addPoint(position, targetIndex);
+		const targetRoute = this.manifest.routes[targetIndex];
+		const connectFromPointId = this.selectedRouteId === targetRoute?.routeId && this.selectedRoutePointId
+			? this.selectedRoutePointId
+			: targetRoute?.generatedBy === 'component-connections' ? null : undefined;
+		const created = this.routeOverlay.addPoint(position, targetIndex, connectFromPointId);
 		if (!created) return;
+		snapRoutePointToNearestPort(this.manifest, created.route.routeId, created.point.pointId, { maxDistance: 0.45, maxAngleDegrees: 30 });
+		this.routeOverlay.rebuild(this.manifest);
 		this.selectRoutePoint(created.route.routeId, created.point.pointId);
 		this.events.onRouteChange?.(cloneJson(created.route));
 		this.events.onChanged?.();
@@ -608,7 +703,7 @@ export class ThreeEditorCoreHost {
 		const route = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId) || this.manifest.routes?.[0];
 		const point = route?.points?.[index];
 		if (!route || !point) return;
-		if (route.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return; }
+		if (point.authoring?.mode === 'generated' && point.authoring.locked !== false) { this.events.onError?.('自动生成控制点只读，请调整组件或 Connection。'); return; }
 		const changed = this.routeOverlay.removePoint(route.routeId, point.pointId);
 		if (!changed) return;
 		this.clearRoutePointSelection();
@@ -619,7 +714,8 @@ export class ThreeEditorCoreHost {
 	removeSelectedRoutePoint() {
 		if (!this.selectedRouteId || !this.selectedRoutePointId) return false;
 		const selectedRoute = this.manifest.routes.find((candidate) => candidate.routeId === this.selectedRouteId);
-		if (selectedRoute?.generatedBy === 'component-connections') { this.events.onError?.('自动路线控制点只读，请调整组件或 Connection。'); return false; }
+		const selectedPoint = selectedRoute?.points.find((candidate) => candidate.pointId === this.selectedRoutePointId);
+		if (selectedPoint?.authoring?.mode === 'generated' && selectedPoint.authoring.locked !== false) { this.events.onError?.('自动生成控制点只读，请调整组件或 Connection。'); return false; }
 		const route = this.routeOverlay.removePoint(this.selectedRouteId, this.selectedRoutePointId);
 		if (!route) return false;
 		this.clearRoutePointSelection();
@@ -782,6 +878,11 @@ export class ThreeEditorCoreHost {
 	fitScene() {
 		const roots = [...this.loadedModels.values()].map((item) => item.root).filter((root) => root?.visible !== false);
 		if (!roots.length) return;
+		this.focusRoots(roots, 1.25);
+	}
+
+	/** 将一组对象的联合包围盒纳入视野，供“适配全景”和“聚焦多选”共用。 */
+	private focusRoots(roots: THREE.Object3D[], padding = 1.5) {
 		const bounds = new THREE.Box3();
 		for (const root of roots) bounds.expandByObject(root);
 		if (bounds.isEmpty()) return;
@@ -790,7 +891,7 @@ export class ThreeEditorCoreHost {
 		const camera: THREE.PerspectiveCamera = this.editor.viewer.camera;
 		const controls = this.editor.viewer.controls;
 		const maxSize = Math.max(size.x, size.y, size.z, 1);
-		const distance = Math.max(4, maxSize / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * 1.25);
+		const distance = Math.max(4, maxSize / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * padding);
 		const direction = camera.position.clone().sub(controls.target);
 		if (direction.lengthSq() < 0.0001) direction.set(1, 0.75, 1);
 		controls.target.copy(center);
@@ -807,10 +908,13 @@ export class ThreeEditorCoreHost {
 		if (!model) return;
 		this.editor.viewer.transformControls.detach();
 		this.editor.setOutlinePass([]);
+		this.updateSelectionHighlight([]);
 		model.root.parent?.remove(model.root);
 		if (model.dispose) model.dispose();
 		else model.root.disposeRoot?.();
 		this.loadedModels.delete(objectId);
+		this.selectionBounds.delete(objectId);
+			this.selectionMaterials.delete(objectId);
 		this.latestModelParams = this.latestModelParams.filter((item) => item.rootInfo.iotsharpObjectId !== objectId);
 		if (this.selectedObjectIds.delete(objectId)) {
 			const remaining = [...this.selectedObjectIds];
@@ -855,10 +959,31 @@ export class ThreeEditorCoreHost {
 		this.setSelectedObjectIds([]);
 	}
 
-	private getSelectedRoots() {
+	private getSelectedRoots(): THREE.Object3D[] {
 		return [...this.selectedObjectIds]
 			.map((objectId) => this.loadedModels.get(objectId)?.root)
-			.filter(Boolean);
+			.filter((root): root is THREE.Object3D => Boolean(root));
+	}
+
+	/**
+	 * 程序化产线父对象和其中拆出的机器人/桁架等整机对象会同时登记到 loadedModels。
+	 * 框选同时命中父子节点时只保留更具体的子对象，防止一次位移被父、子各应用一遍。
+	 */
+	private normalizeSelectedObjectIds(objectIds: string[]) {
+		const validIds = [...new Set(objectIds)].filter((objectId) => this.loadedModels.has(objectId));
+		return validIds.filter((objectId) => {
+			const root = this.loadedModels.get(objectId)?.root as THREE.Object3D | undefined;
+			if (!root) return false;
+			return !validIds.some((candidateId) => {
+				if (candidateId === objectId) return false;
+				let parent = this.loadedModels.get(candidateId)?.root?.parent as THREE.Object3D | null | undefined;
+				while (parent) {
+					if (parent === root) return true;
+					parent = parent.parent;
+				}
+				return false;
+			});
+		});
 	}
 
 	private captureSelectedWorldPositions() {
@@ -907,6 +1032,8 @@ export class ThreeEditorCoreHost {
 		this.routeOverlay.rebuild(this.manifest);
 		this.engineeringOverlay.rebuild(this.manifest);
 		this.rebuildTransportUnitPreview();
+		for (const objectId of this.selectedObjectIds) this.refreshSelectionBounds(objectId);
+		this.updateSelectionHighlight(this.getSelectedRoots());
 		this.positionMultiSelectionPivot();
 		if (removedConnectionIds.length) this.events.onError?.(`整体移动后已清理 ${removedConnectionIds.length} 条失效组件连接。`);
 		this.events.onChanged?.();
@@ -937,15 +1064,15 @@ export class ThreeEditorCoreHost {
 		});
 	}
 
-	private setSelectedObjectIds(objectIds: string[], primaryObjectId?: string, explicitPrimaryRoot?: any) {
-		const validIds = [...new Set(objectIds)].filter((objectId) => this.loadedModels.has(objectId));
+	private setSelectedObjectIds(objectIds: string[], primaryObjectId?: string, explicitPrimaryRoot?: any, emitPrimary = true) {
+		const validIds = this.normalizeSelectedObjectIds(objectIds);
 		this.selectedObjectIds.clear();
 		for (const objectId of validIds) this.selectedObjectIds.add(objectId);
 		this.selectedObjectId = primaryObjectId && this.selectedObjectIds.has(primaryObjectId) ? primaryObjectId : validIds[0];
 		this.clearRoutePointSelection(false);
 		const roots = this.getSelectedRoots();
 		this.editor.viewer.transformControls.detach();
-		this.editor.setOutlinePass(roots);
+		this.updateSelectionHighlight(roots);
 		if (roots.length > 1) {
 			this.positionMultiSelectionPivot();
 			this.editor.setTransformControlsProperty('mode', 'translate');
@@ -954,7 +1081,7 @@ export class ThreeEditorCoreHost {
 			this.editor.viewer.transformControls.attach(explicitPrimaryRoot || roots[0]);
 		}
 		this.events.onMultiSelectionChange?.(validIds);
-		this.emitPrimarySelection(this.selectedObjectId);
+		if (emitPrimary) this.emitPrimarySelection(this.selectedObjectId);
 		this.editor.viewer.renderScene?.();
 	}
 
@@ -968,22 +1095,200 @@ export class ThreeEditorCoreHost {
 		return undefined;
 	}
 
-	private pickLoadedObjectId(clientX: number, clientY: number) {
+	private requestShadowUpdate() {
+		const shadowMap = this.editor?.viewer?.renderer?.shadowMap;
+		if (shadowMap?.enabled) shadowMap.needsUpdate = true;
+	}
+
+	private refreshSelectionBounds(objectId?: string) {
+		if (objectId) {
+			const root = this.loadedModels.get(objectId)?.root;
+			if (!root || root.visible === false) {
+				this.selectionBounds.delete(objectId);
+				this.selectionMaterials.delete(objectId);
+				return;
+			}
+			root.updateWorldMatrix?.(true, true);
+			this.selectionBounds.set(objectId, new THREE.Box3().setFromObject(root));
+			if (!this.selectionMaterials.has(objectId)) {
+				const materials = new Set<THREE.Material>();
+				root.traverse((node: any) => {
+					if (!node?.isMesh || !node.material) return;
+					const items = Array.isArray(node.material) ? node.material : [node.material];
+					for (const material of items) if (material) materials.add(material as THREE.Material);
+				});
+				this.selectionMaterials.set(objectId, [...materials]);
+			}
+			return;
+		}
+		this.selectionBounds.clear();
+		this.selectionMaterials.clear();
+		for (const id of this.loadedModels.keys()) this.refreshSelectionBounds(id);
+	}
+
+	private beginFastTransformInteraction() {
+		const viewer = this.editor?.viewer;
+		this.beginInteractiveResolution();
+		this.selectionHighlightGroup.visible = false;
+		if (!this.selectedRoutePointId) {
+			this.dragRouteOverlayVisible = this.routeOverlay.root.visible;
+			this.dragEngineeringOverlayVisible = this.engineeringOverlay.root.visible;
+			this.routeOverlay.root.visible = false;
+			this.engineeringOverlay.root.visible = false;
+			const preview = viewer?.scene?.getObjectByName?.('IoTSharp Route Slot Array Runtime');
+			if (preview) { this.dragTransportPreviewVisible = preview.visible; preview.visible = false; }
+		}
+		const transform = viewer?.transformControls;
+		if (transform?.box3Helper && !this.suspendedBox3Helper) {
+			this.suspendedBox3Helper = transform.box3Helper;
+			this.suspendedBox3Helper.visible = false;
+			transform.box3Helper = null;
+		}
+		const composer = viewer?.Composer;
+		if (composer?.setRenderWay) {
+			this.dragComposerRenderWay = composer.renderWay;
+			composer.setRenderWay('源渲染');
+		}
+		const shadowMap = viewer?.renderer?.shadowMap;
+		if (shadowMap) { this.dragShadowAutoUpdate = shadowMap.autoUpdate; shadowMap.autoUpdate = false; }
+	}
+
+	private endFastTransformInteraction() {
+		const viewer = this.editor?.viewer;
+		const transform = viewer?.transformControls;
+		if (transform && this.suspendedBox3Helper) {
+			transform.box3Helper = this.suspendedBox3Helper; this.suspendedBox3Helper = undefined;
+			if (transform.object && transform.object !== this.multiSelectionPivot) {
+				transform.box3Helper.box = new THREE.Box3().setFromObject(transform.object); transform.box3Helper.visible = true;
+			} else transform.box3Helper.visible = false;
+		}
+		const composer = viewer?.Composer;
+		if (composer?.setRenderWay && this.dragComposerRenderWay) composer.setRenderWay(this.dragComposerRenderWay);
+		this.dragComposerRenderWay = undefined;
+		const shadowMap = viewer?.renderer?.shadowMap;
+		if (shadowMap && this.dragShadowAutoUpdate !== undefined) { shadowMap.autoUpdate = this.dragShadowAutoUpdate; shadowMap.needsUpdate = true; }
+		this.dragShadowAutoUpdate = undefined;
+		if (this.dragRouteOverlayVisible !== undefined) this.routeOverlay.root.visible = this.dragRouteOverlayVisible;
+		if (this.dragEngineeringOverlayVisible !== undefined) this.engineeringOverlay.root.visible = this.dragEngineeringOverlayVisible;
+		const preview = viewer?.scene?.getObjectByName?.('IoTSharp Route Slot Array Runtime');
+		if (preview && this.dragTransportPreviewVisible !== undefined) preview.visible = this.dragTransportPreviewVisible;
+		this.dragRouteOverlayVisible = undefined;
+		this.dragEngineeringOverlayVisible = undefined;
+		this.dragTransportPreviewVisible = undefined;
+		this.endInteractiveResolution();
+		this.updateSelectionHighlight(this.getSelectedRoots());
+	}
+
+	private updateSelectionHighlight(roots: THREE.Object3D[]) {
+		for (const [material, snapshot] of this.highlightedMaterials) {
+			const target = material as any;
+			if (snapshot.emissive !== undefined && target.emissive?.setHex) target.emissive.setHex(snapshot.emissive);
+			if (snapshot.emissiveIntensity !== undefined && typeof target.emissiveIntensity === 'number') target.emissiveIntensity = snapshot.emissiveIntensity;
+			if (snapshot.color !== undefined && target.color?.setHex) target.color.setHex(snapshot.color);
+		}
+		this.highlightedMaterials.clear();
+		this.editor.setOutlinePass([]);
+		this.selectionHighlightGroup.visible = false;
+
+		const seen = new Set<THREE.Material>();
+		for (const root of roots) {
+			const objectId = this.topLevelObjectIdForNode(root);
+			let materials = objectId ? this.selectionMaterials.get(objectId) : undefined;
+			if (!materials) {
+				const collected = new Set<THREE.Material>();
+				root.traverse((node: any) => {
+					if (!node?.isMesh || !node.material) return;
+					const items = Array.isArray(node.material) ? node.material : [node.material];
+					for (const material of items) if (material) collected.add(material as THREE.Material);
+				});
+				materials = [...collected];
+				if (objectId) this.selectionMaterials.set(objectId, materials);
+			}
+			for (const material of materials) {
+				if (!material || seen.has(material)) continue;
+				seen.add(material);
+				const target = material as any;
+				if (target.emissive?.getHex && target.emissive?.setHex) {
+					this.highlightedMaterials.set(material, {
+						emissive: target.emissive.getHex(),
+						emissiveIntensity: typeof target.emissiveIntensity === 'number' ? target.emissiveIntensity : undefined,
+					});
+					target.emissive.setHex(0x0ea5e9);
+					if (typeof target.emissiveIntensity === 'number') target.emissiveIntensity = Math.max(0.75, target.emissiveIntensity);
+				} else if (target.color?.getHex && target.color?.setHex) {
+					this.highlightedMaterials.set(material, { color: target.color.getHex() });
+					target.color.setHex(0x38bdf8);
+				}
+			}
+		}
+		this.editor.viewer.renderScene?.();
+	}
+
+	private beginInteractiveResolution() {
+		const renderer = this.editor?.viewer?.renderer;
+		if (!renderer || this.interactionPixelRatio !== undefined) return;
+		this.interactionPixelRatio = renderer.getPixelRatio?.() || 1;
+		const target = Math.min(this.interactionPixelRatio, 0.65);
+		if (target < this.interactionPixelRatio) renderer.setPixelRatio(target);
+		this.editor.viewer.renderScene?.();
+	}
+
+	private endInteractiveResolution() {
+		const renderer = this.editor?.viewer?.renderer;
+		if (!renderer || this.interactionPixelRatio === undefined) return;
+		renderer.setPixelRatio(this.interactionPixelRatio);
+		this.interactionPixelRatio = undefined;
+		this.editor.viewer.renderScene?.();
+	}
+
+	private readonly handleViewportInteractionStart = () => this.beginInteractiveResolution();
+	private readonly handleViewportInteractionEnd = () => this.endInteractiveResolution();
+
+	private pickLoadedObject(clientX: number, clientY: number): { objectId: string; root: any; node: THREE.Object3D } | undefined {
 		const rect = this.container.getBoundingClientRect();
 		if (rect.width <= 0 || rect.height <= 0) return undefined;
-		const pointer = new THREE.Vector2(
-			((clientX - rect.left) / rect.width) * 2 - 1,
-			-((clientY - rect.top) / rect.height) * 2 + 1,
-		);
-		const raycaster = new THREE.Raycaster();
-		raycaster.setFromCamera(pointer, this.editor.viewer.camera);
-		const roots = [...this.loadedModels.values()].map((item) => item.root).filter((root) => root?.visible !== false);
-		for (const hit of raycaster.intersectObjects(roots, true)) {
-			const objectId = this.topLevelObjectIdForNode(hit.object);
-			if (objectId) return objectId;
+		this.selectionPointer.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+		this.selectionRaycaster.setFromCamera(this.selectionPointer, this.editor.viewer.camera);
+		const hitPoint = new THREE.Vector3();
+		const candidates: Array<{ objectId: string; root: any; kind: LoadedEditorModel['kind']; boxDistance: number }> = [];
+		for (const [objectId, model] of this.loadedModels) {
+			if (!model.root || model.root.visible === false) continue;
+			let bounds = this.selectionBounds.get(objectId);
+			if (!bounds) { this.refreshSelectionBounds(objectId); bounds = this.selectionBounds.get(objectId); }
+			if (!bounds || bounds.isEmpty()) continue;
+			const point = this.selectionRaycaster.ray.intersectBox(bounds, hitPoint);
+			if (!point) continue;
+			candidates.push({ objectId, root: model.root, kind: model.kind, boxDistance: this.selectionRaycaster.ray.origin.distanceTo(point) });
 		}
-		return undefined;
+		if (!candidates.length) return undefined;
+		candidates.sort((a, b) => a.boxDistance - b.boxDistance);
+
+		// 默认根选择/框选只需要命中顶层工程对象。直接使用缓存包围盒，完全绕过子 Mesh 递归 Raycast。
+		// 优先具体组件/设备/GLB，程序化整线根只作为最后兜底。
+		if (this.selectionMode !== 'select') {
+			const coarse = candidates.find((item) => item.kind !== 'procedural') || candidates[0];
+			return coarse ? { objectId: coarse.objectId, root: coarse.root, node: coarse.root } : undefined;
+		}
+
+		// 程序化整线根节点通常包住整座工厂；递归 Raycast 它会遍历几百/几千子网格。
+		// 优先只精确检测最近的具体组件/设备/GLB，且限制候选数，避免一次点击扫描整场景。
+		const preciseCandidates = candidates.filter((item) => item.kind !== 'procedural').slice(0, this.selectionMode === 'select' ? 6 : 3);
+		let best: { objectId: string; root: any; node: THREE.Object3D; distance: number } | undefined;
+		for (const candidate of preciseCandidates) {
+			const hit = this.selectionRaycaster.intersectObject(candidate.root, true).find((item) => item.object.visible !== false);
+			if (!hit || (best && hit.distance >= best.distance)) continue;
+			const objectId = this.topLevelObjectIdForNode(hit.object) || candidate.objectId;
+			const root = this.loadedModels.get(objectId)?.root || candidate.root;
+			best = { objectId, root, node: hit.object, distance: hit.distance };
+		}
+		if (best) return { objectId: best.objectId, root: best.root, node: best.node };
+
+		// 若只有程序化参考命中，则用包围盒作为粗选，不再递归整棵参考树。
+		const fallback = candidates[0];
+		return fallback ? { objectId: fallback.objectId, root: fallback.root, node: fallback.root } : undefined;
 	}
+
+	private pickLoadedObjectId(clientX: number, clientY: number) { return this.pickLoadedObject(clientX, clientY)?.objectId; }
 
 	private readonly handleTransformControlsChange = () => {
 		if (this.groupMoveSnapshot && this.editor.viewer.transformControls.object === this.multiSelectionPivot) this.applyMultiSelectionTranslation();
@@ -1022,8 +1327,9 @@ export class ThreeEditorCoreHost {
 		const hitIds: string[] = [];
 		for (const [objectId, model] of this.loadedModels) {
 			if (!model.root?.visible) continue;
-			model.root.updateMatrixWorld?.(true);
-			const bounds = new THREE.Box3().setFromObject(model.root);
+			let bounds = this.selectionBounds.get(objectId);
+			if (!bounds) { this.refreshSelectionBounds(objectId); bounds = this.selectionBounds.get(objectId); }
+			if (!bounds || bounds.isEmpty()) continue;
 			const projected = projectWorldBoundsToScreen(bounds, this.editor.viewer.camera, viewport.width, viewport.height);
 			if (projected && screenRectsIntersect(rectangle, projected)) hitIds.push(objectId);
 		}
@@ -1072,33 +1378,32 @@ export class ThreeEditorCoreHost {
 				}
 			}
 		}
-		try {
-			this.editor.getSceneEvent(event, (info: any) => {
-				let root = info?.currentModel;
-				while (root && !root?.rootInfo?.iotsharpObjectId && !root?.userData?.iotsharpObjectId) root = root.parent;
-				root ||= info?.currentRootModel;
-				if (root?.rootInfo?.iotsharpObjectId || root?.userData?.iotsharpObjectId) this.selectRoot(root, info.currentModel, event.ctrlKey || event.metaKey || event.shiftKey);
-			});
-		} catch {
-			this.events.onError?.('threejs-editor 未能选中该对象，请切换“根选择”后重试。');
+		const hit = this.pickLoadedObject(event.clientX, event.clientY);
+		if (hit) {
+			const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+			// 根选择模式下重复点击当前唯一选中对象直接忽略，避免重复高亮、Gizmo attach 和右侧属性面板更新。
+			if (!additive && this.selectionMode !== 'select' && this.selectedObjectIds.size === 1 && this.selectedObjectId === hit.objectId && !this.selectedRoutePointId) return;
+			this.selectRoot(hit.root, hit.node, additive);
 		}
 	};
 
 	private selectRoutePoint(routeId: string, pointId: string) {
 		const mesh = this.routeOverlay.getPointMesh(routeId, pointId);
 		if (!mesh) return;
+		this.selectedObjectIds.clear();
 		this.selectedObjectId = undefined;
 		this.selectedRouteId = routeId;
 		this.selectedRoutePointId = pointId;
 		this.routeOverlay.setSelectedPoint(routeId, pointId);
-		this.editor.setOutlinePass([]);
+		this.updateSelectionHighlight([]);
+		this.events.onMultiSelectionChange?.([]);
 		const route = this.manifest.routes.find((candidate) => candidate.routeId === routeId);
 		const index = route?.points.findIndex((point) => point.pointId === pointId) ?? -1;
 		const point = route?.points[index];
 		if (!point || !route) return;
-		if (route.generatedBy === 'component-connections') {
+		if (point.authoring?.mode === 'generated' && point.authoring.locked !== false) {
 			this.editor.viewer.transformControls.detach();
-			this.events.onError?.('该路线由组件连接自动生成，只能通过移动组件或修改 Connection 调整。');
+			if (!this.routeDrawMode) this.events.onError?.('该控制点由组件连接自动生成；可作为手工路线起点，但自身位置只读。');
 		} else this.editor.viewer.transformControls.attach(mesh);
 		this.events.onSelectionChange?.({
 			name: point.name,
@@ -1128,7 +1433,7 @@ export class ThreeEditorCoreHost {
 			if (next.has(objectId)) next.delete(objectId); else next.add(objectId);
 			this.setSelectedObjectIds([...next], next.has(objectId) ? objectId : [...next][0]);
 			if (!next.has(objectId)) return;
-		} else this.setSelectedObjectIds([objectId], objectId, root);
+		} else this.setSelectedObjectIds([objectId], objectId, root, false);
 		const segments: string[] = [];
 		let current = node;
 		while (current && current !== root) {
@@ -1215,12 +1520,19 @@ export class ThreeEditorCoreHost {
 		window.removeEventListener('pointermove', this.handleMarqueePointerMove, true);
 		window.removeEventListener('pointerup', this.handleMarqueePointerUp, true);
 		this.editor?.viewer?.transformControls?.removeEventListener?.('change', this.handleTransformControlsChange);
+		this.editor?.viewer?.controls?.removeEventListener?.('start', this.handleViewportInteractionStart);
+		this.editor?.viewer?.controls?.removeEventListener?.('end', this.handleViewportInteractionEnd);
+		this.endInteractiveResolution();
+		if (this.resizeRenderFrame) cancelAnimationFrame(this.resizeRenderFrame);
+		this.resizeRenderFrame = 0;
 		this.resizeObserver.disconnect();
 		this.transportUnitPreview?.dispose();
 		this.transportUnitPreview = undefined;
 		this.routeOverlay.dispose();
 		this.engineeringOverlay.dispose();
 		this.multiSelectionPivot.parent?.remove(this.multiSelectionPivot);
+		this.updateSelectionHighlight([]);
+		this.selectionHighlightGroup.parent?.remove(this.selectionHighlightGroup);
 		for (const model of this.loadedModels.values()) model.dispose?.();
 		this.editor?.viewer?.destroySceneRender?.();
 		for (const objectUrl of this.objectUrls) URL.revokeObjectURL(objectUrl);
