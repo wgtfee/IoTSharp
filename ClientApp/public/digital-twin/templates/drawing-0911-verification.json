@@ -1,0 +1,23 @@
+{
+  "sceneName": "参考图双套袋环形包装产线 · 图纸重建 V1",
+  "objects": 96,
+  "doubleComponents": 5,
+  "transferComponents": 37,
+  "routePoints": 46,
+  "directedEdges": 54,
+  "reachablePoints": 46,
+  "meshes": 1495,
+  "geometryErrors": [],
+  "calibration": {
+    "imageWidth": 1423,
+    "imageHeight": 1105,
+    "metersPerPixel": 0.08,
+    "origin": [
+      800,
+      570
+    ],
+    "rollerWidthPixels": 14
+  },
+  "processAutomation": "not-configured",
+  "source": "exec-918688ad-0036-4a46-93d0-76211ccd6ea7(3).png"
+}

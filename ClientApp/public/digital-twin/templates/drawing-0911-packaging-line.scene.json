@@ -1,0 +1,6828 @@
+{
+  "schemaVersion": "iotsharp-twin-scene/v1",
+  "sceneId": "drawing-0911-new-scene",
+  "name": "参考图双套袋环形包装产线 · 图纸重建 V1",
+  "description": "按 2026-09-11 确认图等比例重建：外检上方双排载料向右，另有上方单排空回流向左；桁架下及抓丝区双排。图纸像素标定 0.08m/px，非现场测量尺寸。此版本仅确认实体和有向路线，未配置 PLC 或设备工艺动作。",
+  "rootAssetId": null,
+  "world": {
+    "unit": "meter",
+    "upAxis": "Y",
+    "background": "#e8eef3"
+  },
+  "resources": [],
+  "workPoints": [],
+  "materialSlots": [],
+  "toolFrames": [],
+  "actuators": [],
+  "poses": [],
+  "behaviors": [],
+  "interlocks": [],
+  "objects": [
+    {
+      "objectId": "drawing-bed-top-1",
+      "name": "顶部回送：向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          11.68,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 4,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "upper-return",
+          "drawingSpanIds": [
+            "top-1"
+          ]
+        },
+        "sectionId": "upper-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-top-2",
+      "name": "顶部回送：向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -5.72,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 28.56,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 16,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "upper-return",
+          "drawingSpanIds": [
+            "top-2"
+          ]
+        },
+        "sectionId": "upper-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-top-3",
+      "name": "顶部回送：向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.64,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "upper-return",
+          "drawingSpanIds": [
+            "top-3"
+          ]
+        },
+        "sectionId": "upper-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-left-a-1",
+      "name": "桁架下双排 A：向抓丝机器人 / 双排组件",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-double-small-roller-conveyor",
+        "componentType": "double-small-roller-conveyor",
+        "generator": "double-small-roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 22.16,
+          "laneWidth": 1.12,
+          "laneSpacing": 1.76,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "capacityPerLane": 4,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "width": 1.12,
+          "drawingZone": "left-double",
+          "drawingSpanIds": [
+            "left-a-1",
+            "left-b-1"
+          ],
+          "capacity": 12,
+          "laneAReverse": false,
+          "laneBReverse": false
+        },
+        "sectionId": "left-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-left-a-2",
+      "name": "桁架下双排 A：向抓丝机器人 / 双排组件",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          -7.32
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-double-small-roller-conveyor",
+        "componentType": "double-small-roller-conveyor",
+        "generator": "double-small-roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 4.88,
+          "laneWidth": 1.12,
+          "laneSpacing": 1.76,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "capacityPerLane": 4,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "width": 1.12,
+          "drawingZone": "left-double",
+          "drawingSpanIds": [
+            "left-a-2",
+            "left-b-2"
+          ],
+          "capacity": 2,
+          "laneAReverse": false,
+          "laneBReverse": false
+        },
+        "sectionId": "left-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-left-a-3",
+      "name": "桁架下双排 A：向抓丝机器人 / 双排组件",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          2.88
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-double-small-roller-conveyor",
+        "componentType": "double-small-roller-conveyor",
+        "generator": "double-small-roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 15.52,
+          "laneWidth": 1.12,
+          "laneSpacing": 1.76,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "capacityPerLane": 4,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "width": 1.12,
+          "drawingZone": "left-double",
+          "drawingSpanIds": [
+            "left-a-3",
+            "left-b-3"
+          ],
+          "capacity": 8,
+          "laneAReverse": false,
+          "laneBReverse": false
+        },
+        "sectionId": "left-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-left-merge-a-1",
+      "name": "回流 A 接底部",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.88,
+          0,
+          11.92
+        ],
+        "rotation": [
+          0,
+          -1.0222469243443695,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.5676,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "left-return",
+          "drawingSpanIds": [
+            "left-merge-a-1"
+          ]
+        },
+        "sectionId": "left-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-left-merge-b-1",
+      "name": "回流 B 接底部",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21,
+          0,
+          11.92
+        ],
+        "rotation": [
+          0,
+          -2.119345729245426,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.5676,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "left-return",
+          "drawingSpanIds": [
+            "left-merge-b-1"
+          ]
+        },
+        "sectionId": "left-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bottom-feed-1",
+      "name": "空托盘进入抓丝区",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          17.96
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.52,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "robot-double",
+          "drawingSpanIds": [
+            "bottom-feed-1"
+          ]
+        },
+        "sectionId": "robot-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bottom-feed-2",
+      "name": "空托盘进入抓丝区",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          24.24
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.8,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "robot-double",
+          "drawingSpanIds": [
+            "bottom-feed-2"
+          ]
+        },
+        "sectionId": "robot-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-robot-a-1",
+      "name": "抓丝区双排 A：向外检 / 双排组件",
+      "kind": "component",
+      "transform": {
+        "position": [
+          2.48,
+          0,
+          24.24
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-double-small-roller-conveyor",
+        "componentType": "double-small-roller-conveyor",
+        "generator": "double-small-roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 46.72,
+          "laneWidth": 1.12,
+          "laneSpacing": 1.92,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "capacityPerLane": 4,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "width": 1.12,
+          "drawingZone": "robot-double",
+          "drawingSpanIds": [
+            "robot-a-1",
+            "robot-b-1"
+          ],
+          "capacity": 26,
+          "laneAReverse": false,
+          "laneBReverse": false
+        },
+        "sectionId": "robot-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-entry-1",
+      "name": "右侧合流后只进入外检",
+      "kind": "component",
+      "transform": {
+        "position": [
+          26.4,
+          0,
+          24.24
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.8,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-entry-1"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-entry-2",
+      "name": "右侧合流后只进入外检",
+      "kind": "component",
+      "transform": {
+        "position": [
+          26.4,
+          0,
+          17.96
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.52,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-entry-2"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-entry-3",
+      "name": "右侧合流后只进入外检",
+      "kind": "component",
+      "transform": {
+        "position": [
+          20.92,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.84,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-entry-3"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-entry-6",
+      "name": "右侧合流后只进入外检",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -0.84,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.68,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-entry-6"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-exit-1",
+      "name": "外检后左转向上分双排",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -6.24,
+          0,
+          8.48
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 7.2,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 4,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-exit-1"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inspection-exit-2",
+      "name": "外检后左转向上分双排",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -6.24,
+          0,
+          3.56
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.4,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inspection",
+          "drawingSpanIds": [
+            "inspection-exit-2"
+          ]
+        },
+        "sectionId": "inspection"
+      }
+    },
+    {
+      "objectId": "drawing-bed-loaded-a-1",
+      "name": "外检上方载料 A：向套袋 / 双排组件",
+      "kind": "component",
+      "transform": {
+        "position": [
+          17.68,
+          0,
+          3.56
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-double-small-roller-conveyor",
+        "componentType": "double-small-roller-conveyor",
+        "generator": "double-small-roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 46.72,
+          "laneWidth": 1.12,
+          "laneSpacing": 1.52,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "capacityPerLane": 4,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "width": 1.12,
+          "drawingZone": "loaded-double",
+          "drawingSpanIds": [
+            "loaded-a-1",
+            "loaded-b-1"
+          ],
+          "capacity": 26,
+          "laneAReverse": false,
+          "laneBReverse": false
+        },
+        "sectionId": "loaded-double"
+      }
+    },
+    {
+      "objectId": "drawing-bed-right-trunk-1",
+      "name": "套袋区公共上行干线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          3.56
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.4,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-feed",
+          "drawingSpanIds": [
+            "right-trunk-1"
+          ]
+        },
+        "sectionId": "bag-feed"
+      }
+    },
+    {
+      "objectId": "drawing-bed-right-trunk-2",
+      "name": "套袋区公共上行干线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          0.76
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 2.96,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-feed",
+          "drawingSpanIds": [
+            "right-trunk-2"
+          ]
+        },
+        "sectionId": "bag-feed"
+      }
+    },
+    {
+      "objectId": "drawing-bed-right-trunk-3",
+      "name": "套袋区公共上行干线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          -6.16
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 8.64,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-feed",
+          "drawingSpanIds": [
+            "right-trunk-3"
+          ]
+        },
+        "sectionId": "bag-feed"
+      }
+    },
+    {
+      "objectId": "drawing-bed-right-trunk-4",
+      "name": "套袋区公共上行干线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          -18.4
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 13.6,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 8,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-feed",
+          "drawingSpanIds": [
+            "right-trunk-4"
+          ]
+        },
+        "sectionId": "bag-feed"
+      }
+    },
+    {
+      "objectId": "drawing-bed-empty-1",
+      "name": "最上方单排空回流：向左、再回抓丝机器人",
+      "kind": "component",
+      "transform": {
+        "position": [
+          13.72,
+          0,
+          -1.28
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 54.64,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 30,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "empty-return",
+          "drawingSpanIds": [
+            "empty-1"
+          ]
+        },
+        "sectionId": "empty-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-empty-2",
+      "name": "最上方单排空回流：向左、再回抓丝机器人",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -14.16,
+          0,
+          5.68
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 12.8,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 7,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "empty-return",
+          "drawingSpanIds": [
+            "empty-2"
+          ]
+        },
+        "sectionId": "empty-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-empty-3",
+      "name": "最上方单排空回流：向左、再回抓丝机器人",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -17.8,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 6.16,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 4,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "empty-return",
+          "drawingSpanIds": [
+            "empty-3"
+          ]
+        },
+        "sectionId": "empty-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-a-1",
+      "name": "套袋 A：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          39.52,
+          0,
+          -25.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 3.04,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-a",
+          "drawingSpanIds": [
+            "bag-a-1"
+          ]
+        },
+        "sectionId": "bag-a"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-a-2",
+      "name": "套袋 A：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          36.72,
+          0,
+          -24.88
+        ],
+        "rotation": [
+          0,
+          -2.2565258377011816,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.15403,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-a",
+          "drawingSpanIds": [
+            "bag-a-2"
+          ]
+        },
+        "sectionId": "bag-a"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-a-3",
+      "name": "套袋 A：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          34.92,
+          0,
+          -24
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.04,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-a",
+          "drawingSpanIds": [
+            "bag-a-3"
+          ]
+        },
+        "sectionId": "bag-a"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-a-6",
+      "name": "套袋 A：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          19.8,
+          0,
+          -24
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 10,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 5,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-a",
+          "drawingSpanIds": [
+            "bag-a-6"
+          ]
+        },
+        "sectionId": "bag-a"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-b-1",
+      "name": "套袋 B：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          37.44,
+          0,
+          -11.04
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 7.2,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 4,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-b",
+          "drawingSpanIds": [
+            "bag-b-1"
+          ]
+        },
+        "sectionId": "bag-b"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-b-2",
+      "name": "套袋 B：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          32.56,
+          0,
+          -10.4
+        ],
+        "rotation": [
+          0,
+          -2.4149503129080685,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 0.80666,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-b",
+          "drawingSpanIds": [
+            "bag-b-2"
+          ]
+        },
+        "sectionId": "bag-b"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-b-3",
+      "name": "套袋 B：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          30.2,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 2.16,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-b",
+          "drawingSpanIds": [
+            "bag-b-3"
+          ]
+        },
+        "sectionId": "bag-b"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-b-6",
+      "name": "套袋 B：由右向左",
+      "kind": "component",
+      "transform": {
+        "position": [
+          17.16,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 4.72,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "bag-b",
+          "drawingSpanIds": [
+            "bag-b-6"
+          ]
+        },
+        "sectionId": "bag-b"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-return-1",
+      "name": "套袋后汇合向上回送",
+      "kind": "component",
+      "transform": {
+        "position": [
+          14.24,
+          0,
+          -16.88
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 13.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 7,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "upper-return",
+          "drawingSpanIds": [
+            "bag-return-1"
+          ]
+        },
+        "sectionId": "upper-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-bag-return-2",
+      "name": "套袋后汇合向上回送",
+      "kind": "component",
+      "transform": {
+        "position": [
+          14.24,
+          0,
+          -28.24
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 7.36,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 4,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "upper-return",
+          "drawingSpanIds": [
+            "bag-return-2"
+          ]
+        },
+        "sectionId": "upper-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-1",
+      "name": "中央框右侧下行、底部左行",
+      "kind": "component",
+      "transform": {
+        "position": [
+          9.12,
+          0,
+          -21.12
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 21.6,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 12,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-return",
+          "drawingSpanIds": [
+            "inner-1"
+          ]
+        },
+        "sectionId": "inner-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-2",
+      "name": "中央框右侧下行、底部左行",
+      "kind": "component",
+      "transform": {
+        "position": [
+          3.56,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 10,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 6,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-return",
+          "drawingSpanIds": [
+            "inner-2"
+          ]
+        },
+        "sectionId": "inner-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-3",
+      "name": "中央框右侧下行、底部左行",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -9.16,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 13.2,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 7,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-return",
+          "drawingSpanIds": [
+            "inner-3"
+          ]
+        },
+        "sectionId": "inner-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-4",
+      "name": "中央框右侧下行、底部左行",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -18.44,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 3.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-return",
+          "drawingSpanIds": [
+            "inner-4"
+          ]
+        },
+        "sectionId": "inner-return"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-buffer-1",
+      "name": "中央下方矩形缓存回流",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -2,
+          0,
+          -7.32
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 3.76,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-buffer",
+          "drawingSpanIds": [
+            "inner-buffer-1"
+          ]
+        },
+        "sectionId": "inner-buffer"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-buffer-2",
+      "name": "中央下方矩形缓存回流",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -9.16,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 13.2,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 7,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-buffer",
+          "drawingSpanIds": [
+            "inner-buffer-2"
+          ]
+        },
+        "sectionId": "inner-buffer"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-buffer-3",
+      "name": "中央下方矩形缓存回流",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -18.44,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 3.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-buffer",
+          "drawingSpanIds": [
+            "inner-buffer-3"
+          ]
+        },
+        "sectionId": "inner-buffer"
+      }
+    },
+    {
+      "objectId": "drawing-bed-inner-link-1",
+      "name": "缓存短接回左侧",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -16.32,
+          0,
+          -7.32
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 3.76,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "inner-buffer",
+          "drawingSpanIds": [
+            "inner-link-1"
+          ]
+        },
+        "sectionId": "inner-buffer"
+      }
+    },
+    {
+      "objectId": "drawing-bed-wood-1",
+      "name": "左侧大辊道 L 形独立线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -28.4,
+          0,
+          -9.6
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 22.56,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 12,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "large-roller",
+          "drawingSpanIds": [
+            "wood-1"
+          ]
+        },
+        "sectionId": "large-roller"
+      }
+    },
+    {
+      "objectId": "drawing-bed-wood-2",
+      "name": "左侧大辊道 L 形独立线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -28.4,
+          0,
+          -24.54
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 7.32,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 4,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "large-roller",
+          "drawingSpanIds": [
+            "wood-2"
+          ]
+        },
+        "sectionId": "large-roller"
+      }
+    },
+    {
+      "objectId": "drawing-bed-wood-3",
+      "name": "左侧大辊道 L 形独立线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -35.12,
+          0,
+          -29.6
+        ],
+        "rotation": [
+          0,
+          -3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 10.64,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 7,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "large-roller",
+          "drawingSpanIds": [
+            "wood-3"
+          ]
+        },
+        "sectionId": "large-roller"
+      }
+    },
+    {
+      "objectId": "drawing-bed-wood-4",
+      "name": "左侧大辊道 L 形独立线",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -41.84,
+          0,
+          -33.3
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 4.6,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.48,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 3,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "drawingZone": "large-roller",
+          "drawingSpanIds": [
+            "wood-4"
+          ]
+        },
+        "sectionId": "large-roller"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-978-164",
+      "name": "接驳位 978,164",
+      "kind": "component",
+      "transform": {
+        "position": [
+          14.24,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            978,
+            164
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-914-164",
+      "name": "接驳位 914,164",
+      "kind": "component",
+      "transform": {
+        "position": [
+          9.12,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            914,
+            164
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-543-164",
+      "name": "接驳位 543,164",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -20.56,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            543,
+            164
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-521-164",
+      "name": "接驳位 521,164",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -22.32,
+          0,
+          -32.48
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            521,
+            164
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-521-710",
+      "name": "接驳位 521,710",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -22.32,
+          0,
+          11.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            521,
+            710
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-543-448",
+      "name": "接驳位 543,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -20.56,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            543,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-543-509",
+      "name": "接驳位 543,509",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -20.56,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            543,
+            509
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-543-710",
+      "name": "接驳位 543,710",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -20.56,
+          0,
+          11.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            543,
+            710
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-532-728",
+      "name": "接驳位 532,728",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            532,
+            728
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-532-861",
+      "name": "接驳位 532,861",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          23.28
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            532,
+            861
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-532-885",
+      "name": "接驳位 532,885",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -21.44,
+          0,
+          25.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            532,
+            885
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1130-861",
+      "name": "接驳位 1130,861",
+      "kind": "component",
+      "transform": {
+        "position": [
+          26.4,
+          0,
+          23.28
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1130,
+            861
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1130-885",
+      "name": "接驳位 1130,885",
+      "kind": "component",
+      "transform": {
+        "position": [
+          26.4,
+          0,
+          25.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1130,
+            885
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1130-728",
+      "name": "接驳位 1130,728",
+      "kind": "component",
+      "transform": {
+        "position": [
+          26.4,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1130,
+            728
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-722-728",
+      "name": "接驳位 722,728",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -6.24,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            722,
+            728
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-722-624",
+      "name": "接驳位 722,624",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -6.24,
+          0,
+          4.32
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            722,
+            624
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-722-605",
+      "name": "接驳位 722,605",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -6.24,
+          0,
+          2.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            722,
+            605
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1320-605",
+      "name": "接驳位 1320,605",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          2.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1320,
+            605
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1320-624",
+      "name": "接驳位 1320,624",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          4.32
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1320,
+            624
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1320-554",
+      "name": "接驳位 1320,554",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          -1.28
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1320,
+            554
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1320-432",
+      "name": "接驳位 1320,432",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          -11.04
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1320,
+            432
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1320-248",
+      "name": "接驳位 1320,248",
+      "kind": "component",
+      "transform": {
+        "position": [
+          41.6,
+          0,
+          -25.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1320,
+            248
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-623-554",
+      "name": "接驳位 623,554",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -14.16,
+          0,
+          -1.28
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            623,
+            554
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-623-728",
+      "name": "接驳位 623,728",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -14.16,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            623,
+            728
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1268-248",
+      "name": "接驳位 1268,248",
+      "kind": "component",
+      "transform": {
+        "position": [
+          37.44,
+          0,
+          -25.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1268,
+            248
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1250-270",
+      "name": "接驳位 1250,270",
+      "kind": "component",
+      "transform": {
+        "position": [
+          36,
+          0,
+          -24
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1250,
+            270
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-978-270",
+      "name": "接驳位 978,270",
+      "kind": "component",
+      "transform": {
+        "position": [
+          14.24,
+          0,
+          -24
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            978,
+            270
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1216-432",
+      "name": "接驳位 1216,432",
+      "kind": "component",
+      "transform": {
+        "position": [
+          33.28,
+          0,
+          -11.04
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1216,
+            432
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-1198-448",
+      "name": "接驳位 1198,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          31.84,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            1198,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-978-448",
+      "name": "接驳位 978,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          14.24,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            978,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-914-448",
+      "name": "接驳位 914,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          9.12,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            914,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-775-448",
+      "name": "接驳位 775,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -2,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            775,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-596-448",
+      "name": "接驳位 596,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -16.32,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            596,
+            448
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-775-509",
+      "name": "接驳位 775,509",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -2,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            775,
+            509
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-596-509",
+      "name": "接驳位 596,509",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -16.32,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            596,
+            509
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-445-200",
+      "name": "接驳位 445,200",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -28.4,
+          0,
+          -29.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 2.8,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.6,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 1,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            445,
+            200
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-277-200",
+      "name": "接驳位 277,200",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -41.84,
+          0,
+          -29.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-large-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 2.8,
+          "width": 2.8,
+          "height": 0.82,
+          "rollerDiameter": 0.18,
+          "rollerPitch": 0.6,
+          "frameHeight": 0.18,
+          "frameThickness": 0.12,
+          "supportSpacing": 2.4,
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "capacity": 1,
+          "speedLimit": 0.8,
+          "occupancyMode": "simulation",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            277,
+            200
+          ]
+        },
+        "sectionId": "transfer"
+      }
+    },
+    {
+      "objectId": "drawing-bag-a",
+      "name": "套袋机 A（上）",
+      "kind": "component",
+      "transform": {
+        "position": [
+          29.6,
+          0,
+          -24
+        ],
+        "rotation": [
+          0,
+          3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-bagging-machine",
+        "componentType": "bagging-machine",
+        "generator": "bagging-machine-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.6,
+          "width": 5.4,
+          "machineHeight": 3.8,
+          "conveyorHeight": 0.9,
+          "conveyorWidth": 1.12,
+          "filmWrapWidth": 1.5,
+          "filmWrapDepth": 1.45,
+          "filmRollDiameter": 0.55,
+          "cycleSeconds": 3,
+          "capacity": 1,
+          "transportUnitType": "plastic-pallet",
+          "showBagFilm": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-bag-a"
+      }
+    },
+    {
+      "objectId": "drawing-bag-b",
+      "name": "套袋机 B（下）",
+      "kind": "component",
+      "transform": {
+        "position": [
+          24.32,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-bagging-machine",
+        "componentType": "bagging-machine",
+        "generator": "bagging-machine-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.6,
+          "width": 5.4,
+          "machineHeight": 3.8,
+          "conveyorHeight": 0.9,
+          "conveyorWidth": 1.12,
+          "filmWrapWidth": 1.5,
+          "filmWrapDepth": 1.45,
+          "filmRollDiameter": 0.55,
+          "cycleSeconds": 3,
+          "capacity": 1,
+          "transportUnitType": "plastic-pallet",
+          "showBagFilm": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-bag-b"
+      }
+    },
+    {
+      "objectId": "drawing-inspection",
+      "name": "外检机（出口在左侧）",
+      "kind": "component",
+      "transform": {
+        "position": [
+          10,
+          0,
+          12.64
+        ],
+        "rotation": [
+          0,
+          3.141592653589793,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-external-inspection",
+        "componentType": "external-inspection",
+        "generator": "external-inspection-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 12,
+          "width": 6.6,
+          "machineHeight": 3.8,
+          "conveyorHeight": 0.9,
+          "conveyorWidth": 1.12,
+          "chamberLength": 11.4,
+          "withRotaryInspection": true,
+          "cycleSeconds": 2,
+          "capacity": 1,
+          "transportUnitType": "plastic-pallet",
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-inspection"
+      }
+    },
+    {
+      "objectId": "drawing-center-robot",
+      "name": "中央缓存机器人",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -5.84,
+          0,
+          -17.52
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-industrial-robot",
+        "componentType": "industrial-robot",
+        "generator": "industrial-robot-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "pedestalRadius": 0.72,
+          "upperArmLength": 3.7,
+          "forearmLength": 3.7,
+          "toolType": "pallet-gripper",
+          "gripperSpan": 6.2,
+          "gripperRowSpacing": 1.15,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-center-robot"
+      }
+    },
+    {
+      "objectId": "drawing-loading-robot",
+      "name": "抓丝机器人",
+      "kind": "component",
+      "transform": {
+        "position": [
+          2.16,
+          0,
+          33.52
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-industrial-robot",
+        "componentType": "industrial-robot",
+        "generator": "industrial-robot-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "pedestalRadius": 0.72,
+          "upperArmLength": 3.8,
+          "forearmLength": 3.8,
+          "toolType": "silk-grid-2x6",
+          "gripperSpan": 6.6,
+          "gripperRowSpacing": 1.15,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "axis1HomeYaw": 0,
+          "axis2HomePitch": -0.48,
+          "axis3HomePitch": 2.0507963267948965
+        },
+        "sectionId": "drawing-loading-robot"
+      }
+    },
+    {
+      "objectId": "drawing-turntable-left",
+      "name": "抓丝机器人左旋转台",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -8.48,
+          0,
+          33.52
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-turntable",
+        "componentType": "turntable",
+        "generator": "turntable-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "deckLength": 11.2,
+          "width": 2.8,
+          "height": 0.9,
+          "baseRadius": 5.7,
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "rotationDegrees": 180,
+          "withSilkCart": true,
+          "silkCartLoaded": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-turntable-left"
+      }
+    },
+    {
+      "objectId": "drawing-turntable-right",
+      "name": "抓丝机器人右旋转台",
+      "kind": "component",
+      "transform": {
+        "position": [
+          13.2,
+          0,
+          33.52
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-turntable",
+        "componentType": "turntable",
+        "generator": "turntable-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "deckLength": 11.2,
+          "width": 2.8,
+          "height": 0.9,
+          "baseRadius": 5.7,
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "rotationDegrees": 180,
+          "withSilkCart": true,
+          "silkCartLoaded": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-turntable-right"
+      }
+    },
+    {
+      "objectId": "drawing-stacking-gantry",
+      "name": "左侧码垛桁架与双暂存台",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -32.16,
+          0,
+          -20.88
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-silk-gantry",
+        "componentType": "silk-gantry",
+        "generator": "silk-gantry-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 9.2,
+          "width": 25.6,
+          "height": 7.2,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "firstStockZ": -3.04,
+          "stockSpacingZ": 4.72,
+          "stockDeckWidthX": 8.5,
+          "stockDeckDepth": 3.2
+        },
+        "sectionId": "drawing-stacking-gantry"
+      }
+    },
+    {
+      "objectId": "drawing-stacking-pallet",
+      "name": "大辊道码垛木托",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -28.4,
+          0.82,
+          -20.88
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-wooden-pallet",
+        "componentType": "pallet",
+        "generator": "pallet-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "palletType": "wooden-pallet",
+          "length": 5.6,
+          "width": 2.4,
+          "height": 0.18,
+          "routeManagedExternally": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911"
+        },
+        "sectionId": "drawing-stacking-pallet"
+      }
+    },
+    {
+      "objectId": "drawing-horseshoe-0",
+      "name": "马蹄形缓存 1/3",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -5.84,
+          0,
+          -17.6
+        ],
+        "rotation": [
+          0,
+          2.0943951023931953,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-turn-conveyor-90",
+        "componentType": "turn-conveyor-90",
+        "generator": "turn-conveyor-90-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "radius": 8.96,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "turnDirection": "left",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "sweepDegrees": 80
+        },
+        "sectionId": "drawing-horseshoe-0"
+      }
+    },
+    {
+      "objectId": "drawing-horseshoe-1",
+      "name": "马蹄形缓存 2/3",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -5.84,
+          0,
+          -17.6
+        ],
+        "rotation": [
+          0,
+          0.6981317007977318,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-turn-conveyor-90",
+        "componentType": "turn-conveyor-90",
+        "generator": "turn-conveyor-90-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "radius": 8.96,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "turnDirection": "left",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "sweepDegrees": 80
+        },
+        "sectionId": "drawing-horseshoe-1"
+      }
+    },
+    {
+      "objectId": "drawing-horseshoe-2",
+      "name": "马蹄形缓存 3/3",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -5.84,
+          0,
+          -17.6
+        ],
+        "rotation": [
+          0,
+          -0.6981317007977318,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-turn-conveyor-90",
+        "componentType": "turn-conveyor-90",
+        "generator": "turn-conveyor-90-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "radius": 8.96,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.48,
+          "turnDirection": "left",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 2,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "sweepDegrees": 80
+        },
+        "sectionId": "drawing-horseshoe-2"
+      }
+    }
+  ],
+  "bindings": [],
+  "routes": [
+    {
+      "routeId": "drawing-0911-small-loop",
+      "name": "0911 图纸小辊道有向路网",
+      "type": "conveyor",
+      "curveKind": "line",
+      "defaultSpeed": 0.9,
+      "loop": true,
+      "orientToPath": true,
+      "startPointId": "drawing-p-532-861",
+      "routingMode": "automatic",
+      "junctionDecisions": {},
+      "decisionRules": [],
+      "sections": [
+        {
+          "sectionId": "upper-return",
+          "name": "顶部回送：向左",
+          "enabled": true
+        },
+        {
+          "sectionId": "left-double",
+          "name": "桁架下双排 A：向抓丝机器人",
+          "enabled": true
+        },
+        {
+          "sectionId": "left-return",
+          "name": "回流 A 接底部",
+          "enabled": true
+        },
+        {
+          "sectionId": "robot-double",
+          "name": "空托盘进入抓丝区",
+          "enabled": true
+        },
+        {
+          "sectionId": "inspection",
+          "name": "右侧合流后只进入外检",
+          "enabled": true
+        },
+        {
+          "sectionId": "loaded-double",
+          "name": "外检上方载料 A：向套袋",
+          "enabled": true
+        },
+        {
+          "sectionId": "bag-feed",
+          "name": "套袋区公共上行干线",
+          "enabled": true
+        },
+        {
+          "sectionId": "empty-return",
+          "name": "最上方单排空回流：向左、再回抓丝机器人",
+          "enabled": true
+        },
+        {
+          "sectionId": "bag-a",
+          "name": "套袋 A：由右向左",
+          "enabled": true
+        },
+        {
+          "sectionId": "bag-b",
+          "name": "套袋 B：由右向左",
+          "enabled": true
+        },
+        {
+          "sectionId": "inner-return",
+          "name": "中央框右侧下行、底部左行",
+          "enabled": true
+        },
+        {
+          "sectionId": "inner-buffer",
+          "name": "中央下方矩形缓存回流",
+          "enabled": true
+        }
+      ],
+      "points": [
+        {
+          "pointId": "drawing-p-978-164",
+          "name": "图纸 978-164",
+          "position": [
+            14.24,
+            0.9,
+            -32.48
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-914-164",
+          "name": "图纸 914-164",
+          "position": [
+            9.12,
+            0.9,
+            -32.48
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-543-164",
+          "name": "图纸 543-164",
+          "position": [
+            -20.56,
+            0.9,
+            -32.48
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-521-164",
+          "name": "图纸 521-164",
+          "position": [
+            -22.32,
+            0.9,
+            -32.48
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-521-448",
+          "name": "图纸 521-448",
+          "position": [
+            -22.32,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-521-509",
+          "name": "图纸 521-509",
+          "position": [
+            -22.32,
+            0.9,
+            -4.88
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-521-710",
+          "name": "图纸 521-710",
+          "position": [
+            -22.32,
+            0.9,
+            11.2
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-543-448",
+          "name": "图纸 543-448",
+          "position": [
+            -20.56,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-543-509",
+          "name": "图纸 543-509",
+          "position": [
+            -20.56,
+            0.9,
+            -4.88
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-543-710",
+          "name": "图纸 543-710",
+          "position": [
+            -20.56,
+            0.9,
+            11.2
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-532-728",
+          "name": "图纸 532-728",
+          "position": [
+            -21.44,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-532-861",
+          "name": "图纸 532-861",
+          "position": [
+            -21.44,
+            0.9,
+            23.28
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-532-885",
+          "name": "图纸 532-885",
+          "position": [
+            -21.44,
+            0.9,
+            25.2
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1130-861",
+          "name": "图纸 1130-861",
+          "position": [
+            26.4,
+            0.9,
+            23.28
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1130-885",
+          "name": "图纸 1130-885",
+          "position": [
+            26.4,
+            0.9,
+            25.2
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1130-728",
+          "name": "图纸 1130-728",
+          "position": [
+            26.4,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1000-728",
+          "name": "图纸 1000-728",
+          "position": [
+            16,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-925-728",
+          "name": "图纸 925-728",
+          "position": [
+            10,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-850-728",
+          "name": "图纸 850-728",
+          "position": [
+            4,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-722-728",
+          "name": "图纸 722-728",
+          "position": [
+            -6.24,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-722-624",
+          "name": "图纸 722-624",
+          "position": [
+            -6.24,
+            0.9,
+            4.32
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-722-605",
+          "name": "图纸 722-605",
+          "position": [
+            -6.24,
+            0.9,
+            2.8
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1320-605",
+          "name": "图纸 1320-605",
+          "position": [
+            41.6,
+            0.9,
+            2.8
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1320-624",
+          "name": "图纸 1320-624",
+          "position": [
+            41.6,
+            0.9,
+            4.32
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1320-554",
+          "name": "图纸 1320-554",
+          "position": [
+            41.6,
+            0.9,
+            -1.28
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1320-432",
+          "name": "图纸 1320-432",
+          "position": [
+            41.6,
+            0.9,
+            -11.04
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1320-248",
+          "name": "图纸 1320-248",
+          "position": [
+            41.6,
+            0.9,
+            -25.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-623-554",
+          "name": "图纸 623-554",
+          "position": [
+            -14.16,
+            0.9,
+            -1.28
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-623-728",
+          "name": "图纸 623-728",
+          "position": [
+            -14.16,
+            0.9,
+            12.64
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1268-248",
+          "name": "图纸 1268-248",
+          "position": [
+            37.44,
+            0.9,
+            -25.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1250-270",
+          "name": "图纸 1250-270",
+          "position": [
+            36,
+            0.9,
+            -24
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1230-270",
+          "name": "图纸 1230-270",
+          "position": [
+            34.4,
+            0.9,
+            -24
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1170-270",
+          "name": "图纸 1170-270",
+          "position": [
+            29.6,
+            0.9,
+            -24
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1110-270",
+          "name": "图纸 1110-270",
+          "position": [
+            24.8,
+            0.9,
+            -24
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-978-270",
+          "name": "图纸 978-270",
+          "position": [
+            14.24,
+            0.9,
+            -24
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1216-432",
+          "name": "图纸 1216-432",
+          "position": [
+            33.28,
+            0.9,
+            -11.04
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1198-448",
+          "name": "图纸 1198-448",
+          "position": [
+            31.84,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1164-448",
+          "name": "图纸 1164-448",
+          "position": [
+            29.12,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1104-448",
+          "name": "图纸 1104-448",
+          "position": [
+            24.32,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-1044-448",
+          "name": "图纸 1044-448",
+          "position": [
+            19.52,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-978-448",
+          "name": "图纸 978-448",
+          "position": [
+            14.24,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-914-448",
+          "name": "图纸 914-448",
+          "position": [
+            9.12,
+            0.9,
+            -9.76
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-775-448",
+          "name": "图纸 775-448",
+          "position": [
+            -2,
+            0.9,
+            -9.76
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-596-448",
+          "name": "图纸 596-448",
+          "position": [
+            -16.32,
+            0.9,
+            -9.76
+          ],
+          "kind": "diverter",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-775-509",
+          "name": "图纸 775-509",
+          "position": [
+            -2,
+            0.9,
+            -4.88
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-596-509",
+          "name": "图纸 596-509",
+          "position": [
+            -16.32,
+            0.9,
+            -4.88
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        }
+      ],
+      "edges": [
+        {
+          "edgeId": "drawing-edge-top-1",
+          "name": "顶部回送：向左",
+          "fromPointId": "drawing-p-978-164",
+          "toPointId": "drawing-p-914-164",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "upper-return",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-top-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-top-2",
+          "name": "顶部回送：向左",
+          "fromPointId": "drawing-p-914-164",
+          "toPointId": "drawing-p-543-164",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "upper-return",
+          "capacity": 16,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-top-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-top-3",
+          "name": "顶部回送：向左",
+          "fromPointId": "drawing-p-543-164",
+          "toPointId": "drawing-p-521-164",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "upper-return",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-top-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-a-1",
+          "name": "桁架下双排 A：向抓丝机器人",
+          "fromPointId": "drawing-p-521-164",
+          "toPointId": "drawing-p-521-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 12,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-a-2",
+          "name": "桁架下双排 A：向抓丝机器人",
+          "fromPointId": "drawing-p-521-448",
+          "toPointId": "drawing-p-521-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-a-3",
+          "name": "桁架下双排 A：向抓丝机器人",
+          "fromPointId": "drawing-p-521-509",
+          "toPointId": "drawing-p-521-710",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 8,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-b-1",
+          "name": "桁架下双排 B：向抓丝机器人",
+          "fromPointId": "drawing-p-543-164",
+          "toPointId": "drawing-p-543-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 12,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-b-2",
+          "name": "桁架下双排 B：向抓丝机器人",
+          "fromPointId": "drawing-p-543-448",
+          "toPointId": "drawing-p-543-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-b-3",
+          "name": "桁架下双排 B：向抓丝机器人",
+          "fromPointId": "drawing-p-543-509",
+          "toPointId": "drawing-p-543-710",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-double",
+          "capacity": 8,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-a-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-merge-a-1",
+          "name": "回流 A 接底部",
+          "fromPointId": "drawing-p-521-710",
+          "toPointId": "drawing-p-532-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-return",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-merge-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-left-merge-b-1",
+          "name": "回流 B 接底部",
+          "fromPointId": "drawing-p-543-710",
+          "toPointId": "drawing-p-532-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "left-return",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-left-merge-b-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bottom-feed-1",
+          "name": "空托盘进入抓丝区",
+          "fromPointId": "drawing-p-532-728",
+          "toPointId": "drawing-p-532-861",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "robot-double",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bottom-feed-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bottom-feed-2",
+          "name": "空托盘进入抓丝区",
+          "fromPointId": "drawing-p-532-861",
+          "toPointId": "drawing-p-532-885",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "robot-double",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bottom-feed-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-robot-a-1",
+          "name": "抓丝区双排 A：向外检",
+          "fromPointId": "drawing-p-532-861",
+          "toPointId": "drawing-p-1130-861",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "robot-double",
+          "capacity": 26,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-robot-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-robot-b-1",
+          "name": "抓丝区双排 B：向外检",
+          "fromPointId": "drawing-p-532-885",
+          "toPointId": "drawing-p-1130-885",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "robot-double",
+          "capacity": 26,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-robot-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-1",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-1130-885",
+          "toPointId": "drawing-p-1130-861",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-entry-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-2",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-1130-861",
+          "toPointId": "drawing-p-1130-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-entry-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-3",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-1130-728",
+          "toPointId": "drawing-p-1000-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-entry-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-4",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-1000-728",
+          "toPointId": "drawing-p-925-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 3,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-inspection",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-5",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-925-728",
+          "toPointId": "drawing-p-850-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 3,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-inspection",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-entry-6",
+          "name": "右侧合流后只进入外检",
+          "fromPointId": "drawing-p-850-728",
+          "toPointId": "drawing-p-722-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-entry-6",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-exit-1",
+          "name": "外检后左转向上分双排",
+          "fromPointId": "drawing-p-722-728",
+          "toPointId": "drawing-p-722-624",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 4,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-exit-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inspection-exit-2",
+          "name": "外检后左转向上分双排",
+          "fromPointId": "drawing-p-722-624",
+          "toPointId": "drawing-p-722-605",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inspection",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inspection-exit-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-loaded-a-1",
+          "name": "外检上方载料 A：向套袋",
+          "fromPointId": "drawing-p-722-605",
+          "toPointId": "drawing-p-1320-605",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "loaded-double",
+          "capacity": 26,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-loaded-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-loaded-b-1",
+          "name": "外检上方载料 B：向套袋",
+          "fromPointId": "drawing-p-722-624",
+          "toPointId": "drawing-p-1320-624",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "loaded-double",
+          "capacity": 26,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-loaded-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-right-trunk-1",
+          "name": "套袋区公共上行干线",
+          "fromPointId": "drawing-p-1320-624",
+          "toPointId": "drawing-p-1320-605",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-feed",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-right-trunk-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-right-trunk-2",
+          "name": "套袋区公共上行干线",
+          "fromPointId": "drawing-p-1320-605",
+          "toPointId": "drawing-p-1320-554",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-feed",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-right-trunk-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-right-trunk-3",
+          "name": "套袋区公共上行干线",
+          "fromPointId": "drawing-p-1320-554",
+          "toPointId": "drawing-p-1320-432",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-feed",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-right-trunk-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-right-trunk-4",
+          "name": "套袋区公共上行干线",
+          "fromPointId": "drawing-p-1320-432",
+          "toPointId": "drawing-p-1320-248",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-feed",
+          "capacity": 8,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-right-trunk-4",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-empty-1",
+          "name": "最上方单排空回流：向左、再回抓丝机器人",
+          "fromPointId": "drawing-p-1320-554",
+          "toPointId": "drawing-p-623-554",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "empty-return",
+          "capacity": 30,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-empty-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-empty-2",
+          "name": "最上方单排空回流：向左、再回抓丝机器人",
+          "fromPointId": "drawing-p-623-554",
+          "toPointId": "drawing-p-623-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "empty-return",
+          "capacity": 7,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-empty-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-empty-3",
+          "name": "最上方单排空回流：向左、再回抓丝机器人",
+          "fromPointId": "drawing-p-623-728",
+          "toPointId": "drawing-p-532-728",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "empty-return",
+          "capacity": 4,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-empty-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-1",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1320-248",
+          "toPointId": "drawing-p-1268-248",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-a-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-2",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1268-248",
+          "toPointId": "drawing-p-1250-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-a-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-3",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1250-270",
+          "toPointId": "drawing-p-1230-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-a-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-4",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1230-270",
+          "toPointId": "drawing-p-1170-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bag-a",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-5",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1170-270",
+          "toPointId": "drawing-p-1110-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bag-a",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-a-6",
+          "name": "套袋 A：由右向左",
+          "fromPointId": "drawing-p-1110-270",
+          "toPointId": "drawing-p-978-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-a",
+          "capacity": 5,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-a-6",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-1",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1320-432",
+          "toPointId": "drawing-p-1216-432",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 4,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-b-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-2",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1216-432",
+          "toPointId": "drawing-p-1198-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-b-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-3",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1198-448",
+          "toPointId": "drawing-p-1164-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 1,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-b-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-4",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1164-448",
+          "toPointId": "drawing-p-1104-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bag-b",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-5",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1104-448",
+          "toPointId": "drawing-p-1044-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bag-b",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-b-6",
+          "name": "套袋 B：由右向左",
+          "fromPointId": "drawing-p-1044-448",
+          "toPointId": "drawing-p-978-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "bag-b",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-b-6",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-return-1",
+          "name": "套袋后汇合向上回送",
+          "fromPointId": "drawing-p-978-448",
+          "toPointId": "drawing-p-978-270",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "upper-return",
+          "capacity": 7,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-return-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-bag-return-2",
+          "name": "套袋后汇合向上回送",
+          "fromPointId": "drawing-p-978-270",
+          "toPointId": "drawing-p-978-164",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "upper-return",
+          "capacity": 4,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-bag-return-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-1",
+          "name": "中央框右侧下行、底部左行",
+          "fromPointId": "drawing-p-914-164",
+          "toPointId": "drawing-p-914-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-return",
+          "capacity": 12,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-2",
+          "name": "中央框右侧下行、底部左行",
+          "fromPointId": "drawing-p-914-448",
+          "toPointId": "drawing-p-775-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-return",
+          "capacity": 6,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-3",
+          "name": "中央框右侧下行、底部左行",
+          "fromPointId": "drawing-p-775-448",
+          "toPointId": "drawing-p-596-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-return",
+          "capacity": 7,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-4",
+          "name": "中央框右侧下行、底部左行",
+          "fromPointId": "drawing-p-596-448",
+          "toPointId": "drawing-p-543-448",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-return",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-4",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-buffer-1",
+          "name": "中央下方矩形缓存回流",
+          "fromPointId": "drawing-p-775-448",
+          "toPointId": "drawing-p-775-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-buffer",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-buffer-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-buffer-2",
+          "name": "中央下方矩形缓存回流",
+          "fromPointId": "drawing-p-775-509",
+          "toPointId": "drawing-p-596-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-buffer",
+          "capacity": 7,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-buffer-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-buffer-3",
+          "name": "中央下方矩形缓存回流",
+          "fromPointId": "drawing-p-596-509",
+          "toPointId": "drawing-p-543-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-buffer",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-buffer-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-inner-link-1",
+          "name": "缓存短接回左侧",
+          "fromPointId": "drawing-p-596-448",
+          "toPointId": "drawing-p-596-509",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "inner-buffer",
+          "capacity": 2,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "transportUnitResourceKey": "builtin-small-pallet",
+          "conveyorObjectId": "drawing-bed-inner-link-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        }
+      ]
+    },
+    {
+      "routeId": "drawing-0911-wood-line",
+      "name": "左侧大辊道独立路线",
+      "type": "conveyor",
+      "curveKind": "line",
+      "defaultSpeed": 0.9,
+      "loop": false,
+      "orientToPath": true,
+      "startPointId": "drawing-p-445-591",
+      "routingMode": "automatic",
+      "junctionDecisions": {},
+      "decisionRules": [],
+      "sections": [
+        {
+          "sectionId": "large-roller",
+          "name": "左侧大辊道 L 形独立线",
+          "enabled": true
+        }
+      ],
+      "points": [
+        {
+          "pointId": "drawing-p-445-591",
+          "name": "图纸 445-591",
+          "position": [
+            -28.4,
+            0.82,
+            1.68
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-445-309",
+          "name": "图纸 445-309",
+          "position": [
+            -28.4,
+            0.82,
+            -20.88
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-445-200",
+          "name": "图纸 445-200",
+          "position": [
+            -28.4,
+            0.82,
+            -29.6
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-277-200",
+          "name": "图纸 277-200",
+          "position": [
+            -41.84,
+            0.82,
+            -29.6
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        },
+        {
+          "pointId": "drawing-p-277-125",
+          "name": "图纸 277-125",
+          "position": [
+            -41.84,
+            0.82,
+            -35.6
+          ],
+          "kind": "waypoint",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          }
+        }
+      ],
+      "edges": [
+        {
+          "edgeId": "drawing-edge-wood-1",
+          "name": "左侧大辊道 L 形独立线",
+          "fromPointId": "drawing-p-445-591",
+          "toPointId": "drawing-p-445-309",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "large-roller",
+          "capacity": 12,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "transportUnitResourceKey": "builtin-wooden-pallet",
+          "conveyorObjectId": "drawing-bed-wood-1",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-wood-2",
+          "name": "左侧大辊道 L 形独立线",
+          "fromPointId": "drawing-p-445-309",
+          "toPointId": "drawing-p-445-200",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "large-roller",
+          "capacity": 4,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "transportUnitResourceKey": "builtin-wooden-pallet",
+          "conveyorObjectId": "drawing-bed-wood-2",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-wood-3",
+          "name": "左侧大辊道 L 形独立线",
+          "fromPointId": "drawing-p-445-200",
+          "toPointId": "drawing-p-277-200",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "large-roller",
+          "capacity": 7,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "transportUnitResourceKey": "builtin-wooden-pallet",
+          "conveyorObjectId": "drawing-bed-wood-3",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        },
+        {
+          "edgeId": "drawing-edge-wood-4",
+          "name": "左侧大辊道 L 形独立线",
+          "fromPointId": "drawing-p-277-200",
+          "toPointId": "drawing-p-277-125",
+          "bidirectional": false,
+          "enabled": true,
+          "sectionId": "large-roller",
+          "capacity": 3,
+          "occupancyMode": "simulation",
+          "conveyorSizeClass": "large",
+          "transportUnitType": "wooden-pallet",
+          "transportUnitResourceKey": "builtin-wooden-pallet",
+          "conveyorObjectId": "drawing-bed-wood-4",
+          "authoring": {
+            "mode": "manual",
+            "locked": false
+          },
+          "reservationTimeoutSeconds": 30
+        }
+      ]
+    }
+  ],
+  "runtime": {
+    "dataMode": "simulation",
+    "initialView": "top",
+    "maxPixelRatio": 1.5,
+    "showGrid": false,
+    "primarySmallPalletRouteId": "drawing-0911-small-loop",
+    "routePalletInitializers": [
+      {
+        "routeId": "drawing-0911-small-loop",
+        "telemetryKey": "drawing0911SmallPallets",
+        "simulationDefaultCount": 0,
+        "emptyValue": 0
+      }
+    ]
+  },
+  "editorExtension": {
+    "source": "threejs-editor",
+    "payloadVersion": 2
+  },
+  "connections": []
+}

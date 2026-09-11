@@ -1,0 +1,50 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { createDrawingPackagingLineManifest, drawingCalibration, drawingWorld, getDrawingSpans } from '../src/digital-twin/presets/DrawingPackagingLineManifest';
+import { defaultComponentRegistry } from '../src/digital-twin/components/ComponentRegistry';
+import type { TwinV7SceneManifest } from '../src/digital-twin/contracts/v7-components';
+
+const manifest = createDrawingPackagingLineManifest() as TwinV7SceneManifest;
+const spans = getDrawingSpans();
+const route = manifest.routes[0];
+assert.equal(new Set(manifest.objects.map((o) => o.objectId)).size, manifest.objects.length);
+assert.equal(spans.filter((s) => s.zone === 'loaded-double').length, 2);
+assert.deepEqual(spans.filter((s) => s.zone === 'loaded-double').map((s) => [s.from, s.to]), [[[722, 605], [1320, 605]], [[722, 624], [1320, 624]]]);
+assert.deepEqual(spans.find((s) => s.id === 'empty-1')?.from, [1320, 554]);
+assert.deepEqual(spans.find((s) => s.id === 'empty-1')?.to, [623, 554]);
+assert(spans.filter((s) => s.zone === 'left-double').every((s) => s.to[1] > s.from[1]));
+assert.deepEqual(route.edges.filter((e) => e.fromPointId === 'drawing-p-1130-728').map((e) => e.toPointId), ['drawing-p-1000-728']);
+const reached = new Set([route.startPointId!]);
+for (let i = 0; i < route.points.length; i++) for (const e of route.edges) if (reached.has(e.fromPointId)) reached.add(e.toPointId);
+assert.equal(reached.size, route.points.length, '小辊道不得存在孤立路线点');
+for (const p of route.points) assert(route.edges.some((e) => e.fromPointId === p.pointId), `${p.pointId} 是错误死路`);
+const pairs = manifest.objects.filter((o) => o.component?.componentType === 'double-small-roller-conveyor');
+assert.equal(pairs.length, 5, '竖向双排分三段，中部与底部各一段');
+const transfers = manifest.objects.filter((o) => o.objectId.startsWith('drawing-transfer-'));
+const geometryErrors: string[] = [];
+let meshes = 0;
+for (const object of manifest.objects) {
+	const c = object.component!;
+	const result = defaultComponentRegistry.create({ ...c, objectId: object.objectId, name: object.name, resourceId: object.resourceId, transform: object.transform } as any);
+	result.root.updateMatrixWorld(true);
+	const box = new THREE.Box3().setFromObject(result.root);
+	if (![...box.min.toArray(), ...box.max.toArray()].every(Number.isFinite)) geometryErrors.push(object.objectId);
+	if (c.properties.length !== undefined && result.root.userData.properties?.length !== undefined) assert.equal(result.root.userData.properties.length, c.properties.length, `${object.objectId} 长度被组件截断`);
+	result.root.traverse((node) => { if ((node as THREE.Mesh).isMesh) meshes++; });
+	result.dispose();
+}
+assert.deepEqual(geometryErrors, []);
+const forbidden = /https?:|data:|javascript:|<script/ig;
+assert(!forbidden.test(JSON.stringify(manifest)), '清单不能带外部 URL/脚本/内联图片');
+const outDir = path.resolve('public/digital-twin/templates');
+fs.mkdirSync(outDir, { recursive: true });
+fs.writeFileSync(path.join(outDir, 'drawing-0911-packaging-line.scene.json'), JSON.stringify(manifest, null, 2));
+const report = { sceneName: manifest.name, objects: manifest.objects.length, doubleComponents: pairs.length, transferComponents: transfers.length, routePoints: route.points.length, directedEdges: route.edges.length, reachablePoints: reached.size, meshes, geometryErrors, calibration: drawingCalibration, processAutomation: 'not-configured', source: 'exec-918688ad-0036-4a46-93d0-76211ccd6ea7(3).png' };
+fs.writeFileSync(path.join(outDir, 'drawing-0911-verification.json'), JSON.stringify(report, null, 2));
+// 可审计的等比例中心线图，SVG 为项目生成物，不用 AI 重画来冒充几何核验。
+const lines = spans.map((s) => `<line x1="${s.from[0]}" y1="${s.from[1]}" x2="${s.to[0]}" y2="${s.to[1]}" stroke="${s.large ? '#64748b' : s.zone === 'empty-return' ? '#0284c7' : '#e11d48'}" stroke-width="${s.large ? 30 : 8}" marker-end="url(#arrow)"/>`).join('');
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1423" height="1105" viewBox="0 0 1423 1105"><defs><marker id="arrow" markerWidth="4" markerHeight="4" refX="2.5" refY="2" orient="auto"><path d="M0,0 L4,2 L0,4" fill="none" stroke="#172554" stroke-width="0.6"/></marker></defs><rect width="1423" height="1105" fill="#f8fafc"/>${lines}<path d="M630 406 A112 112 0 1 1 824 406" fill="none" stroke="#94a3b8" stroke-width="14"/><g fill="none" stroke="#475569" stroke-width="3"><rect x="1110" y="237" width="120" height="67"/><rect x="1044" y="415" width="120" height="67"/><rect x="850" y="686" width="150" height="84"/><rect x="238" y="251" width="320" height="116"/><circle cx="727" cy="351" r="35"/><circle cx="827" cy="989" r="35"/><ellipse cx="694" cy="989" rx="71" ry="71"/><ellipse cx="965" cy="989" rx="71" ry="71"/></g><g font-family="Microsoft YaHei,sans-serif" font-size="19" fill="#0f172a"><text x="850" y="534">单排空回流 ←</text><text x="810" y="669">载料双排 → 套袋</text><text x="889" y="720">外检机 ←</text><text x="810" y="940">抓丝机器人</text><text x="1020" y="368">双套袋机</text><text x="60" y="65">0911 图纸中心线核对（与清单共用坐标）</text></g></svg>`;
+fs.writeFileSync(path.join(outDir, 'drawing-0911-centerlines.svg'), svg);
+console.log(JSON.stringify(report, null, 2));
