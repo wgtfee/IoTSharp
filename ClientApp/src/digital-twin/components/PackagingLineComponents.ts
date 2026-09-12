@@ -202,10 +202,10 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 
 		// Two separator stock platforms sit under the shared Z rails. The first one is moved 2m further toward Z-.
 		const stockX = 0;
-		const stockDeckDepth = PACKAGING_WOOD_PALLET_WIDTH + 0.60;
-		const stockDeckWidthX = Math.min(PACKAGING_WOOD_PALLET_LENGTH + 0.60, length - 0.8);
-		const firstStockZ = -5.6;
-		const stockSpacingZ = stockDeckDepth + 0.30;
+		const stockDeckDepth = resolveNumber(props, 'stockDeckDepth', PACKAGING_WOOD_PALLET_WIDTH + 0.60, 1, 10);
+		const stockDeckWidthX = resolveNumber(props, 'stockDeckWidthX', Math.min(PACKAGING_WOOD_PALLET_LENGTH + 0.60, length - 0.8), 1, length - 0.5);
+		const firstStockZ = resolveNumber(props, 'firstStockZ', -5.6, -width / 2, width / 2);
+		const stockSpacingZ = resolveNumber(props, 'stockSpacingZ', stockDeckDepth + 0.30, stockDeckDepth, width);
 
 		const buildSeparatorStockPlatform = (name: string, z: number, stockIndex: number, separatorCategory: 'A' | 'B') => {
 			const stock = new THREE.Group();

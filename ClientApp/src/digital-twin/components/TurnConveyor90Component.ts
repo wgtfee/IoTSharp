@@ -18,6 +18,8 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		const rollerCenterY = height - rollerRadius;
 		const rollerPitch = resolveNumber(props, 'rollerPitch', 0.45, rollerDiameter * 1.1, 2);
 		const direction = props.turnDirection === 'right' ? -1 : 1;
+		// 可选圆弧角用于图纸中的马蹄形缓存；未配置时保留原 90° 行为。
+		const sweepRadians = THREE.MathUtils.degToRad(resolveNumber(props, 'sweepDegrees', 90, 5, 180));
 		const root = new THREE.Group();
 		root.name = definition.name;
 		const frameMaterial = createMaterial(0x334155, { roughness: 0.62, metalness: 0.7 });
@@ -26,7 +28,7 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		const railRadiusInner = Math.max(0.25, radius - width / 2);
 		const railRadiusOuter = radius + width / 2;
 		const start = direction > 0 ? -Math.PI / 2 : Math.PI / 2;
-		const end = 0;
+		const end = start + direction * sweepRadians;
 		const curveForRadius = (r: number) => new THREE.CatmullRomCurve3(
 			Array.from({ length: 24 }, (_, index) => {
 				const t = index / 23;
@@ -39,7 +41,7 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 			rail.name = r === railRadiusInner ? 'Frame_Inner' : 'Frame_Outer';
 			root.add(rail);
 		}
-		const arcLength = Math.PI * radius / 2;
+		const arcLength = sweepRadians * radius;
 		const rollerCount = Math.max(3, Math.floor(arcLength / rollerPitch) + 1);
 		const rollerGeometry = new THREE.CylinderGeometry(rollerDiameter / 2, rollerDiameter / 2, Math.max(0.2, width - 0.14), 14);
 		const rollers = new THREE.InstancedMesh(rollerGeometry, rollerMaterial, rollerCount);
@@ -74,7 +76,7 @@ export class TurnConveyor90Component implements TwinComponentGenerator {
 		const inputAngle = start;
 		const outputAngle = end;
 		const inputDirection: [number, number, number] = direction > 0 ? [-1, 0, 0] : [-1, 0, 0];
-		const outputDirection: [number, number, number] = direction > 0 ? [0, 0, 1] : [0, 0, -1];
+		const outputDirection: [number, number, number] = [-Math.sin(end) * direction, 0, Math.cos(end) * direction];
 		const ports: TwinComponentPortDefinition[] = [
 			{
 				portId: 'input', name: '入口', type: 'material-input',

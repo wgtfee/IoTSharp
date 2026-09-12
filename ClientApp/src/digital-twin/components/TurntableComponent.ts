@@ -10,7 +10,7 @@ export class TurntableComponent implements TwinComponentGenerator {
 	create(context: TwinComponentBuildContext) {
 		const { definition } = context;
 		const props = definition.properties;
-		const deckLength = resolveNumber(props, 'deckLength', 2.4, 0.8, 8);
+		const deckLength = resolveNumber(props, 'deckLength', 2.4, 0.8, 16);
 		const width = resolveNumber(props, 'width', 1.8, 0.6, 6);
 		const height = resolveNumber(props, 'height', 0.9, 0.2, 3);
 		const baseRadius = resolveNumber(props, 'baseRadius', Math.max(deckLength, width) * 0.62, 0.6, 8);

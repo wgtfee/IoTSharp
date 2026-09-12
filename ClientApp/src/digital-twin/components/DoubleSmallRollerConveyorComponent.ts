@@ -93,6 +93,11 @@ export class DoubleSmallRollerConveyorComponent implements TwinComponentGenerato
 			if (supports) supports.name = `DoubleSmall-Lane-${lane.id}-Supports`;
 			const driveMotor = geometry.getObjectByName('驱动电机');
 			if (driveMotor) {
+				// 紧凑双排时，电机放到两排的外侧，不能侵入相邻辊道。
+				if (lane.id === 'A') {
+					driveMotor.position.z *= -1;
+					driveMotor.rotation.y = Math.PI;
+				}
 				driveMotor.name = `DoubleSmall-Lane-${lane.id}-DriveMotor`;
 				driveMotor.userData.twinEquipmentId = `${definition.objectId}:lane-${lane.id.toLowerCase()}-drive-motor`;
 				driveMotor.userData.laneId = lane.id;

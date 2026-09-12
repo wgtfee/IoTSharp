@@ -11,7 +11,7 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 		const { definition } = context;
 		const props = definition.properties;
 		const sizeClass = props.conveyorSizeClass === 'large' ? 'large' : 'small';
-		const length = resolveNumber(props, 'length', sizeClass === 'large' ? 4 : 3, 0.5, 100);
+		const length = resolveNumber(props, 'length', sizeClass === 'large' ? 4 : 3, 0.2, 100);
 		const width = resolveNumber(props, 'width', sizeClass === 'large' ? 2.4 : 1.6, 0.5, 8);
 		const height = resolveNumber(props, 'height', sizeClass === 'large' ? 0.82 : 0.9, 0.2, 3);
 		const rollerDiameter = resolveNumber(props, 'rollerDiameter', sizeClass === 'large' ? 0.18 : 0.14, 0.05, 0.6);
@@ -32,6 +32,15 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 		});
 		const driveMotor = geometry.getObjectByName('驱动电机');
 		if (driveMotor) driveMotor.userData.twinEquipmentId = `${definition.objectId}:drive-motor`;
+		// 图纸中的直角移载位只保留一张辊床，开放侧面接驳，避免相交的整段边梁穿透。
+		if (props.openTransferSides === true) {
+			for (const name of ['Frame_Left', 'Frame_Right', '驱动电机']) {
+				const part = geometry.getObjectByName(name);
+				if (part) part.visible = false;
+			}
+			root.userData.transferJunction = true;
+			root.userData.disableAutoOutputStoppers = true;
+		}
 		root.add(geometry);
 		const ports: TwinComponentPortDefinition[] = [
 			{

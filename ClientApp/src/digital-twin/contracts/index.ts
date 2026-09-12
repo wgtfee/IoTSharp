@@ -259,6 +259,8 @@ export interface TwinRouteDefinition {
 
 export interface TwinRuntimeDefinition {
 	dataMode: 'simulation' | 'live';
+	/** 图纸核对场景可显式选择初始俯视；旧场景保持原有相机。 */
+	initialView?: 'top' | 'isometric';
 	maxPixelRatio: number;
 	showGrid: boolean;
 	/** Live Snapshot 刷新周期；执行机构在客户端 fixed-step 中继续平滑插值。 */
@@ -1485,4 +1487,3 @@ export const createLocalModelResourceReference = (fileName: string): TwinModelRe
 	sourceFileName: fileName,
 	status: 'local-poc',
 });
-

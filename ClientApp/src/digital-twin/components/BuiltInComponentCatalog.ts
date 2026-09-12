@@ -80,7 +80,8 @@ const turntableSlots: TwinComponentBindingSlot[] = [
 ];
 
 const straightSchema = (sizeClass: 'small' | 'large') => [
-	numberProperty('length', '长度', sizeClass === 'large' ? 4 : 3, 'geometry', { min: 0.5, max: 100, step: 0.1, unit: 'm' }),
+	numberProperty('length', '长度', sizeClass === 'large' ? 4 : 3, 'geometry', { min: 0.2, max: 100, step: 0.1, unit: 'm' }),
+	booleanProperty('openTransferSides', '开放侧面接驳（移载辊床）', false, 'geometry'),
 	numberProperty('width', '宽度', sizeClass === 'large' ? 2.4 : 1.6, 'geometry', { min: 0.5, max: 8, step: 0.1, unit: 'm' }),
 	numberProperty('height', '辊面高度', sizeClass === 'large' ? 0.82 : 0.9, 'geometry', { min: 0.2, max: 3, step: 0.05, unit: 'm' }),
 	numberProperty('rollerDiameter', '滚筒直径', sizeClass === 'large' ? 0.18 : 0.14, 'geometry', { min: 0.05, max: 0.6, step: 0.01, unit: 'm' }),
@@ -336,6 +337,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		defaultProperties: { radius: 2.2, width: 1.6, height: 0.9, rollerDiameter: 0.14, rollerPitch: 0.45, turnDirection: 'left', transportUnitType: 'plastic-pallet', capacity: 2 },
 		propertySchema: [
 			numberProperty('radius', '转弯半径', 2.2, 'geometry', { min: 0.8, max: 12, step: 0.1, unit: 'm' }),
+			numberProperty('sweepDegrees', '圆弧角度', 90, 'geometry', { min: 5, max: 180, step: 1, unit: '°' }),
 			numberProperty('width', '宽度', 1.6, 'geometry', { min: 0.5, max: 6, step: 0.1, unit: 'm' }),
 			numberProperty('height', '辊面高度', 0.9, 'geometry', { min: 0.2, max: 3, step: 0.05, unit: 'm' }),
 			selectProperty('turnDirection', '转弯方向', 'left', 'geometry', [{ label: '左转', value: 'left' }, { label: '右转', value: 'right' }]),
@@ -504,7 +506,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		bindingSlots: turntableSlots,
 		defaultProperties: { deckLength: 2.4, width: 1.8, height: 0.9, baseRadius: 1.55, transportUnitType: 'plastic-pallet', capacity: 1, rotationDegrees: 180, withSilkCart: false, silkCartLoaded: true },
 		propertySchema: [
-			numberProperty('deckLength', '辊道长度', 2.4, 'geometry', { min: 0.8, max: 8, step: 0.1, unit: 'm' }),
+			numberProperty('deckLength', '辊道长度', 2.4, 'geometry', { min: 0.8, max: 16, step: 0.1, unit: 'm' }),
 			numberProperty('width', '辊道宽度', 1.8, 'geometry', { min: 0.6, max: 6, step: 0.1, unit: 'm' }),
 			numberProperty('rotationDegrees', '旋转角度', 180, 'runtime', { min: 0, max: 360, step: 1, unit: '°' }),
 			booleanProperty('withSilkCart', '带双面丝车', false, 'geometry'),
@@ -671,6 +673,10 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 			numberProperty('length', 'X向桁架跨度', 8.2, 'geometry', { min: 4, max: 30, step: 0.1, unit: 'm' }),
 			numberProperty('width', 'Z向轨道长度', 27.0, 'geometry', { min: 8, max: 36, step: 0.1, unit: 'm' }),
 			numberProperty('height', '桁架高度', 8.4, 'geometry', { min: 3, max: 15, step: 0.1, unit: 'm' }),
+			numberProperty('firstStockZ', '暂存台 A 沿轨道位置', -5.6, 'geometry', { min: -18, max: 18, step: 0.1, unit: 'm' }),
+			numberProperty('stockSpacingZ', '两暂存台中心距', PACKAGING_WOOD_PALLET_WIDTH + 0.90, 'geometry', { min: 1, max: 36, step: 0.1, unit: 'm' }),
+			numberProperty('stockDeckWidthX', '暂存台 X 向尺寸', PACKAGING_WOOD_PALLET_LENGTH + 0.60, 'geometry', { min: 1, max: 29.5, step: 0.1, unit: 'm' }),
+			numberProperty('stockDeckDepth', '暂存台 Z 向尺寸', PACKAGING_WOOD_PALLET_WIDTH + 0.60, 'geometry', { min: 1, max: 10, step: 0.1, unit: 'm' }),
 		],
 	},
 	{

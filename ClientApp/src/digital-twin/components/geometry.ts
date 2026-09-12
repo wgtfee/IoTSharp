@@ -53,7 +53,7 @@ export const markShadows = (root: THREE.Object3D) => {
 export const createStraightRollerGeometry = (options: StraightRollerGeometryOptions) => {
 	const root = new THREE.Group();
 	root.name = 'RollerConveyorGeometry';
-	const length = Math.max(0.5, options.length);
+	const length = Math.max(0.2, options.length);
 	const width = Math.max(0.5, options.width);
 	const height = Math.max(0.15, options.height);
 	const rollerRadius = Math.max(0.025, options.rollerDiameter / 2);

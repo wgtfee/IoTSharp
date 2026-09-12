@@ -302,7 +302,23 @@ export class TwinRuntime {
 		this.resizeObserver = new ResizeObserver(() => this.resize());
 		this.resizeObserver.observe(this.container);
 		this.resize();
+		if (manifest.runtime.initialView === 'top') this.frameDrawingTopView();
 		this.animationFrame = requestAnimationFrame(this.animate);
+	}
+
+	/** 首次加载按实体包围盒展示完整图纸；只对显式声明的图纸场景生效。 */
+	private frameDrawingTopView() {
+		const box = new THREE.Box3();
+		for (const { root } of this.componentModels.values()) box.union(new THREE.Box3().setFromObject(root));
+		if (box.isEmpty()) return;
+		const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+		const extent = Math.max(size.z, size.x / Math.max(0.2, this.camera.aspect));
+		const distance = extent * 0.58 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) + size.y;
+		this.orbitControls.maxDistance = Math.max(120, distance * 4);
+		this.orbitControls.target.set(center.x, 0, center.z);
+		this.camera.position.set(center.x, distance, center.z + 0.001);
+		this.camera.updateProjectionMatrix();
+		this.orbitControls.update();
 	}
 
 	setRunning(running: boolean) {
@@ -762,14 +778,14 @@ export class TwinRuntime {
 		this.scene.add(directional);
 
 		const hasLargeComponentLayout = this.manifest.objects.filter((item: any) => item.kind === 'component').length >= 16;
-		const environmentSize = this.manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')) ? 80 : hasLargeComponentLayout ? 64 : 40;
+		const environmentSize = this.manifest.runtime.initialView === 'top' ? 128 : this.manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || '')) ? 80 : hasLargeComponentLayout ? 64 : 40;
 		if (showGrid) {
 			const grid = new THREE.GridHelper(environmentSize, environmentSize, 0x1d4ed8, 0x1f3a55);
 			grid.userData[helperFlag] = true;
 			this.scene.add(grid);
 		}
 
-		const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x081525, roughness: 0.92, metalness: 0.02, transparent: true, opacity: 0.88 });
+		const groundMaterial = new THREE.MeshStandardMaterial({ color: this.manifest.runtime.initialView === 'top' ? 0xe8eef3 : 0x081525, roughness: 0.92, metalness: 0.02, transparent: true, opacity: 0.88 });
 		this.ground = new THREE.Mesh(new THREE.PlaneGeometry(environmentSize, environmentSize), groundMaterial);
 		this.ground.name = '路线绘制平面';
 		this.ground.rotation.x = -Math.PI / 2;
