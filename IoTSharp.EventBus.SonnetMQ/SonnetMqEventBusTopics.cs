@@ -4,6 +4,7 @@ internal static class SonnetMqEventBusTopics
 {
     public const string AttributeData = "iotsharp.services.datastream.attributedata";
     public const string TelemetryData = "iotsharp.services.datastream.telemetrydata";
+    public const string TelemetryDataBatch = "iotsharp.services.datastream.telemetrydata.batch";
     public const string Alarm = "iotsharp.services.datastream.alarm";
     public const string CreateDevice = "iotsharp.services.platform.createdevice";
     public const string DeleteDevice = "iotsharp.services.platform.deletedevice";
@@ -14,6 +15,7 @@ internal static class SonnetMqEventBusTopics
     [
         new(AttributeData, SonnetMqEventKinds.AttributeData),
         new(TelemetryData, SonnetMqEventKinds.TelemetryData),
+        new(TelemetryDataBatch, SonnetMqEventKinds.TelemetryDataBatch),
         new(Alarm, SonnetMqEventKinds.Alarm),
         new(CreateDevice, SonnetMqEventKinds.CreateDevice),
         new(DeleteDevice, SonnetMqEventKinds.DeleteDevice),
@@ -26,6 +28,7 @@ internal static class SonnetMqEventKinds
 {
     public const string AttributeData = "attribute-data";
     public const string TelemetryData = "telemetry-data";
+    public const string TelemetryDataBatch = "telemetry-data-batch";
     public const string Alarm = "alarm";
     public const string CreateDevice = "create-device";
     public const string DeleteDevice = "delete-device";

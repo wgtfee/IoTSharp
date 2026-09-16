@@ -58,6 +58,18 @@ sf.OrderBy(k => k.Key).Select(k => k.Value).ToList()
             await _queue.PublishAsync("iotsharp.services.datastream.telemetrydata", msg);
         }
 
+        public async Task PublishTelemetryDataBatch(IReadOnlyCollection<PlayloadData> messages)
+        {
+            if (messages.Count == 0)
+            {
+                return;
+            }
+
+            await _queue.PublishAsync(
+                "iotsharp.services.datastream.telemetrydata.batch",
+                messages as PlayloadData[] ?? messages.ToArray());
+        }
+
 
         public async Task PublishDeviceAlarm(CreateAlarmDto alarmDto)
         {

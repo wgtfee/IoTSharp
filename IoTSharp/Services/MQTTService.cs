@@ -4,6 +4,7 @@ using IoTSharp.Data;
 using IoTSharp.Data.Extensions;
 using IoTSharp.Extensions;
 using IoTSharp.FlowRuleEngine;
+using IoTSharp.Services.Ingestion;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +32,7 @@ namespace IoTSharp.Services
         private readonly IPublisher _queue;
         private readonly FlowRuleProcessor _flowRuleProcessor;
         private readonly IMemoryCache _mqttAuthCache;
+        private readonly GatewayRuntimeRegistry _gatewayRuntimeRegistry;
         private readonly ConcurrentDictionary<string, Device> _mqttAuthIndex = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, byte> _mqttProductTokenIndex = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<Guid, MqttConnectState> _connectStates = new();
@@ -51,7 +53,8 @@ namespace IoTSharp.Services
         private DateTime _mqttAuthIndexLoadedAt = DateTime.MinValue;
 
         public MQTTService(ILogger<MQTTService> logger, IServiceScopeFactory scopeFactor, MqttServer serverEx
-           , IOptions<AppSettings> options, IPublisher queue, FlowRuleProcessor flowRuleProcessor, IMemoryCache mqttAuthCache
+           , IOptions<AppSettings> options, IPublisher queue, FlowRuleProcessor flowRuleProcessor, IMemoryCache mqttAuthCache,
+            GatewayRuntimeRegistry gatewayRuntimeRegistry
             )
         {
             _mcsetting = options.Value.MqttClient;
@@ -62,6 +65,7 @@ namespace IoTSharp.Services
             _queue = queue;
             _flowRuleProcessor = flowRuleProcessor;
             _mqttAuthCache = mqttAuthCache;
+            _gatewayRuntimeRegistry = gatewayRuntimeRegistry;
             _connectStatusQueue = Channel.CreateBounded<DeviceConnectStatus>(new BoundedChannelOptions(10000)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
@@ -444,6 +448,7 @@ namespace IoTSharp.Services
             e.ReasonCode = MQTTnet.Protocol.MqttConnectReasonCode.Success;
             CacheSuccessfulAuth(BuildMqttAuthCacheKey(e.ClientId, e.UserName, e.Password, e.ClientCertificate?.Thumbprint), sessionDevice);
             QueueConnectStatus(sessionDevice.Id, ConnectStatus.Connected);
+            _gatewayRuntimeRegistry.MarkConnected(sessionDevice);
             _logger.LogDebug("MQTT device accepted. DeviceName={DeviceName}, DeviceId={DeviceId}, UserName={UserName}, Endpoint={Endpoint}", sessionDevice.Name, sessionDevice.Id, userName, endpoint);
         }
 
@@ -492,6 +497,7 @@ namespace IoTSharp.Services
                 if (dev != null)
                 {
                     QueueConnectStatus(dev.Id, ConnectStatus.Disconnected);
+                    _gatewayRuntimeRegistry.MarkDisconnected(dev);
                 }
                 else
                 {
@@ -577,6 +583,7 @@ namespace IoTSharp.Services
                         e.SessionItems.Add(nameof(Device), authCache.Device);
                         e.ReasonCode = MQTTnet.Protocol.MqttConnectReasonCode.Success;
                         QueueConnectStatus(authCache.Device.Id, ConnectStatus.Connected);
+                        _gatewayRuntimeRegistry.MarkConnected(authCache.Device);
                         return;
                     }
 

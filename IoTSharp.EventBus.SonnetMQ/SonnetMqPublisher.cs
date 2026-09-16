@@ -50,6 +50,11 @@ public sealed class SonnetMqPublisher : IPublisher
     public Task PublishTelemetryData(PlayloadData msg)
         => PublishAsync(SonnetMqEventBusTopics.TelemetryData, msg);
 
+    public Task PublishTelemetryDataBatch(IReadOnlyCollection<PlayloadData> messages)
+        => messages.Count == 0
+            ? Task.CompletedTask
+            : PublishAsync(SonnetMqEventBusTopics.TelemetryDataBatch, messages as PlayloadData[] ?? messages.ToArray());
+
     public Task PublishConnect(Guid devid, ConnectStatus devicestatus)
         => PublishAsync(SonnetMqEventBusTopics.Connect, new DeviceConnectStatus(devid, devicestatus));
 
@@ -67,7 +72,7 @@ public sealed class SonnetMqPublisher : IPublisher
 
     private Task PublishAsync<T>(string topic, T message)
     {
-        byte[] payload = Encoding.UTF8.GetBytes(JsonObjectSerializer.Serialize(message));
+        byte[] payload = JsonObjectSerializer.SerializeToUtf8Bytes(message);
         return _client.PublishAsync(topic, payload, JsonHeaders);
     }
 }

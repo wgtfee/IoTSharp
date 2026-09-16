@@ -48,6 +48,15 @@ namespace IoTSharp.EventBus.CAP
         {
             await StoreTelemetryData(msg);
         }
+
+        [CapSubscribe("iotsharp.services.datastream.telemetrydata.batch")]
+        public async Task telemetrydatabatch(PlayloadData[] messages)
+        {
+            if (messages?.Length > 0)
+            {
+                await StoreTelemetryDataBatch(messages);
+            }
+        }
         [CapSubscribe("iotsharp.services.datastream.deletedevice")]
         public async Task deletedevice(Guid deviceId)
         {

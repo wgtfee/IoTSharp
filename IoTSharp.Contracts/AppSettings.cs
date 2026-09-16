@@ -92,6 +92,7 @@ namespace IoTSharp.Contracts
         public int SucceedMessageExpiredAfter { get; set; } = 3600 * 6;
         public DataBaseType DataBase { get; set; } = DataBaseType.PostgreSql;
         public int RuleCachingExpiration { get; set; } = 60;
+        public int RuleExecutionMaxConcurrency { get; set; } = Math.Clamp(Environment.ProcessorCount, 1, 8);
         public ShardingByDateMode ShardingByDateMode { get; set; } = ShardingByDateMode.PerMonth;
 
         private DateTime shardingBeginTime;

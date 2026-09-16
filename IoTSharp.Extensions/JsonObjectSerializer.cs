@@ -23,6 +23,14 @@ namespace IoTSharp.Extensions
         }
 
         /// <summary>
+        /// 使用统一 JSON 配置直接序列化为 UTF-8，避免高吞吐消息链路先生成 UTF-16 string 再转码。
+        /// </summary>
+        public static byte[] SerializeToUtf8Bytes(object value)
+        {
+            return JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions.Default);
+        }
+
+        /// <summary>
         /// 将对象序列化为可变的 System.Text.Json DOM 节点。
         /// </summary>
         /// <param name="value">需要序列化的对象；为 null 时返回 null。</param>

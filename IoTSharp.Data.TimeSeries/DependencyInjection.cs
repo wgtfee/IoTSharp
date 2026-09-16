@@ -123,7 +123,14 @@ namespace IoTSharp.Data.TimeSeries
                     break;
                 case TelemetryStorage.SingleTable:
                 default:
-                    services.AddSingleton<IStorage, EFStorage>();
+                    if (settings.DataBase == DataBaseType.SqlServer)
+                    {
+                        services.AddSingleton<IStorage, SqlServerStorage>();
+                    }
+                    else
+                    {
+                        services.AddSingleton<IStorage, EFStorage>();
+                    }
                     break;
             }
         }

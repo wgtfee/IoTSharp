@@ -41,9 +41,9 @@ namespace IoTSharp.EventBus
         /// <param name="_queue"></param>
         /// <param name="device"></param>
         /// <param name="keyValues"></param>
-        public static void PublishTelemetryData(this IPublisher _queue, Device device, Dictionary<string, object> keyValues)
+        public static Task PublishTelemetryData(this IPublisher _queue, Device device, Dictionary<string, object> keyValues)
         {
-            _queue.PublishTelemetryData(new PlayloadData() { DeviceId = device.Id, MsgBody = keyValues, DataSide = DataSide.ClientSide, DataCatalog = DataCatalog.TelemetryData });
+            return _queue.PublishTelemetryData(new PlayloadData() { DeviceId = device.Id, MsgBody = keyValues, DataSide = DataSide.ClientSide, DataCatalog = DataCatalog.TelemetryData });
         }
 
     }

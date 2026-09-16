@@ -1,16 +1,45 @@
-﻿using IoTSharp.Contracts;
+using IoTSharp.Contracts;
 using IoTSharp.Data;
 using IoTSharp.Data.Shardings;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Data;
+using System.Globalization;
 using System.Collections.Generic;
 
 namespace IoTSharp.Storage
 {
     public class ShardingStorage : IStorage
     {
+        private static readonly string[] SqlServerHistoryColumns =
+        [
+            nameof(TelemetryData.DeviceId), nameof(TelemetryData.KeyName), nameof(TelemetryData.DateTime),
+            nameof(TelemetryData.DataSide), nameof(TelemetryData.Type), nameof(TelemetryData.Value_Boolean),
+            nameof(TelemetryData.Value_String), nameof(TelemetryData.Value_Long), nameof(TelemetryData.Value_DateTime),
+            nameof(TelemetryData.Value_Double), nameof(TelemetryData.Value_Json), nameof(TelemetryData.Value_XML),
+            nameof(TelemetryData.Value_Binary)
+        ];
+
+        private static readonly string[] SqlServerLatestColumns =
+        [
+            nameof(DataStorage.Catalog), nameof(DataStorage.DeviceId), nameof(DataStorage.KeyName), nameof(DataStorage.DateTime),
+            nameof(DataStorage.DataSide), nameof(DataStorage.Type), nameof(DataStorage.Value_Boolean),
+            nameof(DataStorage.Value_String), nameof(DataStorage.Value_Long), nameof(DataStorage.Value_DateTime),
+            nameof(DataStorage.Value_Double), nameof(DataStorage.Value_Json), nameof(DataStorage.Value_XML),
+            nameof(DataStorage.Value_Binary)
+        ];
+
+        private static readonly string[] SqlServerLatestMutableColumns =
+        [
+            nameof(DataStorage.DateTime), nameof(DataStorage.DataSide), nameof(DataStorage.Type),
+            nameof(DataStorage.Value_Boolean), nameof(DataStorage.Value_String), nameof(DataStorage.Value_Long),
+            nameof(DataStorage.Value_DateTime), nameof(DataStorage.Value_Double), nameof(DataStorage.Value_Json),
+            nameof(DataStorage.Value_XML), nameof(DataStorage.Value_Binary)
+        ];
+
         private readonly AppSettings _appSettings;
         private readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactor;
@@ -164,6 +193,249 @@ namespace IoTSharp.Storage
                 _logger.LogError(ex, $"{msg.DeviceId}数据处理失败{ex.Message} {ex.InnerException?.Message} ");
             }
             return (result, telemetries);
+        }
+
+        /// <summary>
+        /// 批量保存分片遥测。历史数据一次进入 ShardingDbContext，Latest 在批内按设备/Key 只保留最后样本，
+        /// 避免默认 IStorage 实现把一个批次重新拆成大量 DbContext + SaveChanges。
+        /// </summary>
+        public async Task<TelemetryBatchStoreResult> StoreTelemetryBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+        {
+            var batch = ShardingTelemetryBatchBuilder.Build(messages);
+            if (batch.MessageCount == 0 || batch.HistoryRows.Count == 0)
+            {
+                return new TelemetryBatchStoreResult(true, batch.HistoryRows, batch.MessageCount);
+            }
+
+            try
+            {
+                // Latest 先提交：如果后续历史写入发生瞬时故障，上游重试只会重复一次幂等 Latest 更新，
+                // 不会出现“历史已提交但 Latest 失败”后重试被历史主键卡死的情况。
+                if (CanUseSqlServerMonthlyBulkCopy())
+                {
+                    if (!await ShardingSqlServerBatchWriter.TryStoreAsync(_appSettings, _scopeFactor, _logger, batch))
+                        await StoreBatchWithEfAsync(batch);
+                }
+                else
+                {
+                    await StoreBatchWithEfAsync(batch);
+                }
+
+
+                _logger.LogDebug(
+                    "分片遥测批量保存完成. Messages={MessageCount}, HistoryRows={HistoryRows}, LatestRows={LatestRows}",
+                    batch.MessageCount,
+                    batch.HistoryRows.Count,
+                    batch.LatestValues.Count);
+                return new TelemetryBatchStoreResult(true, batch.HistoryRows, batch.MessageCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "分片遥测批量保存失败. Messages={MessageCount}, HistoryRows={HistoryRows}, LatestRows={LatestRows}",
+                    batch.MessageCount,
+                    batch.HistoryRows.Count,
+                    batch.LatestValues.Count);
+                return new TelemetryBatchStoreResult(false, batch.HistoryRows, batch.MessageCount);
+            }
+        }
+
+        private bool CanUseSqlServerMonthlyBulkCopy()
+            => _appSettings.DataBase == DataBaseType.SqlServer
+               && _appSettings.ShardingByDateMode == ShardingByDateMode.PerMonth
+               && _appSettings.ConnectionStrings?.TryGetValue("TelemetryStorage", out var connectionString) == true
+               && !string.IsNullOrWhiteSpace(connectionString);
+
+        private async Task StoreBatchWithEfAsync(ShardingTelemetryBatch batch)
+        {
+            await StoreLatestValuesAsync(batch.LatestValues);
+            await StoreHistoryWithShardingEfAsync(batch.HistoryRows);
+        }
+
+        private async Task StoreLatestValuesAsync(IReadOnlyCollection<ShardingTelemetryLatestValue> latestValues)
+        {
+            if (latestValues.Count == 0)
+                return;
+
+            using var scope = _scopeFactor.CreateScope();
+            using var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var deviceIds = latestValues.Select(item => item.DeviceId).Distinct().ToArray();
+            var keyNames = latestValues.Select(item => item.KeyName).Distinct().ToArray();
+            var existing = await dbContext.Set<TelemetryLatest>()
+                .Where(item => deviceIds.Contains(item.DeviceId) && keyNames.Contains(item.KeyName))
+                .ToDictionaryAsync(item => (item.DeviceId, item.KeyName));
+
+            foreach (var latest in latestValues)
+            {
+                var pair = new KeyValuePair<string, object>(latest.KeyName, latest.Value);
+                if (existing.TryGetValue((latest.DeviceId, latest.KeyName), out var target))
+                {
+                    target.FillKVToMe(pair);
+                    target.DateTime = latest.Timestamp;
+                    target.DataSide = latest.DataSide;
+                }
+                else
+                {
+                    target = new TelemetryLatest
+                    {
+                        Catalog = DataCatalog.TelemetryLatest,
+                        DeviceId = latest.DeviceId,
+                        KeyName = latest.KeyName,
+                        DateTime = latest.Timestamp,
+                        DataSide = latest.DataSide
+                    };
+                    target.FillKVToMe(pair);
+                    dbContext.Set<TelemetryLatest>().Add(target);
+                    existing.Add((latest.DeviceId, latest.KeyName), target);
+                }
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        private async Task StoreHistoryWithShardingEfAsync(IReadOnlyCollection<TelemetryData> historyRows)
+        {
+            using var historyScope = _scopeFactor.CreateScope();
+            using var historyDb = historyScope.ServiceProvider.GetRequiredService<ShardingDbContext>();
+            await historyDb.Set<TelemetryData>().AddRangeAsync(historyRows);
+            await historyDb.SaveChangesAsync();
+        }
+
+        private async Task StoreSqlServerMonthlyHistoryAsync(IReadOnlyList<TelemetryData> historyRows)
+        {
+            var connectionString = _appSettings.ConnectionStrings!["TelemetryStorage"];
+            var rows = new List<SqlServerTelemetryRow>(historyRows.Count);
+            var rowIndicesByTable = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+
+            for (var index = 0; index < historyRows.Count; index++)
+            {
+                var history = historyRows[index];
+                rows.Add(new SqlServerTelemetryRow
+                {
+                    DeviceIdValue = history.DeviceId,
+                    KeyName = history.KeyName,
+                    DateTimeValue = history.DateTime,
+                    DataSideValue = (int)history.DataSide,
+                    Type = history.Type,
+                    Value = history.ToObject(),
+                    HasValue = true
+                });
+
+                var table = $"dbo.TelemetryData_{history.DateTime.ToString("yyyyMM", CultureInfo.InvariantCulture)}";
+                if (!rowIndicesByTable.TryGetValue(table, out var indices))
+                {
+                    indices = new List<int>();
+                    rowIndicesByTable.Add(table, indices);
+                }
+                indices.Add(index);
+            }
+
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            // ShardingCore normally creates the current physical table at startup. If a boundary table is not
+            // present yet, fall back to the normal sharding path once so table creation/routing semantics stay intact.
+            foreach (var table in rowIndicesByTable.Keys)
+            {
+                await using var existsCommand = connection.CreateCommand();
+                existsCommand.CommandText = "SELECT OBJECT_ID(@tableName, 'U')";
+                existsCommand.Parameters.AddWithValue("@tableName", table);
+                if (await existsCommand.ExecuteScalarAsync() is DBNull or null)
+                {
+                    _logger.LogWarning("SQL Server 分片表 {Table} 尚不存在，回退 ShardingCore EF 写入。", table);
+                    await StoreHistoryWithShardingEfAsync(historyRows);
+                    return;
+                }
+            }
+
+            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            try
+            {
+                foreach (var group in rowIndicesByTable)
+                {
+                    using var reader = new SqlServerStorage.TelemetryBulkDataReader(
+                        rows,
+                        includeCatalog: false,
+                        rowIndices: group.Value);
+                    using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.TableLock, transaction)
+                    {
+                        DestinationTableName = $"[{group.Key.Replace(".", "].[")}]",
+                        BatchSize = Math.Clamp(group.Value.Count, 1, 5000),
+                        BulkCopyTimeout = 60,
+                        EnableStreaming = true
+                    };
+                    foreach (var column in SqlServerHistoryColumns)
+                        bulkCopy.ColumnMappings.Add(column, column);
+
+                    await bulkCopy.WriteToServerAsync(reader);
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+    }
+
+    internal sealed record ShardingTelemetryLatestValue(
+        Guid DeviceId,
+        string KeyName,
+        object Value,
+        DataSide DataSide,
+        DateTime Timestamp);
+
+    internal sealed record ShardingTelemetryBatch(
+        List<TelemetryData> HistoryRows,
+        List<ShardingTelemetryLatestValue> LatestValues,
+        int MessageCount);
+
+    internal static class ShardingTelemetryBatchBuilder
+    {
+        internal static ShardingTelemetryBatch Build(IReadOnlyCollection<PlayloadData> messages)
+        {
+            var estimatedPoints = messages.Sum(message => message.MsgBody?.Count ?? 0);
+            var historyRows = new List<TelemetryData>(estimatedPoints);
+            var latestByKey = new Dictionary<(Guid DeviceId, string KeyName), ShardingTelemetryLatestValue>();
+
+            foreach (var message in messages)
+            {
+                if (message.MsgBody is null)
+                {
+                    continue;
+                }
+
+                foreach (var pair in message.MsgBody)
+                {
+                    if (pair.Key is null || pair.Value is null)
+                    {
+                        continue;
+                    }
+
+                    var history = new TelemetryData
+                    {
+                        DateTime = message.ts,
+                        DeviceId = message.DeviceId,
+                        KeyName = pair.Key,
+                        DataSide = message.DataSide
+                    };
+                    history.FillKVToMe(pair);
+                    historyRows.Add(history);
+
+                    latestByKey[(message.DeviceId, pair.Key)] = new ShardingTelemetryLatestValue(
+                        message.DeviceId,
+                        pair.Key,
+                        pair.Value,
+                        message.DataSide,
+                        message.ts);
+                }
+            }
+
+            return new ShardingTelemetryBatch(historyRows, latestByKey.Values.ToList(), messages.Count);
         }
     }
 }

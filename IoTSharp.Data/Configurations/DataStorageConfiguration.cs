@@ -15,8 +15,6 @@ namespace IoTSharp.Data.Configurations
         public void Configure(EntityTypeBuilder<DataStorage> builder)
         {
             builder.HasKey(c => new { c.Catalog, c.DeviceId, c.KeyName });
-            builder.HasIndex(c => c.Catalog);
-            builder.HasIndex(c => new { c.Catalog, c.DeviceId });
             builder.HasIndex(c => new { c.Catalog, c.KeyName, c.DeviceId });
             builder.HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog))
                .HasValue<DataStorage>(DataCatalog.None)

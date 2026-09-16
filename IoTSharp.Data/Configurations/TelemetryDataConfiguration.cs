@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System;
 using System.Collections.Generic;
@@ -13,8 +13,7 @@ namespace IoTSharp.Data.Configurations
     {
         public void Configure(EntityTypeBuilder<TelemetryData> builder)
         {
-            builder.HasIndex(c => new { c.DeviceId });
-            builder.HasIndex(c => new { c.DeviceId, c.KeyName });
+            builder.HasIndex(c => new { c.DeviceId, c.DateTime });
             builder.HasIndex(c => new { c.KeyName });
             builder.HasKey(c => new { c.DeviceId, c.KeyName, c.DateTime });
             builder.Property(t => t.DeviceId)

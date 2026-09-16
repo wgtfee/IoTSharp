@@ -128,12 +128,28 @@ namespace IoTSharp.EventBus
         public async Task StoreTelemetryData(PlayloadData msg)
         {
             var result = await _storage.StoreTelemetryAsync(msg);
-            var data = from t in result.telemetries
-                       select new TelemetryDataDto() { DateTime = t.DateTime, DataType = t.Type, KeyName = t.KeyName, Value = t.ToObject() };
-            var array = data.ToList();
-            ExpandoObject exps = array.ToDynamic();
-            await RunRules(msg.DeviceId, (dynamic)exps, EventType.Telemetry);
-            await RunRules(msg.DeviceId, array, EventType.TelemetryArray);
+            var mode = await _eventBusOption.GetTelemetryRuleDispatchMode(msg.DeviceId);
+            if (mode == TelemetryRuleDispatchMode.None)
+            {
+                return;
+            }
+
+            List<TelemetryDataDto>? array = null;
+            ExpandoObject? exps = null;
+            if ((mode & TelemetryRuleDispatchMode.TelemetryArray) != 0)
+            {
+                array = result.telemetries
+                    .Select(t => new TelemetryDataDto() { DateTime = t.DateTime, DataType = t.Type, KeyName = t.KeyName, Value = t.ToObject() })
+                    .ToList();
+            }
+            if ((mode & TelemetryRuleDispatchMode.Telemetry) != 0)
+            {
+                var source = array ?? result.telemetries
+                    .Select(t => new TelemetryDataDto() { DateTime = t.DateTime, DataType = t.Type, KeyName = t.KeyName, Value = t.ToObject() })
+                    .ToList();
+                exps = source.ToDynamic();
+            }
+            await _eventBusOption.DispatchTelemetryRules(msg.DeviceId, exps, array);
         }
 
         public async Task StoreTelemetryDataBatch(IReadOnlyCollection<PlayloadData> messages)
@@ -149,19 +165,36 @@ namespace IoTSharp.EventBus
                 throw new InvalidOperationException($"Telemetry batch storage failed. MessageCount={storeResult.MessageCount}");
             }
 
+            var deviceModes = new Dictionary<Guid, TelemetryRuleDispatchMode>();
+            var hasEligibleDevice = false;
+            foreach (var message in messages)
+            {
+                if (deviceModes.ContainsKey(message.DeviceId))
+                {
+                    continue;
+                }
+
+                var mode = await _eventBusOption.GetTelemetryRuleDispatchMode(message.DeviceId);
+                deviceModes.Add(message.DeviceId, mode);
+                hasEligibleDevice |= mode != TelemetryRuleDispatchMode.None;
+            }
+
+            if (!hasEligibleDevice)
+            {
+                return;
+            }
+
             foreach (var msg in messages)
             {
-                var result = msg.ToDictionary()
-                    .Select(kp =>
-                    {
-                        var telemetry = new TelemetryData { DateTime = msg.ts, DeviceId = msg.DeviceId, KeyName = kp.Key, DataSide = msg.DataSide };
-                        telemetry.FillKVToMe(kp);
-                        return telemetry;
-                    });
-                var array = result.Select(t => new TelemetryDataDto() { DateTime = t.DateTime, DataType = t.Type, KeyName = t.KeyName, Value = t.ToObject() }).ToList();
-                ExpandoObject exps = array.ToDynamic();
-                await RunRules(msg.DeviceId, (dynamic)exps, EventType.Telemetry);
-                await RunRules(msg.DeviceId, array, EventType.TelemetryArray);
+                var mode = deviceModes[msg.DeviceId];
+                if (mode == TelemetryRuleDispatchMode.None)
+                {
+                    continue;
+                }
+                var payload = msg.ToRuleTelemetryPayload(
+                    includeTelemetry: (mode & TelemetryRuleDispatchMode.Telemetry) != 0,
+                    includeTelemetryArray: (mode & TelemetryRuleDispatchMode.TelemetryArray) != 0);
+                await _eventBusOption.DispatchTelemetryRules(msg.DeviceId, payload.Telemetry, payload.TelemetryArray);
             }
         }
 

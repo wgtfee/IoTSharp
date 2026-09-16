@@ -1,18 +1,15 @@
-﻿using IoTSharp.EventBus;
-using EasyCaching.Core;
+using IoTSharp.Contracts;
 using IoTSharp.Data;
+using IoTSharp.EventBus;
 using IoTSharp.Extensions;
-using IoTSharp.FlowRuleEngine;
+using IoTSharp.Services.TelemetryIngest;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using MQTTnet;
 using MQTTnet.AspNetCore.Routing;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using IoTSharp.Contracts;
-using System.Buffers;
 
 namespace IoTSharp.Services.MQTTControllers
 {
@@ -23,87 +20,102 @@ namespace IoTSharp.Services.MQTTControllers
         private readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactor;
         private readonly IPublisher _queue;
+        private readonly TelemetryIngestPipeline _telemetryIngest;
         private string _devname;
+        private Device _sourceDevice;
         private Device device;
 
-        public TelemetryController(ILogger<TelemetryController> logger, IServiceScopeFactory scopeFactor, IPublisher queue)
+        public TelemetryController(
+            ILogger<TelemetryController> logger,
+            IServiceScopeFactory scopeFactor,
+            IPublisher queue,
+            TelemetryIngestPipeline telemetryIngest)
         {
-
             _logger = logger;
             _scopeFactor = scopeFactor;
             _queue = queue;
-
+            _telemetryIngest = telemetryIngest;
         }
 
         public string devname
         {
-            get
-            {
-                return _devname;
-            }
+            get => _devname;
             set
             {
                 _devname = value;
-                var _dev = GetSessionItem<Device>();
-                device = _dev.JudgeOrCreateNewDevice(devname, _scopeFactor, _logger);
-                _queue.PublishActive(_dev.Id, ActivityStatus.Activity);
-                if (_dev.DeviceType == DeviceType.Gateway)
-                {
-                    _queue.PublishActive(device.Id, ActivityStatus.Activity);
-                }
+                _sourceDevice = GetSessionItem<Device>();
+                device = _sourceDevice.JudgeOrCreateNewDevice(devname, _scopeFactor, _logger);
             }
         }
 
         [MqttRoute("xml/{keyname}")]
-        public Task telemetry_xml(string keyname)
+        public async Task telemetry_xml(string keyname)
         {
-            Dictionary<string, object> keyValues = new Dictionary<string, object>();
             try
             {
                 var xml = new System.Xml.XmlDocument();
-                xml.LoadXml(Message.ConvertPayloadToString());
-                keyValues.Add(keyname, xml);
-                _queue.PublishTelemetryData(device, keyValues);
+                xml.LoadXml(System.Text.Encoding.UTF8.GetString(Message.Payload.ToArray()));
+                await PublishAsync(new Dictionary<string, object> { [keyname] = xml });
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, $"{ex.Message}");
+                _logger.LogWarning(ex, "{Message}", ex.Message);
             }
-            return Ok();
+
+            await Ok();
         }
 
         [MqttRoute("binary/{keyname}")]
-        public Task telemetry_binary(string keyname)
+        public async Task telemetry_binary(string keyname)
         {
-            Dictionary<string, object> keyValues = new Dictionary<string, object>();
             try
             {
-                keyValues.Add(keyname, Message.Payload.ToArray());
-                _queue.PublishTelemetryData(device, keyValues);
+                await PublishAsync(new Dictionary<string, object> { [keyname] = Message.Payload.ToArray() });
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, $"{ex.Message}");
+                _logger.LogWarning(ex, "{Message}", ex.Message);
             }
-            return Ok();
+
+            await Ok();
         }
 
         [MqttRoute()]
-        public Task telemetry()
+        public async Task telemetry()
         {
             try
             {
                 if (Message.Payload.Length > 0)
                 {
-                    var keyValues = Message.ConvertPayloadToDictionary();
-                    _queue.PublishTelemetryData(device, keyValues);
+                    await PublishAsync(Message.ConvertPayloadToDictionary());
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, $"{ex.Message}");
+                _logger.LogWarning(ex, "{Message}", ex.Message);
             }
-            return Ok();
+
+            await Ok();
+        }
+
+        /// <summary>
+        /// 标记接入端活跃并把遥测放入有界接入管道。
+        /// </summary>
+        private async Task PublishAsync(Dictionary<string, object> values)
+        {
+            await _queue.PublishActive(_sourceDevice.Id, ActivityStatus.Activity);
+            if (_sourceDevice.DeviceType == DeviceType.Gateway && device.Id != _sourceDevice.Id)
+            {
+                await _queue.PublishActive(device.Id, ActivityStatus.Activity);
+            }
+
+            await _telemetryIngest.EnqueueAsync(new PlayloadData
+            {
+                DeviceId = device.Id,
+                MsgBody = values,
+                DataSide = DataSide.ClientSide,
+                DataCatalog = DataCatalog.TelemetryData
+            });
         }
     }
 }

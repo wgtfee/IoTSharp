@@ -54,6 +54,7 @@ namespace IoTSharp.Data
             modelBuilder.ApplyConfiguration(new TwinMaterialRuntimeConfiguration());
             modelBuilder.ApplyConfiguration(new McpToolDefinitionConfiguration());
             modelBuilder.ApplyConfiguration(new McpToolInvocationLogConfiguration());
+            modelBuilder.ApplyConfiguration(new ReliableEventReceiptConfiguration());
             ConfigureProviderSpecificMappings(modelBuilder);
             modelBuilder.Entity<AttributeLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
             modelBuilder.Entity<TelemetryLatest>().HasDiscriminator<DataCatalog>(nameof(Data.DataStorage.Catalog));
@@ -127,6 +128,7 @@ namespace IoTSharp.Data
         public DbSet<EdgeNode> EdgeNodes { get; set; }
         public DbSet<EdgeTask> EdgeTasks { get; set; }
         public DbSet<EdgeTaskReceipt> EdgeTaskReceipts { get; set; }
+        public DbSet<ReliableEventReceipt> ReliableEventReceipts { get; set; }
         public DbSet<ReleasePackage> ReleasePackages { get; set; }
         public DbSet<ReleasePlan> ReleasePlans { get; set; }
         public DbSet<ReleaseTask> ReleaseTasks { get; set; }

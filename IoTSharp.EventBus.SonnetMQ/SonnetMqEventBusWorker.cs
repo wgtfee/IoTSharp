@@ -75,6 +75,9 @@ public sealed class SonnetMqEventBusWorker : BackgroundService
         if (subscription.Kind == SonnetMqEventKinds.TelemetryData)
             return await DispatchTelemetryBatchAsync(subscription, messages, cancellationToken);
 
+        if (subscription.Kind == SonnetMqEventKinds.TelemetryDataBatch)
+            return await DispatchTelemetryBatchEnvelopesAsync(subscription, messages, cancellationToken);
+
         return await DispatchMessagesIndividuallyAsync(subscription, messages, cancellationToken);
     }
 
@@ -144,6 +147,34 @@ public sealed class SonnetMqEventBusWorker : BackgroundService
         return true;
     }
 
+    private async Task<bool> DispatchTelemetryBatchEnvelopesAsync(
+        SonnetMqSubscription subscription,
+        IReadOnlyList<SndbMqMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        foreach (var message in messages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var subscriber = scope.ServiceProvider.GetRequiredService<ISubscriber>();
+                var payloads = ReadJson<PlayloadData[]>(message);
+                await subscriber.StoreTelemetryDataBatch(payloads);
+                await _client.AckAsync(subscription.Topic, _options.ConsumerGroup, message.Offset, cancellationToken);
+                ClearDeliveryFailure(message);
+            }
+            catch (Exception ex)
+            {
+                bool skipped = await HandleDispatchFailureAsync(subscription, message, ex, cancellationToken);
+                if (!skipped)
+                    return true;
+            }
+        }
+
+        return true;
+    }
+
     private async Task<bool> HandleDispatchFailureAsync(
         SonnetMqSubscription subscription,
         SndbMqMessage message,
@@ -199,7 +230,7 @@ public sealed class SonnetMqEventBusWorker : BackgroundService
             Truncate(exception.ToString(), Math.Max(256, _options.DeadLetterStackTraceMaxChars)),
             Convert.ToBase64String(message.Payload));
 
-        byte[] payload = Encoding.UTF8.GetBytes(JsonObjectSerializer.Serialize(deadLetter));
+        byte[] payload = JsonObjectSerializer.SerializeToUtf8Bytes(deadLetter);
         await _client.PublishAsync(deadLetterTopic, payload, new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["content-type"] = "application/json",
@@ -218,6 +249,7 @@ public sealed class SonnetMqEventBusWorker : BackgroundService
         {
             SonnetMqEventKinds.AttributeData => subscriber.StoreAttributeData(ReadJson<PlayloadData>(message)),
             SonnetMqEventKinds.TelemetryData => subscriber.StoreTelemetryData(ReadJson<PlayloadData>(message)),
+            SonnetMqEventKinds.TelemetryDataBatch => subscriber.StoreTelemetryDataBatch(ReadJson<PlayloadData[]>(message)),
             SonnetMqEventKinds.Alarm => subscriber.OccurredAlarm(ReadJson<CreateAlarmDto>(message)),
             SonnetMqEventKinds.CreateDevice => subscriber.CreateDevice(ReadJson<Guid>(message)),
             SonnetMqEventKinds.DeleteDevice => subscriber.DeleteDevice(ReadJson<Guid>(message)),

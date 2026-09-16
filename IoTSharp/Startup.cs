@@ -23,6 +23,10 @@ using IoTSharp.Health;
 using IoTSharp.Services.DigitalTwin;
 using IoTSharp.Services.DigitalTwin.ActionFlow;
 using IoTSharp.Services.Mcp;
+using IoTSharp.Services.TelemetryIngest;
+using IoTSharp.Services.RuleDispatch;
+using IoTSharp.Services.RuleAudit;
+using IoTSharp.Services.Ingestion;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -103,6 +107,33 @@ namespace IoTSharp
                 options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
             });
             services.Configure<AppSettings>(setting => Configuration.Bind(setting));
+            services.Configure<TelemetryIngestOptions>(Configuration.GetSection(TelemetryIngestOptions.SectionName));
+            services.AddSingleton<TelemetryIngestPipeline>();
+            services.AddHostedService(sp => sp.GetRequiredService<TelemetryIngestPipeline>());
+            services.Configure<TelemetryRuleDispatchOptions>(Configuration.GetSection(TelemetryRuleDispatchOptions.SectionName));
+            services.AddSingleton<TelemetryRuleDispatchPipeline>();
+            services.AddHostedService(sp => sp.GetRequiredService<TelemetryRuleDispatchPipeline>());
+            services.Configure<FlowRuleAuditOptions>(Configuration.GetSection(FlowRuleAuditOptions.SectionName));
+            services.AddSingleton<FlowRuleAuditPipeline>();
+            services.AddHostedService(sp => sp.GetRequiredService<FlowRuleAuditPipeline>());
+            services.AddSingleton<FlowRuleRuntimeExecutor>();
+            services.Configure<TelemetryPipelineHealthOptions>(Configuration.GetSection(TelemetryPipelineHealthOptions.SectionName));
+            services.Configure<GatewayBatchIngestOptions>(Configuration.GetSection(GatewayBatchIngestOptions.SectionName));
+            services.AddSingleton<GatewayChildDeviceResolver>();
+            services.Configure<ReliableEventOptions>(Configuration.GetSection(ReliableEventOptions.SectionName));
+            services.AddSingleton<IReliableEventBusinessHandler, AlarmReliableEventBusinessHandler>();
+            services.AddSingleton<ReliableEventProcessor>();
+            services.Configure<GatewayRuntimeRegistryOptions>(Configuration.GetSection(GatewayRuntimeRegistryOptions.SectionName));
+            services.Configure<GatewayHealthIngestOptions>(Configuration.GetSection(GatewayHealthIngestOptions.SectionName));
+            services.Configure<GatewayOwnershipOptions>(Configuration.GetSection(GatewayOwnershipOptions.SectionName));
+            services.AddSingleton<InMemoryGatewayOwnershipStore>();
+            services.AddSingleton<IGatewayOwnershipRegistry, InMemoryGatewayOwnershipRegistry>();
+            services.AddSingleton<GatewayRuntimeRegistry>();
+            services.Configure<GatewayActivitySignalOptions>(Configuration.GetSection(GatewayActivitySignalOptions.SectionName));
+            services.AddSingleton<GatewayActivitySignalGate>();
+            services.Configure<GatewayFlowControlOptions>(Configuration.GetSection(GatewayFlowControlOptions.SectionName));
+            services.AddSingleton<GatewayFlowControlService>();
+            services.AddHostedService(sp => sp.GetRequiredService<GatewayFlowControlService>());
             var healthChecksUI = services.AddHealthChecksUI(setup =>
             {
                 setup.SetHeaderText("IoTSharp HealthChecks");
@@ -118,6 +149,15 @@ namespace IoTSharp
                         .Select(f => f.Name).Distinct().ToList()
                         .ForEach(f => dso.AddDrive(f));
                 }, name: "Disk Storage");
+            healthChecks.AddCheck<TelemetryPipelineHealthCheck>(
+                "Telemetry Pipelines",
+                tags: new[] { "telemetry", "performance" });
+            healthChecks.AddCheck<GatewayRuntimeRegistryHealthCheck>(
+                "Gateway Runtime Registry",
+                tags: new[] { "gateway-runtime", "operational" });
+            healthChecks.AddCheck<GatewayFlowControlHealthCheck>(
+                "Gateway Flow Control",
+                tags: new[] { "gateway-runtime", "performance" });
 
             switch (settings.DataBase)
             {
@@ -481,6 +521,12 @@ namespace IoTSharp
                 var frp = app.ApplicationServices.GetService<FlowRuleProcessor>();
                 return frp.RunRules;
             });
+            var eventBusOption = app.ApplicationServices.GetRequiredService<EventBusOption>();
+            var telemetryRuleDispatch = app.ApplicationServices.GetRequiredService<TelemetryRuleDispatchPipeline>();
+            eventBusOption.DispatchTelemetryRules = telemetryRuleDispatch.EnqueueAsync;
+            var flowRuleProcessor = app.ApplicationServices.GetRequiredService<FlowRuleProcessor>();
+            eventBusOption.ShouldDispatchTelemetryRules = flowRuleProcessor.HasTelemetryRules;
+            eventBusOption.GetTelemetryRuleDispatchMode = flowRuleProcessor.GetTelemetryRuleDispatchMode;
 
             app.UseEndpoints(endpoints =>
             {

@@ -927,10 +927,6 @@ namespace IoTSharp.Data.SqlServer.Migrations
 
                     b.HasKey("Catalog", "DeviceId", "KeyName");
 
-                    b.HasIndex("Catalog");
-
-                    b.HasIndex("Catalog", "DeviceId");
-
                     b.HasIndex("Catalog", "KeyName", "DeviceId");
 
                     b.ToTable("DataStorage");
@@ -1189,7 +1185,6 @@ namespace IoTSharp.Data.SqlServer.Migrations
                     b.HasKey("DeviceRuleId");
 
                     b.HasIndex("DeviceId");
-
                     b.HasIndex("FlowRuleRuleId");
 
                     b.ToTable("DeviceRules");
@@ -3054,6 +3049,67 @@ namespace IoTSharp.Data.SqlServer.Migrations
                     b.ToTable("ReleaseTasks");
                 });
 
+            modelBuilder.Entity("IoTSharp.Data.ReliableEventReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("GatewayId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GatewayId", "EventId")
+                        .IsUnique();
+
+                    b.HasIndex("GatewayId", "ReceivedAt");
+
+                    b.HasIndex("Status", "ReceivedAt");
+
+                    b.ToTable("ReliableEventReceipts", (string)null);
+                });
+
             modelBuilder.Entity("IoTSharp.Data.RuleTaskExecutor", b =>
                 {
                     b.Property<Guid>("ExecutorId")
@@ -3240,12 +3296,9 @@ namespace IoTSharp.Data.SqlServer.Migrations
 
                     b.HasKey("DeviceId", "KeyName", "DateTime");
 
-                    b.HasIndex("DeviceId");
-
                     b.HasIndex("KeyName");
 
-                    b.HasIndex("DeviceId", "KeyName");
-
+                    b.HasIndex("DeviceId", "DateTime");
                     b.ToTable("TelemetryData");
                 });
 

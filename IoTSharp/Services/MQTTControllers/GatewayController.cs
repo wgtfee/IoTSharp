@@ -15,6 +15,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Collections;
 using System.Buffers;
+using IoTSharp.Services.TelemetryIngest;
 
 namespace IoTSharp.Services.MQTTControllers
 {
@@ -26,8 +27,8 @@ namespace IoTSharp.Services.MQTTControllers
     public class V1GatewayController : GatewayController
     {
         public V1GatewayController(ILogger<GatewayController> logger, IServiceScopeFactory scopeFactor,
-         IOptions<AppSettings> options, IPublisher queue
-         ) : base(logger, scopeFactor, options, queue)
+         IOptions<AppSettings> options, IPublisher queue, TelemetryIngestPipeline telemetryIngest
+         ) : base(logger, scopeFactor, options, queue, telemetryIngest)
         {
         }
     }
@@ -42,13 +43,15 @@ namespace IoTSharp.Services.MQTTControllers
         private readonly IServiceScope _scope;
         private readonly RawDataGateway _rawData;
         private readonly KepServerEx _kep;
+        private readonly TelemetryIngestPipeline _telemetryIngest;
         public GatewayController(ILogger<GatewayController> logger, IServiceScopeFactory scopeFactor,
-            IOptions<AppSettings> options, IPublisher queue
+            IOptions<AppSettings> options, IPublisher queue, TelemetryIngestPipeline telemetryIngest
             )
         {
             _logger = logger;
             _scopeFactor = scopeFactor;
             _queue = queue;
+            _telemetryIngest = telemetryIngest;
             _scope = scopeFactor.CreateScope();
             _rawData = _scope.ServiceProvider.GetService<RawDataGateway>();
             _kep = _scope.ServiceProvider.GetService<KepServerEx>();
@@ -62,18 +65,29 @@ namespace IoTSharp.Services.MQTTControllers
             _logger.LogInformation($"{ClientId}的数据{Message.Topic}是网关数据， 解析到{lst?.Count}个设备");
             await _queue.PublishActive(_dev.Id, ActivityStatus.Activity);
 
-            lst?.Keys.ToList().ForEach(async dev =>
+            if (lst != null)
             {
-                var plst = lst[dev];
-                var device = _dev.JudgeOrCreateNewDevice(dev, _scopeFactor, _logger);
-                await _queue.PublishActive(device.Id, ActivityStatus.Activity);
-                _logger.LogInformation($"{ClientId}的网关数据正在处理设备{dev}， 设备ID为{_dev?.Id}");
-                plst.ForEach(p =>
+                foreach (var entry in lst)
                 {
-                    _queue.PublishTelemetryData(new PlayloadData() { DeviceId = device.Id, ts = new DateTime(p.Ticks, DateTimeKind.Utc), MsgBody = p.Values, DataSide = DataSide.ClientSide, DataCatalog = DataCatalog.TelemetryData });
-                });
-                _logger.LogInformation($"{ClientId}的网关数据处理完成，设备{dev}ID为{device?.Id}共计{plst.Count}条");
-            });
+                    var dev = entry.Key;
+                    var plst = entry.Value;
+                    var device = _dev.JudgeOrCreateNewDevice(dev, _scopeFactor, _logger);
+                    await _queue.PublishActive(device.Id, ActivityStatus.Activity);
+                    _logger.LogInformation($"{ClientId}的网关数据正在处理设备{dev}， 设备ID为{_dev?.Id}");
+                    foreach (var p in plst)
+                    {
+                        await _telemetryIngest.EnqueueAsync(new PlayloadData()
+                        {
+                            DeviceId = device.Id,
+                            ts = new DateTime(p.Ticks, DateTimeKind.Utc),
+                            MsgBody = p.Values,
+                            DataSide = DataSide.ClientSide,
+                            DataCatalog = DataCatalog.TelemetryData
+                        });
+                    }
+                    _logger.LogInformation($"{ClientId}的网关数据处理完成，设备{dev}ID为{device?.Id}共计{plst.Count}条");
+                }
+            }
             await Ok();
         }
 
@@ -84,18 +98,29 @@ namespace IoTSharp.Services.MQTTControllers
             var lst = JsonObjectSerializer.Deserialize<Dictionary<string, List<GatewayPlayload>>>(Message.ConvertPayloadToString());
             _logger.LogInformation($"{ClientId}的数据{Message.Topic}是网关数据， 解析到{lst?.Count}个设备");
             await _queue.PublishActive(_dev.Id, ActivityStatus.Activity);
-            lst?.Keys.ToList().ForEach(async dev =>
+            if (lst != null)
             {
-                var plst = lst[dev];
-                var device = _dev.JudgeOrCreateNewDevice(dev, _scopeFactor, _logger);
-                await _queue.PublishActive(device.Id, ActivityStatus.Activity);
-                _logger.LogInformation($"{ClientId}的网关数据正在处理设备{dev}， 设备ID为{device?.Id}");
-                plst.ForEach(async p =>
+                foreach (var entry in lst)
                 {
-                    await _queue.PublishAttributeData(new PlayloadData() { DeviceId = device.Id, ts = new DateTime(p.Ticks, DateTimeKind.Utc), MsgBody = p.Values, DataSide = DataSide.ClientSide, DataCatalog = DataCatalog.TelemetryData });
-                });
-                _logger.LogInformation($"{ClientId}的网关数据处理完成，设备{dev}ID为{device?.Id}共计{plst.Count}条");
-            });
+                    var dev = entry.Key;
+                    var plst = entry.Value;
+                    var device = _dev.JudgeOrCreateNewDevice(dev, _scopeFactor, _logger);
+                    await _queue.PublishActive(device.Id, ActivityStatus.Activity);
+                    _logger.LogInformation($"{ClientId}的网关数据正在处理设备{dev}， 设备ID为{device?.Id}");
+                    foreach (var p in plst)
+                    {
+                        await _queue.PublishAttributeData(new PlayloadData()
+                        {
+                            DeviceId = device.Id,
+                            ts = new DateTime(p.Ticks, DateTimeKind.Utc),
+                            MsgBody = p.Values,
+                            DataSide = DataSide.ClientSide,
+                            DataCatalog = DataCatalog.AttributeData
+                        });
+                    }
+                    _logger.LogInformation($"{ClientId}的网关数据处理完成，设备{dev}ID为{device?.Id}共计{plst.Count}条");
+                }
+            }
             await Ok();
         }
         [MqttRoute("{devname}/connect")]

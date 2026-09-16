@@ -4,6 +4,7 @@ using IoTSharp.Data;
 using IoTSharp.Interpreter;
 using IoTSharp.TaskActions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,8 @@ using System.Threading.Tasks;
 using IoTSharp.Extensions;
 using IoTSharp.Contracts;
 using IoTSharp.Data.Extensions;
+using IoTSharp.EventBus;
+using IoTSharp.Services.RuleAudit;
 
 namespace IoTSharp.FlowRuleEngine
 {
@@ -26,19 +29,23 @@ namespace IoTSharp.FlowRuleEngine
         private readonly ILogger<FlowRuleProcessor> _logger;
         private readonly AppSettings _setting;
         private readonly IEasyCachingProvider _caching;
-        private readonly IServiceProvider _sp;
+        private readonly IMemoryCache _memoryCache;
+        private readonly FlowRuleAuditPipeline _auditPipeline;
+        private readonly FlowRuleRuntimeExecutor _runtimeExecutor;
         private readonly TaskExecutorHelper _helper;
         private readonly int _maximumiteration = 1000;
 
 
-        public FlowRuleProcessor(ILogger<FlowRuleProcessor> logger, IServiceScopeFactory scopeFactor, IOptions<AppSettings> options, TaskExecutorHelper helper, IEasyCachingProviderFactory factory)
+        public FlowRuleProcessor(ILogger<FlowRuleProcessor> logger, IServiceScopeFactory scopeFactor, IOptions<AppSettings> options, TaskExecutorHelper helper, IEasyCachingProviderFactory factory, IMemoryCache memoryCache, FlowRuleAuditPipeline auditPipeline, FlowRuleRuntimeExecutor runtimeExecutor)
         {
             string _hc_Caching = $"{nameof(CachingUseIn)}-{Enum.GetName(options.Value.CachingUseIn)}";
             _scopeFactor = scopeFactor;
             _logger = logger;
             _setting = options.Value;
             _caching = factory.GetCachingProvider(_hc_Caching);
-            _sp = _scopeFactor.CreateScope().ServiceProvider;
+            _memoryCache = memoryCache;
+            _auditPipeline = auditPipeline;
+            _runtimeExecutor = runtimeExecutor;
             _helper = helper;
         }
 
@@ -46,27 +53,52 @@ namespace IoTSharp.FlowRuleEngine
         {
             try
             {
-                var rules = await _caching.GetAsync($"ruleid_{devid}_{Enum.GetName(mountType)}", async () =>
+                var localCacheKey = $"flowrule:ruleids:l1:{devid:N}:{(int)mountType}";
+                CacheValue<Guid[]> rules;
+                if (!_memoryCache.TryGetValue(localCacheKey, out rules) || !rules.HasValue)
                 {
-                    using (var scope = _scopeFactor.CreateScope())
-                    using (var _dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>())
+                    rules = await _caching.GetAsync($"ruleid_{devid}_{Enum.GetName(mountType)}", async () =>
                     {
-                        return await _dbContext.GerDeviceRulesIdList(devid, mountType);
+                        using (var scope = _scopeFactor.CreateScope())
+                        using (var _dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>())
+                        {
+                            return await _dbContext.GerDeviceRulesIdList(devid, mountType);
+                        }
+                    }, GetLocalCacheDuration());
+
+                    if (rules.HasValue)
+                    {
+                        _memoryCache.Set(localCacheKey, rules, GetLocalCacheDuration());
                     }
-                }, TimeSpan.FromSeconds(_setting.RuleCachingExpiration));
+                }
                 if (rules.HasValue && rules.Value != null)
                 {
-                    rules.Value.ToList().ForEach(async g =>
+                    var ruleIds = rules.Value;
+                    var maxConcurrency = Math.Clamp(_setting.RuleExecutionMaxConcurrency, 1, Math.Max(1, ruleIds.Length));
+
+                    async Task ExecuteRuleAsync(Guid ruleId)
                     {
                         try
                         {
-                            await RunFlowRules(g, obj, devid, FlowRuleRunType.Normal, null);
+                            await RunFlowRules(ruleId, obj, devid, FlowRuleRunType.Normal, null);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, $"为设备{devid}执行规则链{g}时遇到错误{ex.Message}");
+                            _logger.LogError(ex, $"为设备{devid}执行规则链{ruleId}时遇到错误{ex.Message}");
                         }
-                    });
+                    }
+
+                    if (ruleIds.Length <= maxConcurrency)
+                    {
+                        await Task.WhenAll(ruleIds.Select(ExecuteRuleAsync));
+                    }
+                    else
+                    {
+                        await Parallel.ForEachAsync(
+                            ruleIds,
+                            new ParallelOptions { MaxDegreeOfParallelism = maxConcurrency },
+                            async (ruleId, _) => await ExecuteRuleAsync(ruleId));
+                    }
                 }
                 else
                 {
@@ -77,6 +109,58 @@ namespace IoTSharp.FlowRuleEngine
             {
                 _logger.LogError(ex, $"{devid}处理规则链时遇到异常:{ex.Message}");
 
+            }
+        }
+
+        public async Task<bool> HasTelemetryRules(Guid devid)
+            => await GetTelemetryRuleDispatchMode(devid) != TelemetryRuleDispatchMode.None;
+
+        /// <summary>
+        /// 获取设备实际挂载的遥测规则类型，用于在热路径上只构造需要的规则输入。
+        /// 查询异常时返回 All，保持 fail-open，避免因为优化判断失败而漏执行规则。
+        /// </summary>
+        public async Task<TelemetryRuleDispatchMode> GetTelemetryRuleDispatchMode(Guid devid)
+        {
+            var localCacheKey = $"flowrule:telemetry-mode:l1:{devid:N}";
+            if (_memoryCache.TryGetValue(localCacheKey, out TelemetryRuleDispatchMode localMode))
+            {
+                return localMode;
+            }
+
+            try
+            {
+                var cached = await _caching.GetAsync($"telemetryrules_mode_{devid}", async () =>
+                {
+                    using var scope = _scopeFactor.CreateScope();
+                    using var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    var mountTypes = await dbContext.DeviceRules.AsNoTracking()
+                        .Where(rule => rule.Device.Id == devid
+                            && (rule.FlowRule.MountType == EventType.Telemetry
+                                || rule.FlowRule.MountType == EventType.TelemetryArray))
+                        .Select(rule => rule.FlowRule.MountType)
+                        .Distinct()
+                        .ToListAsync();
+                    var mode = TelemetryRuleDispatchMode.None;
+                    foreach (var mountType in mountTypes)
+                    {
+                        mode |= mountType == EventType.Telemetry
+                            ? TelemetryRuleDispatchMode.Telemetry
+                            : TelemetryRuleDispatchMode.TelemetryArray;
+                    }
+                    return mode;
+                }, GetLocalCacheDuration());
+                if (cached.HasValue)
+                {
+                    _memoryCache.Set(localCacheKey, cached.Value, GetLocalCacheDuration());
+                    return cached.Value;
+                }
+
+                return TelemetryRuleDispatchMode.All;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to check telemetry rule dispatch mode for device {DeviceId}; dispatching all telemetry rules fail-open.", devid);
+                return TelemetryRuleDispatchMode.All;
             }
         }
 
@@ -92,42 +176,58 @@ namespace IoTSharp.FlowRuleEngine
 
         public async Task<List<FlowOperation>> RunFlowRules(Guid ruleid, object data, Guid deviceId, FlowRuleRunType type, string bizId)
         {
-            var _allflowoperation = new List<FlowOperation>();
             var cacheRule = await GetFlowRule(ruleid);
             if (cacheRule.HasValue)
             {
                 FlowRule rule = cacheRule.Value.rule;
                 var _allFlows = cacheRule.Value._allFlows;
-                _logger.LogInformation($"开始执行规则链{rule?.Name}({ruleid})");
+                _logger.LogDebug("开始执行规则链 {RuleName}({RuleId})", rule?.Name, ruleid);
+                var serializedData = JsonObjectSerializer.Serialize(data);
+                var flows = _allFlows.Where(c => c.FlowType != "label").ToList();
+                var start = flows.FirstOrDefault(c => c.FlowType == "bpmn:StartEvent");
+
+                if (type == FlowRuleRunType.Normal)
+                {
+                    var eventId = Guid.NewGuid();
+                    var createdAt = DateTime.UtcNow;
+                    await _auditPipeline.EnqueueAsync(new FlowRuleAuditRecord(
+                        eventId,
+                        $"开始执行规则链{rule?.Name}({ruleid})",
+                        $"Event Rule:{rule?.Name}({ruleid}) device is {deviceId}",
+                        1,
+                        type,
+                        serializedData,
+                        deviceId,
+                        rule.RuleId,
+                        bizId,
+                        createdAt,
+                        null));
+
+                    if (start == null)
+                    {
+                        _logger.LogWarning("规则链 {RuleId} 未找到启动节点", ruleid);
+                        return new List<FlowOperation>(0);
+                    }
+
+                    await _runtimeExecutor.ExecuteAsync(_allFlows, start, data, deviceId, serializedData);
+                    return new List<FlowOperation>(0);
+                }
+
+                var _allflowoperation = new List<FlowOperation>();
                 var @event = new BaseEvent()
                 {
+                    EventId = Guid.NewGuid(),
                     CreaterDateTime = DateTime.UtcNow,
                     Creator = deviceId,
                     EventDesc = $"Event Rule:{rule?.Name}({ruleid}) device is {deviceId}",
                     EventName = $"开始执行规则链{rule?.Name}({ruleid})",
-                    MataData = JsonObjectSerializer.Serialize(data),
+                    MataData = serializedData,
                     FlowRule = rule,
                     Bizid = bizId,
                     Type = type,
                     EventStaus = 1
                 };
-                using (var sp = _scopeFactor.CreateScope())
-                {
-                    using (var context = sp.ServiceProvider.GetRequiredService<ApplicationDbContext>())
-                    {
-                        var r = context.FlowRules.Include(c => c.Customer).Include(c => c.Tenant).FirstOrDefault(c => c.RuleId == rule.RuleId);
-                        if (r != null)
-                        {
-                            @event.FlowRule = r;
-                            @event.Tenant = r.Tenant;
-                            @event.Customer = r.Customer;
-                            context.BaseEvents.Add(@event);
-                            context.SaveChanges();
-                        }
-                    }
-                }
-                var flows = _allFlows.Where(c => c.FlowType != "label").ToList();
-                var start = flows.FirstOrDefault(c => c.FlowType == "bpmn:StartEvent");
+                await PersistBaseEventAsync(@event, rule.RuleId);
 
                 if (start == null)
                 {
@@ -138,7 +238,7 @@ namespace IoTSharp.FlowRuleEngine
                         AddDate = DateTime.UtcNow,
                         FlowRule = rule,
                         Flow = start,
-                        Data = JsonObjectSerializer.Serialize(data),
+                        Data = serializedData,
                         NodeStatus = 1,
                         OperationDesc = "未能找到启动节点",
                         Step = 1,
@@ -154,7 +254,7 @@ namespace IoTSharp.FlowRuleEngine
                     AddDate = DateTime.UtcNow,
                     FlowRule = rule,
                     Flow = start,
-                    Data = JsonObjectSerializer.Serialize(data),
+                    Data = serializedData,
                     NodeStatus = 1,
                     OperationDesc = "进入开始节点",
                     Step = 1,
@@ -177,7 +277,7 @@ namespace IoTSharp.FlowRuleEngine
                             FlowRule = rule,
                             BaseEvent = @event,
                             Flow = item,
-                            Data = JsonObjectSerializer.Serialize(data),
+                            Data = serializedData,
                             NodeStatus = 1,
                             OperationDesc = "Condition（" + (string.IsNullOrEmpty(item.Conditionexpression)
                                 ? "Empty Condition"
@@ -188,7 +288,7 @@ namespace IoTSharp.FlowRuleEngine
 
                         _allflowoperation.Add(flowOperation);
                         //执行节点逻辑
-                        await Process(_allFlows, _allflowoperation, flowOperation.OperationId, data, deviceId);
+                        await Process(_allFlows, _allflowoperation, flowOperation.OperationId, data, deviceId, serializedData);
                     }
                     return _allflowoperation;
                 }
@@ -196,9 +296,36 @@ namespace IoTSharp.FlowRuleEngine
             return null;
         }
 
+        private async Task PersistBaseEventAsync(BaseEvent @event, Guid ruleId)
+        {
+            using var scope = _scopeFactor.CreateScope();
+            await using var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var rule = await context.FlowRules
+                .Include(c => c.Customer)
+                .Include(c => c.Tenant)
+                .FirstOrDefaultAsync(c => c.RuleId == ruleId);
+            if (rule == null)
+            {
+                return;
+            }
+
+            @event.FlowRule = rule;
+            @event.Tenant = rule.Tenant;
+            @event.Customer = rule.Customer;
+            context.BaseEvents.Add(@event);
+            await context.SaveChangesAsync();
+        }
+
         private async Task<CacheValue<(FlowRule rule, List<Flow> _allFlows)>> GetFlowRule(Guid ruleid)
         {
-            return await _caching.GetAsync($"RunFlowRules_{ruleid}", async () =>
+            var localCacheKey = $"flowrule:definition:l1:{ruleid:N}";
+            if (_memoryCache.TryGetValue(localCacheKey, out CacheValue<(FlowRule rule, List<Flow> _allFlows)> localRule)
+                && localRule.HasValue)
+            {
+                return localRule;
+            }
+
+            var cached = await _caching.GetAsync($"RunFlowRules_{ruleid}", async () =>
             {
                 FlowRule rule;
                 List<Flow> allFlows;
@@ -208,15 +335,34 @@ namespace IoTSharp.FlowRuleEngine
                     {
                         rule = await context.FlowRules.AsNoTracking().FirstOrDefaultAsync(c => c.RuleId == ruleid);
                         allFlows = await context.Flows.AsNoTracking().Where(c => c.FlowRule == rule && c.FlowStatus > 0).ToListAsync();
-                        _logger.LogInformation($"读取规则链{rule?.Name}({ruleid}),子流程共计:{allFlows.Count}");
+                        _logger.LogDebug("读取规则链 {RuleName}({RuleId}), 子流程共计 {FlowCount}", rule?.Name, ruleid, allFlows.Count);
                     }
                 }
                 return (rule, _allFlows: allFlows);
-            }, TimeSpan.FromSeconds(_setting.RuleCachingExpiration));
+            }, GetLocalCacheDuration());
+
+            if (cached.HasValue)
+            {
+                _memoryCache.Set(localCacheKey, cached, GetLocalCacheDuration());
+            }
+
+            return cached;
         }
 
-        public async Task Process(List<Flow> _allFlows, List<FlowOperation> _allflowoperation, Guid operationid, object data, Guid deviceId)
+        private TimeSpan GetLocalCacheDuration()
+            => TimeSpan.FromSeconds(Math.Max(1, _setting.RuleCachingExpiration));
+
+        private TResult UseScopedService<TService, TResult>(Func<TService, TResult> action)
+            where TService : notnull
         {
+            using var scope = _scopeFactor.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<TService>();
+            return action(service);
+        }
+
+        public async Task Process(List<Flow> _allFlows, List<FlowOperation> _allflowoperation, Guid operationid, object data, Guid deviceId, string serializedData = null)
+        {
+            serializedData ??= JsonObjectSerializer.Serialize(data);
             var peroperation = _allflowoperation.FirstOrDefault(c => c.OperationId == operationid);
             if (peroperation != null)
             {
@@ -240,7 +386,7 @@ namespace IoTSharp.FlowRuleEngine
                                 AddDate = DateTime.UtcNow,
                                 FlowRule = peroperation.BaseEvent.FlowRule,
                                 Flow = flow,
-                                Data = JsonObjectSerializer.Serialize(data),
+                                Data = serializedData,
                                 NodeStatus = 1,
                                 OperationDesc = "Condition（" + (string.IsNullOrEmpty(flow.Conditionexpression)
                                     ? "Empty Condition"
@@ -250,7 +396,7 @@ namespace IoTSharp.FlowRuleEngine
                                 BaseEvent = peroperation.BaseEvent
                             };
                             _allflowoperation.Add(operation);
-                            await Process(_allFlows, _allflowoperation, operation.OperationId, data, deviceId);
+                            await Process(_allFlows, _allflowoperation, operation.OperationId, data, deviceId, serializedData);
 
                         }
 
@@ -266,7 +412,7 @@ namespace IoTSharp.FlowRuleEngine
                                 AddDate = DateTime.UtcNow,
                                 FlowRule = peroperation.BaseEvent.FlowRule,
                                 Flow = flow,
-                                Data = JsonObjectSerializer.Serialize(data),
+                                Data = serializedData,
                                 NodeStatus = 1,
                                 OperationDesc = "Run" + flow.NodeProcessScriptType + "Task:" + flow.Flowname,
                                 Step = step,
@@ -286,7 +432,8 @@ namespace IoTSharp.FlowRuleEngine
 
                                         if (!string.IsNullOrEmpty(flow.NodeProcessClass))
                                         {
-                                            TaskAction executor = _helper.CreateInstanceByTypeName(flow.NodeProcessClass);
+                                            using var executorLease = _helper.CreateLeaseByTypeName(flow.NodeProcessClass);
+                                            TaskAction executor = executorLease?.Executor;
                                             if (executor != null)
                                             {
                                                 try
@@ -300,20 +447,20 @@ namespace IoTSharp.FlowRuleEngine
                                                     }
                                                     );
 
-                                                    _logger.Log(LogLevel.Information, "执行器" + flow.NodeProcessClass + "已完成处理");
+                                                    _logger.LogDebug("执行器 {Executor} 已完成处理", flow.NodeProcessClass);
                                                     obj = result.DynamicOutput;
                                                     taskoperation.OperationDesc += "\r\n" + result.ExecutionInfo;
                                                     if (!result.ExecutionStatus)
                                                     {
                                                         taskoperation.NodeStatus = 2;
                                                         string info = JsonObjectSerializer.Serialize(result.DynamicOutput);
-                                                        _logger.Log(LogLevel.Information, "执行器执行失败：" + result.ExecutionInfo + "\r\n" + flow.NodeProcessClass + "未能正确处理:" + info);
+                                                        _logger.LogWarning("执行器执行失败: {ExecutionInfo}; Executor={Executor}; Output={Output}", result.ExecutionInfo, flow.NodeProcessClass, info);
                                                         return;
                                                     }
                                                 }
                                                 catch (Exception ex)
                                                 {
-                                                    _logger.Log(LogLevel.Information, "执行器" + flow.NodeProcessClass + "未能正确处理:" + ex.Source);
+                                                    _logger.LogWarning(ex, "执行器 {Executor} 未能正确处理", flow.NodeProcessClass);
 
                                                     taskoperation.OperationDesc += "\r\n" + ex.Message;
                                                     taskoperation.NodeStatus = 2;
@@ -332,40 +479,32 @@ namespace IoTSharp.FlowRuleEngine
 
                                     case "python":
                                         {
-                                            using (var pse = _sp.GetRequiredService<PythonScriptEngine>())
+                                            try
                                             {
-                                                try
-                                                {
-                                                    string result = pse.Do(scriptsrc, taskoperation.Data);
-                                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                                }
-                                                catch (Exception ex)
-                                                {
-
-                                                    _logger.Log(LogLevel.Warning, "python脚本执行异常");
-                                                    taskoperation.OperationDesc += ex.Message;
-                                                    taskoperation.NodeStatus = 2;
-                                                }
+                                                string result = UseScopedService<PythonScriptEngine, string>(pse => pse.Do(scriptsrc, taskoperation.Data));
+                                                obj = JsonObjectSerializer.DeserializeUntyped(result);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.Log(LogLevel.Warning, "python脚本执行异常");
+                                                taskoperation.OperationDesc += ex.Message;
+                                                taskoperation.NodeStatus = 2;
                                             }
                                         }
                                         break;
 
                                     case "sql":
                                         {
-                                            using (var pse = _sp.GetRequiredService<SQLEngine>())
+                                            try
                                             {
-                                                try
-                                                {
-                                                    string result = pse.Do(scriptsrc, taskoperation.Data);
-                                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                                }
-                                                catch (Exception ex)
-                                                {
-
-                                                    _logger.Log(LogLevel.Warning, "sql脚本执行异常");
-                                                    taskoperation.OperationDesc += ex.Message;
-                                                    taskoperation.NodeStatus = 2;
-                                                }
+                                                string result = UseScopedService<SQLEngine, string>(pse => pse.Do(scriptsrc, taskoperation.Data));
+                                                obj = JsonObjectSerializer.DeserializeUntyped(result);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.Log(LogLevel.Warning, "sql脚本执行异常");
+                                                taskoperation.OperationDesc += ex.Message;
+                                                taskoperation.NodeStatus = 2;
                                             }
                                         }
 
@@ -374,20 +513,16 @@ namespace IoTSharp.FlowRuleEngine
                                     case "lua":
                                         {
 
-                                            using (var lua = _sp.GetRequiredService<LuaScriptEngine>())
+                                            try
                                             {
-                                                try
-                                                {
-                                                    string result = lua.Do(scriptsrc, taskoperation.Data);
-                                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                                }
-                                                catch (Exception ex)
-                                                {
-
-                                                    _logger.Log(LogLevel.Warning, "lua脚本执行异常");
-                                                    taskoperation.OperationDesc += ex.Message;
-                                                    taskoperation.NodeStatus = 2;
-                                                }
+                                                string result = UseScopedService<LuaScriptEngine, string>(lua => lua.Do(scriptsrc, taskoperation.Data));
+                                                obj = JsonObjectSerializer.DeserializeUntyped(result);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.Log(LogLevel.Warning, "lua脚本执行异常");
+                                                taskoperation.OperationDesc += ex.Message;
+                                                taskoperation.NodeStatus = 2;
                                             }
 
                                         }
@@ -396,47 +531,33 @@ namespace IoTSharp.FlowRuleEngine
                                     case "javascript":
                                         {
 
-                                            using (var js = _sp.GetRequiredService<JavaScriptEngine>())
+                                            try
                                             {
-                                                try
-                                                {
-                                                    string result = js.Do(scriptsrc, taskoperation.Data);
-                                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-
-                                                }
-                                                catch (Exception ex)
-                                                {
-
-                                                    _logger.Log(LogLevel.Warning, "javascript脚本执行异常");
-                                                    taskoperation.OperationDesc += ex.Message;
-                                                    taskoperation.NodeStatus = 2;
-                                                }
-
+                                                string result = UseScopedService<JavaScriptEngine, string>(js => js.Do(scriptsrc, taskoperation.Data));
+                                                obj = JsonObjectSerializer.DeserializeUntyped(result);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.Log(LogLevel.Warning, "javascript脚本执行异常");
+                                                taskoperation.OperationDesc += ex.Message;
+                                                taskoperation.NodeStatus = 2;
                                             }
                                         }
                                         break;
 
                                     case "csharp":
                                         {
-                                            using (var js = _sp.GetRequiredService<CSharpScriptEngine>())
+                                            try
                                             {
-
-                                                try
-                                                {
-
-                                                    string result = js.Do(scriptsrc, taskoperation.Data);
-                                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                                }
-                                                catch (Exception ex)
-                                                {
-
-                                                    _logger.Log(LogLevel.Warning, "csharp脚本执行异常");
-                                                    _logger.Log(LogLevel.Warning, ex.Message);
-                                                    taskoperation.OperationDesc += ex.Message;
-                                                    taskoperation.NodeStatus = 2;
-                                                }
-
-
+                                                string result = UseScopedService<CSharpScriptEngine, string>(js => js.Do(scriptsrc, taskoperation.Data));
+                                                obj = JsonObjectSerializer.DeserializeUntyped(result);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.Log(LogLevel.Warning, "csharp脚本执行异常");
+                                                _logger.Log(LogLevel.Warning, ex.Message);
+                                                taskoperation.OperationDesc += ex.Message;
+                                                taskoperation.NodeStatus = 2;
                                             }
                                         }
                                         break;
@@ -444,6 +565,7 @@ namespace IoTSharp.FlowRuleEngine
 
                                 if (obj != null)
                                 {
+                                    var serializedOutput = JsonObjectSerializer.Serialize(obj);
                                     var next = await ProcessCondition(_allFlows, taskoperation.Flow.FlowId, obj);
                                     var cstep = taskoperation.Step + 1;
                                     foreach (var item in next)
@@ -454,7 +576,7 @@ namespace IoTSharp.FlowRuleEngine
                                             AddDate = DateTime.UtcNow,
                                             FlowRule = peroperation.BaseEvent.FlowRule,
                                             Flow = item,
-                                            Data = JsonObjectSerializer.Serialize(obj),
+                                            Data = serializedOutput,
                                             NodeStatus = 1,
                                             OperationDesc = "Execute（" +
                                                             (string.IsNullOrEmpty(item.Conditionexpression)
@@ -465,7 +587,7 @@ namespace IoTSharp.FlowRuleEngine
                                             BaseEvent = taskoperation.BaseEvent
                                         };
                                         _allflowoperation.Add(flowOperation);
-                                        await Process(_allFlows, _allflowoperation, flowOperation.OperationId, obj, deviceId);
+                                        await Process(_allFlows, _allflowoperation, flowOperation.OperationId, obj, deviceId, serializedOutput);
                                     }
                                 }
                                 else
@@ -487,7 +609,7 @@ namespace IoTSharp.FlowRuleEngine
                                         AddDate = DateTime.UtcNow,
                                         FlowRule = peroperation.BaseEvent.FlowRule,
                                         Flow = item,
-                                        Data = JsonObjectSerializer.Serialize(data),
+                                        Data = serializedData,
                                         NodeStatus = 1,
                                         OperationDesc = "Execute（" + (string.IsNullOrEmpty(item.Conditionexpression)
                                             ? "Empty Condition"
@@ -497,7 +619,7 @@ namespace IoTSharp.FlowRuleEngine
                                         BaseEvent = taskoperation.BaseEvent
                                     };
                                     _allflowoperation.Add(flowOperation);
-                                    await Process(_allFlows, _allflowoperation, flowOperation.OperationId, data, deviceId);
+                                    await Process(_allFlows, _allflowoperation, flowOperation.OperationId, data, deviceId, serializedData);
                                 }
                             }
                         }
@@ -514,14 +636,14 @@ namespace IoTSharp.FlowRuleEngine
                         end.AddDate = DateTime.UtcNow;
                         end.FlowRule = peroperation.BaseEvent.FlowRule;
                         end.Flow = flow;
-                        end.Data = JsonObjectSerializer.Serialize(data);
+                        end.Data = serializedData;
                         end.NodeStatus = 1;
                         end.OperationDesc = "处理完成";
                         end.Step = 1 + _allflowoperation.Max(c => c.Step);
                         end.BaseEvent = peroperation.BaseEvent;
                         _allflowoperation.Add(end);
 
-                        _logger.Log(LogLevel.Warning, "规则链执行完成");
+                        _logger.LogDebug("规则链执行完成");
 
                         break;
 
@@ -669,7 +791,8 @@ namespace IoTSharp.FlowRuleEngine
 
                             if (!string.IsNullOrEmpty(flow.NodeProcessClass))
                             {
-                                TaskAction executor = _helper.CreateInstanceByTypeName(flow.NodeProcessClass);
+                                using var executorLease = _helper.CreateLeaseByTypeName(flow.NodeProcessClass);
+                                TaskAction executor = executorLease?.Executor;
                                 if (executor != null)
                                 {
                                     try
@@ -696,52 +819,37 @@ namespace IoTSharp.FlowRuleEngine
 
                         case "python":
                             {
-                                using (var pse = _sp.GetRequiredService<PythonScriptEngine>())
-                                {
-                                    string result = pse.Do(scriptsrc, data);
-                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                }
+                                string result = UseScopedService<PythonScriptEngine, string>(pse => pse.Do(scriptsrc, data));
+                                obj = JsonObjectSerializer.DeserializeUntyped(result);
                             }
                             break;
 
                         case "sql":
                             {
-                                using (var pse = _sp.GetRequiredService<SQLEngine>())
-                                {
-                                    string result = pse.Do(scriptsrc, data);
-                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                }
+                                string result = UseScopedService<SQLEngine, string>(pse => pse.Do(scriptsrc, data));
+                                obj = JsonObjectSerializer.DeserializeUntyped(result);
                             }
 
                             break;
 
                         case "lua":
                             {
-                                using (var lua = _sp.GetRequiredService<LuaScriptEngine>())
-                                {
-                                    string result = lua.Do(scriptsrc, data);
-                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                }
+                                string result = UseScopedService<LuaScriptEngine, string>(lua => lua.Do(scriptsrc, data));
+                                obj = JsonObjectSerializer.DeserializeUntyped(result);
                             }
                             break;
 
                         case "javascript":
                             {
-                                using (var js = _sp.GetRequiredService<JavaScriptEngine>())
-                                {
-                                    string result = js.Do(scriptsrc, data);
-                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                }
+                                string result = UseScopedService<JavaScriptEngine, string>(js => js.Do(scriptsrc, data));
+                                obj = JsonObjectSerializer.DeserializeUntyped(result);
                             }
                             break;
 
                         case "csharp":
                             {
-                                using (var js = _sp.GetRequiredService<CSharpScriptEngine>())
-                                {
-                                    string result = js.Do(scriptsrc, data);
-                                    obj = JsonObjectSerializer.DeserializeUntyped(result);
-                                }
+                                string result = UseScopedService<CSharpScriptEngine, string>(js => js.Do(scriptsrc, data));
+                                obj = JsonObjectSerializer.DeserializeUntyped(result);
                             }
                             break;
                     }

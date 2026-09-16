@@ -1495,15 +1495,12 @@ namespace IoTSharp.Controllers
                 {
                     try
                     {
-                        rules.Value.ToList().ForEach(async g =>
+                        var ruleInput = JsonObjectSerializer.DeserializeUntyped(json);
+                        await Task.WhenAll(rules.Value.Select(async g =>
                         {
-                            _logger.LogInformation($"{_dev.Id}的数据通过规则链{g}进行处理。");
-
-                            var result = await _flowRuleProcessor.RunFlowRules(g, JsonObjectSerializer.DeserializeUntyped(json), _dev.Id, FlowRuleRunType.Normal, null);
-
-                            //     _context.SaveFlowResult(_dev.Id,g, result);
-
-                        });
+                            _logger.LogDebug("{DeviceId} 的数据通过规则链 {RuleId} 进行处理。", _dev.Id, g);
+                            await _flowRuleProcessor.RunFlowRules(g, ruleInput, _dev.Id, FlowRuleRunType.Normal, null);
+                        }));
                         return Ok(new ApiResult(ApiCode.Success, "OK"));
                     }
                     catch (Exception ex)

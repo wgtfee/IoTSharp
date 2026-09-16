@@ -32,4 +32,9 @@
     <ProjectReference Include="..\IoTSharp.Extensions\IoTSharp.Extensions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="IoTSharp.Test" />
+    <InternalsVisibleTo Include="IoTSharp.Benchmarks" />
+  </ItemGroup>
+
 </Project>

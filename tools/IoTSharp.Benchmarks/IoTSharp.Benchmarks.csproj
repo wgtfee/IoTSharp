@@ -10,10 +10,12 @@
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="RulesEngine" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\IoTSharp\IoTSharp.csproj" />
+    <ProjectReference Include="..\..\IoTSharp.Data.TimeSeries\IoTSharp.Data.TimeSeries.csproj" />
     <ProjectReference Include="..\..\SonnetDB\extensions\IoTSharp.CoAP.NET\CoAP.NET\CoAP.NET.csproj" />
   </ItemGroup>
 

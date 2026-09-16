@@ -72,57 +72,15 @@ namespace IoTSharp.Services.MQTTControllers
         public async Task BinaryDataProcessing()
         {
             var p_dev = _dev.DeviceType == DeviceType.Gateway ? device : _dev;
-            var rules = await _caching.GetAsync($"ruleid_{p_dev.Id}_raw_binary", async () =>
-            {
-                using (var scope = _scopeFactor.CreateScope())
-                using (var _dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>())
-                {
-                    var guids = await _dbContext.GerDeviceRulesIdList(p_dev.Id, EventType.RAW);
-                    return guids;
-                }
-            }
-            , TimeSpan.FromSeconds(_settings.RuleCachingExpiration));
-            if (rules.HasValue)
-            {
-                var obj = Message.Payload.ToArray();
-                rules.Value.ToList().ForEach(async g =>
-                {
-                    _logger.LogInformation($"{ClientId}的数据{Message.Topic}通过规则链{g}进行处理。");
-                    await _flowRuleProcessor.RunFlowRules(g, obj, p_dev.Id, FlowRuleRunType.Normal, null);
-                });
-            }
-            else
-            {
-                _logger.LogInformation($"{ClientId}的数据{Message.Topic}不符合规范， 也无相关规则链处理。");
-            }
+            var obj = Message.Payload.ToArray();
+            await _flowRuleProcessor.RunRules(p_dev.Id, obj, EventType.RAW);
         }
         [MqttRoute("json")]
         public async Task JsonDataProcessing()
         {
             var p_dev = _dev.DeviceType == DeviceType.Gateway ? device : _dev;
-            var rules = await _caching.GetAsync($"ruleid_{p_dev.Id}_raw_json", async () =>
-            {
-                using (var scope = _scopeFactor.CreateScope())
-                using (var _dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>())
-                {
-                    var guids = await _dbContext.GerDeviceRulesIdList(p_dev.Id, EventType.RAW);
-                    return guids;
-                }
-            }
-            , TimeSpan.FromSeconds(_settings.RuleCachingExpiration));
-            if (rules.HasValue)
-            {
-                var obj = JsonObjectSerializer.DeserializeUntyped(Message.ConvertPayloadToString());
-                rules.Value.ToList().ForEach(async g =>
-                {
-                    _logger.LogInformation($"{ClientId}的数据{Message.Topic}通过规则链{g}进行处理。");
-                    await _flowRuleProcessor.RunFlowRules(g, obj, p_dev.Id, FlowRuleRunType.Normal, null);
-                });
-            }
-            else
-            {
-                _logger.LogInformation($"{ClientId}的数据{Message.Topic}不符合规范， 也无相关规则链处理。");
-            }
+            var obj = JsonObjectSerializer.DeserializeUntyped(Message.ConvertPayloadToString());
+            await _flowRuleProcessor.RunRules(p_dev.Id, obj, EventType.RAW);
         }
     }
 }

@@ -248,14 +248,21 @@ namespace IoTSharp.Data.Extensions
         }
         public static async Task<Guid> GerDeviceRpcRulesList(this ApplicationDbContext _dbContext, Guid devid, EventType mountType, string method)
         {
-            var rules = await GerDeviceRulesList(_dbContext, devid, mountType);
-            var g = (rules?.FirstOrDefault(r => r.FlowRule.Name == method)?.FlowRule.RuleId);
-            return (Guid)g;
+            return await _dbContext.DeviceRules
+                .AsNoTracking()
+                .Where(rule => rule.Device.Id == devid
+                    && rule.FlowRule.MountType == mountType
+                    && rule.FlowRule.Name == method)
+                .Select(rule => rule.FlowRule.RuleId)
+                .FirstOrDefaultAsync();
         }
         public static async Task<Guid[]> GerDeviceRulesIdList(this ApplicationDbContext _dbContext, Guid devid, EventType mountType)
         {
-            var rules = await GerDeviceRulesList(_dbContext, devid, mountType);
-            return rules?.Select(xc => xc.FlowRule.RuleId).ToArray();
+            return await _dbContext.DeviceRules
+                .AsNoTracking()
+                .Where(rule => rule.Device.Id == devid && rule.FlowRule.MountType == mountType)
+                .Select(rule => rule.FlowRule.RuleId)
+                .ToArrayAsync();
         }
 
 

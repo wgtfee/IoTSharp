@@ -34,6 +34,9 @@ namespace IoTSharp
             typeof(AttributesController),
             typeof(DataController),
             typeof(GatewayController),
+            typeof(GatewayBatchTelemetryController),
+            typeof(GatewayReliableEventController),
+            typeof(GatewayHealthController),
             typeof(RpcController),
             typeof(TelemetryController),
             typeof(V1GatewayController)
