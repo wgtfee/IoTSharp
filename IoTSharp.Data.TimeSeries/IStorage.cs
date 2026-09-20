@@ -32,5 +32,25 @@ namespace IoTSharp.Storage
 
     }
 
+    /// <summary>
+    /// Optional capability for History providers that can replay already-materialized telemetry rows.
+    /// Durable History spool uses this contract so provider-specific writers can opt in without
+    /// leaking provider assumptions into the EventBus layer.
+    /// </summary>
+    public interface ITelemetryHistoryRowStorage
+    {
+        bool SupportsTelemetryHistoryRowReplay { get; }
+        Task<TelemetryBatchStoreResult> StoreTelemetryHistoryRowsAsync(IReadOnlyCollection<TelemetryData> rows, int messageCount);
+    }
+
+    /// <summary>
+    /// Optional capability for providers that can persist Latest and History independently.
+    /// </summary>
+    public interface ISplitTelemetryBatchStorage : ITelemetryHistoryRowStorage
+    {
+        Task<TelemetryBatchStoreResult> StoreTelemetryLatestBatchAsync(IReadOnlyCollection<PlayloadData> messages);
+        Task<TelemetryBatchStoreResult> StoreTelemetryHistoryBatchAsync(IReadOnlyCollection<PlayloadData> messages);
+    }
+
     public sealed record TelemetryBatchStoreResult(bool Result, List<TelemetryData> Telemetries, int MessageCount);
 }

@@ -1,4 +1,5 @@
-import { CatmullRomCurve3, CurvePath, LineCurve3, Vector3 } from 'three';
+import { CatmullRomCurve3, LineCurve3, Vector3 } from 'three';
+import { DistancePolylineCurve } from './DistancePolylineCurve';
 import { normalizeTwinRoute, type TwinRouteDefinition, type TwinRouteEdgeDefinition, type TwinRoutePointDefinition } from '/@/digital-twin/contracts';
 
 export interface TwinRouteEngineSnapshot {
@@ -128,7 +129,7 @@ const getEdgeUnavailableReason = (edge: TwinRouteEdgeDefinition, context: TwinRo
 	return undefined;
 };
 
-export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRouteRoutingContext = {}): TwinResolvedRoutePath => {
+export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRouteRoutingContext = {}, lockedDecisions: ReadonlyMap<string, string> = new Map()): TwinResolvedRoutePath => {
 	const hadConfiguredGraph = Array.isArray(source.edges) && source.edges.length > 0;
 	const route = normalizeTwinRoute(source);
 	const pointsById = new Map(route.points.map((point) => [point.pointId, point]));
@@ -181,7 +182,11 @@ export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRoute
 				matchedRule = chooseWeightedRule(weightedPeers, context.payload?.weightSequence, currentPointId + '|' + payloadKey);
 			}
 		}
-		let selected: TraversalEdge | undefined;
+		let selected: TraversalEdge | undefined = candidates.find(candidate => candidate.edge.edgeId === lockedDecisions.get(currentPointId));
+		if (!selected && context.dataMode === 'simulation') {
+			const override = (context.payload?.actionFlowRoutes as Record<string, string> | undefined)?.[currentPointId];
+			if (override) selected = candidates.find(candidate => candidate.edge.edgeId === override);
+		}
 		// A simulation route may start at a physical process-entry point that also
 		// has a balancing/weight rule for a later cross-over.  At that station the
 		// process contract is authoritative: an entity already assigned to this
@@ -202,9 +207,9 @@ export const resolveRoutePath = (source: TwinRouteDefinition, context: TwinRoute
 			&& currentPoint.process?.simulationEntry === true
 			&& Number(context.payload?.materialCount || 0) <= 0
 			&& String(context.payload?.physicalLane || '') === 'A'
-			? candidates.find((candidate) => candidate.edge.edgeId !== currentPoint.process.releaseEdgeId)?.edge.edgeId
+			? candidates.find((candidate) => candidate.edge.edgeId !== currentPoint.process?.releaseEdgeId)?.edge.edgeId
 			: undefined;
-		if (emptyReturnEdgeId) selected = candidates.find((candidate) => candidate.edge.edgeId === emptyReturnEdgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
+		if (!selected && emptyReturnEdgeId) selected = candidates.find((candidate) => candidate.edge.edgeId === emptyReturnEdgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
 		if (!selected && processEntryEdgeId) selected = candidates.find((candidate) => candidate.edge.edgeId === processEntryEdgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
 		if (decisionMode === 'plc') {
 			if (!selected && matchedRule) selected = candidates.find((candidate) => candidate.edge.edgeId === matchedRule!.edgeId && !unavailableEdgeIds.has(candidate.edge.edgeId));
@@ -311,6 +316,7 @@ export class RouteEngine {
 	}
 
 	setRoutingContext(context: TwinRouteRoutingContext) {
+		const payloadChanged = JSON.stringify(this.routingContext.payload) !== JSON.stringify(context.payload || {});
 		this.routingContext = {
 			// dataMode 是路线安全边界的一部分。新调用显式传入时覆盖，
 			// 旧调用未传入时保留已有模式，避免刷新 payload 时把 Simulation 误判成 Live。
@@ -331,6 +337,13 @@ export class RouteEngine {
 			this.distanceMeters = Math.min(preservedDistance, this.lengthMeters);
 			this.previousDistance = this.distanceMeters;
 			if (!this.unresolvedJunctionPointId && this.waitingReason === 'ROUTE_NOT_READY') this.clearWaiting();
+			this.applyPose(this.distanceMeters);
+		} else if (payloadChanged && this.route.replanUpcomingJunctions && this.routingContext.dataMode === 'simulation' && this.route.curveKind === 'line') {
+			// 只冻结已经穿过及当前所在出边。位置以米保持，不能用新路径百分比重定位。
+			const current = this.getEdgeIndexAtDistance(this.distanceMeters);
+			const locks = new Map(this.activeEdgeIds.slice(0, current + 1).map((id, index) => [this.activePointIds[index], id]));
+			this.curve = this.createCurve(this.route, resolveRoutePath(this.route, this.routingContext, locks));
+			this.lengthMeters = this.curve.getLength();
 			this.applyPose(this.distanceMeters);
 		} else {
 			this.refreshUnavailableEdges();
@@ -392,6 +405,12 @@ export class RouteEngine {
 		this.running = true;
 		if (this.pathLoops) {
 			this.distanceMeters = nextDistance % this.lengthMeters;
+			if (nextDistance >= this.lengthMeters && this.route.replanUpcomingJunctions && this.routingContext.dataMode === 'simulation') {
+				this.enteredEdgeIds.clear();
+				this.curve = this.createCurve(this.route);
+				this.lengthMeters = this.curve.getLength();
+				this.previousDistance = this.distanceMeters;
+			}
 			return;
 		}
 		this.distanceMeters = Math.min(this.lengthMeters, nextDistance);
@@ -435,8 +454,7 @@ export class RouteEngine {
 		return this.curve;
 	}
 
-	private createCurve(route: TwinRouteDefinition) {
-		const resolved = resolveRoutePath(route, this.routingContext);
+	private createCurve(route: TwinRouteDefinition, resolved = resolveRoutePath(route, this.routingContext)) {
 		this.activePointIds = resolved.points.map((point) => point.pointId);
 		this.activeEdgeIds = resolved.edgeIds;
 		this.unavailableEdgeIds = resolved.unavailableEdgeIds;
@@ -447,7 +465,7 @@ export class RouteEngine {
 		if (vectors.length < 2) vectors.push(vectors[0]?.clone() ?? new Vector3(1, 0, 0));
 		let curve: any;
 		if (route.curveKind === 'line' || vectors.length === 2) {
-			const path = new CurvePath();
+			const path = new DistancePolylineCurve();
 			for (let index = 1; index < vectors.length; index += 1) path.add(new LineCurve3(vectors[index - 1], vectors[index]));
 			if (this.pathLoops && vectors.length > 2) path.add(new LineCurve3(vectors[vectors.length - 1], vectors[0]));
 			curve = path;

@@ -15,6 +15,10 @@ namespace IoTSharp.EventBus
 
     public class EventBusOption
     {
+        /// <summary>
+        /// Shared telemetry persistence metrics written by EventBus consumers and read by flow control.
+        /// </summary>
+        public TelemetryPersistenceMonitor TelemetryPersistence { get; } = new();
         public EventBusOption()
         {
             DispatchTelemetryRules = async (devid, telemetry, telemetryArray) =>

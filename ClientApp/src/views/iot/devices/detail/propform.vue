@@ -44,32 +44,34 @@ const formclientRef = ref();
 const formclientOptions = ref();
 const formanyRef = ref();
 const formanyOptions = ref();
+type AttributeColumn = import('@fast-crud/fast-crud').ColumnProps;
+type AttributeOptions = import('@fast-crud/fast-crud').CrudOptions & { columns: Record<string, AttributeColumn> };
 const buidForm = async () => {
   var result = await deviceApi().getDeviceAttributes(state.devid);
-  var serveropt = {
+  var serveropt: AttributeOptions = {
     form: {
       labelWidth: "120px",
       display: "flex",
     },
     columns: {},
   };
-  var clientopt = {
+  var clientopt: AttributeOptions = {
     form: {
       labelWidth: "120px",
       display: "flex",
     },
     columns: {},
   };
-  var anyopt = {
+  var anyopt: AttributeOptions = {
     form: {
       labelWidth: "120px",
       display: "flex",
     },
     columns: {},
   };
-  var serverval = {};
-  var anyval = {};
-  var clientval = {};
+  var serverval: Record<string, unknown> = {};
+  var anyval: Record<string, unknown> = {};
+  var clientval: Record<string, unknown> = {};
   for (var item of result.data) {
     switch (item.dataSide) {
       case "AnySide":
@@ -94,7 +96,7 @@ const buidForm = async () => {
   formclientRef.value.setFormData(clientval);
   formanyRef.value.setFormData(anyval);
 };
-const buildWegits = (data: any, cfg?: any) => {
+const buildWegits = (data: any, cfg?: any): AttributeColumn => {
   switch (data.dataType) {
     case "Boolean":
       return {
@@ -120,12 +122,12 @@ const buildWegits = (data: any, cfg?: any) => {
           width: 185,
           component: {},
         },
-        valueBuilder({ value, row, key }) {
+        valueBuilder({ value, row, key }: { value: import('dayjs').ConfigType; row: Record<string, unknown>; key: string }) {
           if (value != null) {
             row[key] = dayjs(value);
           }
         },
-        valueResolve({ value, row, key }) {
+        valueResolve({ value, row, key }: { value: { valueOf(): unknown } | null; row: Record<string, unknown>; key: string }) {
           if (value != null) {
             row[key] = value.valueOf();
           }
@@ -171,7 +173,7 @@ const buildWegits = (data: any, cfg?: any) => {
             name: shallowRef(monaco),
             vModel: "modelValue",
             on: {
-              change(context) { },
+              change() { },
             },
           },
           rules: [{ required: true, message: "此项必填" }],
@@ -187,7 +189,7 @@ const buildWegits = (data: any, cfg?: any) => {
             name: shallowRef(monaco),
             vModel: "modelValue",
             on: {
-              change(context) { },
+              change() { },
             },
           },
           rules: [{ required: true, message: "此项必填" }],
@@ -203,7 +205,7 @@ const buildWegits = (data: any, cfg?: any) => {
             name: shallowRef(monaco),
             vModel: "modelValue",
             on: {
-              change(context) { },
+              change() { },
             },
           },
           rules: [{ required: true, message: "此项必填" }],

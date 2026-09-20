@@ -15,11 +15,14 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 		const { definition } = context;
 		const props = definition.properties;
 		const pedestalRadius = resolveNumber(props, 'pedestalRadius', 0.72, 0.35, 1.5);
-		const upperArmLength = resolveNumber(props, 'upperArmLength', 1.65, 0.7, 3.5);
-		const forearmLength = resolveNumber(props, 'forearmLength', 1.45, 0.7, 3.5);
+		const upperArmLength = resolveNumber(props, 'upperArmLength', 1.65, 0.7, 8);
+		const forearmLength = resolveNumber(props, 'forearmLength', 1.45, 0.7, 8);
 		const toolType = props.toolType === 'silk-grid-2x6' ? 'silk-grid-2x6' : props.toolType === 'silk-row-1x6' ? 'silk-row-1x6' : props.toolType === 'carton-gripper' ? 'carton-gripper' : 'pallet-gripper';
 		const gripperSpan = resolveNumber(props, 'gripperSpan', 6.2, 2.5, 9);
 		const gripperRowSpacing = resolveNumber(props, 'gripperRowSpacing', 1.15, 0.5, 2.5);
+		const adaptiveGrid = props.adaptiveGridGripper === true;
+		const gridMaxSpan = resolveNumber(props, 'gripperMaxSpan', Math.max(10, gripperSpan), gripperSpan, 14);
+		const gridMaxDepth = resolveNumber(props, 'gripperMaxDepth', 2.5, gripperRowSpacing, 4);
 		const cartonGripWidth = resolveNumber(props, 'cartonGripWidth', 1.6, 0.5, 3.5);
 		const cartonGripDepth = resolveNumber(props, 'cartonGripDepth', 1.2, 0.4, 3);
 		const axis1HomeYaw = resolveNumber(props, 'axis1HomeYaw', -0.45, -Math.PI, Math.PI);
@@ -159,7 +162,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 			const pitch = gripperSpan / 6;
 			for (let row = 0; row < rowCount; row += 1) {
 				const rowZ = rowCount === 1 ? 0 : (row === 0 ? -gripperRowSpacing / 2 : gripperRowSpacing / 2);
-				const rail = new THREE.Mesh(new THREE.BoxGeometry(gripperSpan, 0.18, 0.22), toolMaterial);
+				const rail = new THREE.Mesh(new THREE.BoxGeometry(adaptiveGrid ? gridMaxSpan : gripperSpan, 0.18, 0.22), toolMaterial);
 				rail.name = rowCount === 1 ? 'RobotRowGripperRail' : `RobotGridGripperRail-R${row + 1}`;
 				rail.position.z = rowZ;
 				gripper.add(rail);
@@ -170,6 +173,11 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 					head.position.set(-gripperSpan / 2 + pitch * (column + 0.5), rowCount === 2 ? 0.10 : -0.18, rowZ);
 					head.userData.row = row + 1;
 					head.userData.column = column + 1;
+					if (adaptiveGrid) head.userData.gridAxes = (['x', 'z'] as const).map(axis => ({
+						actuatorId: `robot-head-${index}-${axis}`, name: `抓位 ${index} ${axis} 变距`, nodePath: head.name,
+						kind: 'linear-axis', motionAxis: axis, unit: 'meter', speed: 1.5,
+						minValue: -(axis === 'x' ? gridMaxSpan : gridMaxDepth) / 2, maxValue: (axis === 'x' ? gridMaxSpan : gridMaxDepth) / 2, homeValue: head.position[axis],
+					}));
 					const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.34, 16), jointMaterial);
 					shaft.name = `RobotGripperShaft-${index}`;
 					shaft.position.y = rowCount === 2 ? 0.17 : -0.13;
@@ -256,6 +264,7 @@ export class IndustrialRobotComponent implements TwinComponentGenerator {
 			payloadTypes: toolType.startsWith('silk-') ? ['silk-cake'] : toolType === 'carton-gripper' ? ['carton'] : [],
 		}];
 		root.userData.actuatorDefinitions = [];
+		root.traverse(node => { if (Array.isArray(node.userData.gridAxes)) root.userData.actuatorDefinitions.push(...node.userData.gridAxes); });
 		root.traverse((node) => {
 			if (node.userData?.actuator) root.userData.actuatorDefinitions.push({ ...node.userData.actuator, nodePath: node.name });
 		});

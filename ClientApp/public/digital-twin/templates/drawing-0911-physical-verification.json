@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "kind": "real-route-runtime-without-webgl-or-database",
+  "seconds": 1200,
+  "fixedStep": 0.05,
+  "pallets": 50,
+  "minimumCenterDistance": 1.5000453360225758,
+  "maximumFrameDisplacement": 0.04500000000007365,
+  "coveredEdges": 54,
+  "minimumTravelMeters": 656.2991580954832,
+  "maximumIdleSeconds": 14.649999999999864,
+  "pausePassed": true,
+  "resetPassed": true,
+  "databasePublication": "requires-separate-authenticated-ui-verification",
+  "plcAndProcess": "intentionally-deferred"
+}

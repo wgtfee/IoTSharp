@@ -70,11 +70,12 @@
 import {dateUtil, ElDateTimePickerShortcuts, formatToDateTime} from "/@/utils/dateUtil";
 import {deviceApi} from "/@/api/devices";
 import { ref } from "vue";
-import { EChartsOption } from "echarts";
+import { EChartsOption, LineSeriesOption } from "echarts";
 import * as echarts from "echarts";
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { telemetryHistoryChartOptions } from "/@/views/iot/devices/detail/telemetryHistoryChartOptions";
-const formatColumnDataTime = (row, column, cellValue, index) => {
+interface TelemetryHistoryRow { keyName: string; dateTime: string; value: number | null }
+const formatColumnDataTime = (row: TelemetryHistoryRow, column: unknown, cellValue: string | Date | number) => {
   return formatToDateTime(cellValue)
 }
 const formRef = ref()
@@ -88,14 +89,14 @@ interface IQueryForm {
   pi: number;
   ps: number;
   deviceId: string;
-  keys: string | any;
+  keys: string[];
   end: string | Date;
   every: string;
   begin: string | Date;
   sorter: string;
   aggregate: string;
   status: any;
-  datetimeRange: Date | number | string | Array<Date>
+  datetimeRange: Date[] | string[] | null
 }
 
 
@@ -121,7 +122,7 @@ const queryInitialState = {
   datetimeRange: []
 }
 const queryForm: IQueryForm = reactive({...queryInitialState })
-const tableData = ref([])
+const tableData = ref<TelemetryHistoryRow[]>([])
 
 
 const search = async () => {
@@ -131,7 +132,7 @@ const search = async () => {
   }
   await getData()
 }
-const resetForm = (formEl) => {
+const resetForm = (formEl: import('element-plus').FormInstance | undefined) => {
   if (!formEl) return
   formEl.resetFields()
 }
@@ -140,10 +141,9 @@ const resetForm = (formEl) => {
 //
 // }
 const getData = async () => {
-  const params = {...queryForm}
-  if (params.datetimeRange[0]) params.begin = params.datetimeRange[0]
-  if (params.datetimeRange[1]) params.end = params.datetimeRange[1]
-  params.keys = params.keys.join(',')
+  const params = {...queryForm, keys: queryForm.keys.join(',')}
+  if (params.datetimeRange?.[0]) params.begin = params.datetimeRange[0]
+  if (params.datetimeRange?.[1]) params.end = params.datetimeRange[1]
   params.every = '0.' + params.every + ':000';
   loading.value = true
   try {
@@ -153,9 +153,9 @@ const getData = async () => {
   } catch (e) { /* empty */ }
   loading.value = false
 }
-const updateChart = (rawData) => {
-  let series = []
-  let xAxisData = []
+const updateChart = (rawData: TelemetryHistoryRow[]) => {
+  let series: Array<LineSeriesOption & { name: string; data: Array<number | null> }> = []
+  let xAxisData: string[] = []
   series = queryForm.keys.map((key)=>{
     return {
       name: key,
@@ -170,13 +170,13 @@ const updateChart = (rawData) => {
     xAxisData.push(dateTime)
     for (const data of values) {
       const seriesItem = series.find((x)=>x.name === data.keyName)
-      seriesItem.data.push(data.value)
+      seriesItem?.data.push(data.value)
 
     }
   })
   telemetryHistoryChartOptions.series = series
   telemetryHistoryChartOptions.xAxis.data = xAxisData
-  historyChart.setOption(telemetryHistoryChartOptions, {
+  historyChart?.setOption(telemetryHistoryChartOptions, {
     replaceMerge: ["series", "yAxis", "xAxis"],
   });
 }
@@ -185,20 +185,20 @@ const initChart = (target: any, option: EChartsOption) => {
   historyChart.setOption(option);
 };
 const state = reactive({
-  telemetryKeys: []
+  telemetryKeys: [] as string[]
 })
-const getTelemetryKeys = async (deviceId) => {
+const getTelemetryKeys = async (deviceId: string) => {
   const res = await deviceApi().getDeviceLatestTelemetry(deviceId);
-  state.telemetryKeys = res.data.filter((x) => typeof x.value === 'number').map((c) => c.keyName);
+  state.telemetryKeys = (res.data as TelemetryHistoryRow[]).filter(x => typeof x.value === 'number').map(c => c.keyName);
 }
 watch(() => props.deviceId, async () => {
   await getTelemetryKeys(props.deviceId);
   telemetryHistoryChartOptions.series = []
   telemetryHistoryChartOptions.xAxis.data = []
-  historyChart.setOption(telemetryHistoryChartOptions, {
+  historyChart?.setOption(telemetryHistoryChartOptions, {
     replaceMerge: ["series", "yAxis", "xAxis"],
   });
-  formRef.value.resetFields()
+  formRef.value?.resetFields()
 })
 
 onMounted(async ()=>{

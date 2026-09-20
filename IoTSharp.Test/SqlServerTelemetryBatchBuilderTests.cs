@@ -124,6 +124,25 @@ public sealed class SqlServerTelemetryBatchBuilderTests
         Assert.Equal(latestTimestamp, latest["date"].DateTime);
     }
 
+    [Fact]
+    public void ShardingBuild_UsesGreatestTimestampForLatestWithinBatch()
+    {
+        var deviceId = Guid.NewGuid();
+        var newer = new DateTime(2026, 9, 16, 5, 0, 2, DateTimeKind.Utc);
+        var older = newer.AddSeconds(-1);
+        var messages = new[]
+        {
+            Message(deviceId, newer, "temperature", 22.5d),
+            Message(deviceId, older, "temperature", 18.0d)
+        };
+
+        var batch = ShardingTelemetryBatchBuilder.Build(messages);
+        var latest = Assert.Single(batch.LatestValues);
+
+        Assert.Equal(newer, latest.Timestamp);
+        Assert.Equal(22.5d, latest.Value);
+    }
+
     private static PlayloadData Message(Guid deviceId, DateTime timestamp, string key, object value) => new()
     {
         DeviceId = deviceId,

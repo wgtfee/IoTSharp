@@ -30,6 +30,12 @@ export type TwinComponentCapability =
 	| 'vertical-transfer'
 	| 'rotation'
 	| 'process-station'
+	| 'vision-inspection'
+	| 'dual-lane'
+	| 'continuous-film-feed'
+	| 'side-seal'
+	| 'film-cut'
+	| 'vacuum-film-tuck'
 	| 'plc-binding';
 
 export type TwinComponentPortType = 'material-input' | 'material-output' | 'material-bidirectional';
@@ -125,7 +131,7 @@ export interface TwinComponentPropertySchema {
 	max?: number;
 	step?: number;
 	unit?: string;
-	options?: Array<{ label: string; value: unknown }>;
+	options?: Array<{ label: string; value: string | number | boolean }>;
 	description?: string;
 }
 
@@ -193,7 +199,7 @@ export const selectProperty = (
 	label: string,
 	defaultValue: unknown,
 	category: TwinComponentPropertyCategory,
-	options: Array<{ label: string; value: unknown }>,
+	options: Array<{ label: string; value: string | number | boolean }>,
 ): TwinComponentPropertySchema => ({
 	key,
 	label,

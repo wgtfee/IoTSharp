@@ -252,7 +252,7 @@ export class ComponentProcessRuntime {
 		const nextStations: ComponentProcessStationInfo[] = [];
 		for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
 			const point = points[pointIndex] as TwinRoutePointDefinition;
-			if (point.kind !== 'processStation' || !point.process) continue;
+			if (point.kind !== 'processStation' || !point.process || point.process.batchArrivalMode === 'route-aligned') continue;
 			const componentObjectId = point.componentObjectId || '';
 			if (!componentObjectId) continue;
 			const edgeId = resolved.edgeIds[pointIndex];

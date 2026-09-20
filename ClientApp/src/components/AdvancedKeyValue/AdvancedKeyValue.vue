@@ -3,8 +3,8 @@
     <div class="z-row" v-for="item in list" :key="item.key">
       <div class="z-key truncate" :style="{width: `${labelWidth}px`}">{{ item.title }}:</div>
       <div class="z-value">
-        <z-switch v-if="item.type === 'dict-switch'" :dict="item.dict.data" :value="item.value"></z-switch>
-        <z-select v-else-if="item.type === 'dict-select'" :dict="item.dict.data" :value="item.value"></z-select>
+        <z-switch v-if="item.type === 'dict-switch'" :dict="item.dict?.data || []" :value="item.value"></z-switch>
+        <z-select v-else-if="item.type === 'dict-select'" :dict="item.dict?.data || []" :value="item.value"></z-select>
         <span v-else>{{ item.value }}</span>
       </div>
     </div>
@@ -42,7 +42,7 @@ const list = computed(() => {
     })
     // 如果有配置
     return filtered.map(([key, value]) => {
-      let item = { key, value, title: key }
+      let item: { key: string; value: unknown; title: string; type?: string; dict?: { data: unknown[] } } = { key, value, title: key }
       if (props.config[key]) {
         Object.assign(item, props.config[key])
       }

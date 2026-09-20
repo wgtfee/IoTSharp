@@ -26,6 +26,10 @@ export function accountApi() {
 			});
 		},
 
+        /** 调用受角色与客户范围保护的创建接口，不使用匿名注册入口。 */
+        postAccount: (data: CreateAccountInput) => request({
+            url: '/api/Account/PostAccount', method: 'post', data,
+        }),
 		putAccount: (data: any) => {
 			return request({
 				url: '/api/Account/Modify',
@@ -53,4 +57,12 @@ export function accountApi() {
 export interface CustomerQueryParam extends IListQueryParam {
 	name?: string;
 	customerId?: string;
+}
+
+export interface CreateAccountInput {
+    userName: string;
+    email: string;
+    password: string;
+    phoneNumber?: string;
+    customerId?: string;
 }

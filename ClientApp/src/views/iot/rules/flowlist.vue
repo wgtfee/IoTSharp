@@ -313,8 +313,8 @@ const getData = async () => {
 	}
 };
 
-const expandchange = async (row: TableDataRow, expanded: Array<TableDataRow>) => {
-	if (expanded.length > 0 && row.ruleId) {
+const expandchange = async (row: TableDataRow, expanded: Array<TableDataRow> | boolean) => {
+	if ((Array.isArray(expanded) ? expanded.some(item => item.ruleId === row.ruleId) : expanded) && row.ruleId) {
 		const result = await ruleApi().getFlows(row.ruleId);
 		row.flows = result.data;
 	}

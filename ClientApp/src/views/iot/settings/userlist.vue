@@ -70,7 +70,7 @@ const { crudExpose } = useExpose({ crudRef, crudBinding });
 const { crudOptions } = createUserListCrudOptions({ expose: crudExpose }, customerId, overview);
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-useCrud({ expose: crudExpose, crudOptions });
+useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
 
 const badges = computed(() => [
 	`客户 ${shortCustomerId.value}`,

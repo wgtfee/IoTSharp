@@ -94,7 +94,7 @@ const props = defineProps({
 const emit = defineEmits(['submit']);
 const activeSections = ref(['connection', 'devices', 'points', 'mapping']);
 
-const connection = reactive<OpcUaConnectionModel>({
+const connection = reactive<OpcUaConnectionModel & { protocolOptions: NonNullable<OpcUaConnectionModel['protocolOptions']> }>({
 	connectionKey: 'opcua-default',
 	connectionName: '默认 OPC UA 连接',
 	protocol: 'OpcUa',
@@ -108,7 +108,7 @@ const connection = reactive<OpcUaConnectionModel>({
 	},
 });
 
-const device = reactive<OpcUaDeviceModel>({
+const device = reactive<OpcUaDeviceModel & { protocolOptions: NonNullable<OpcUaDeviceModel['protocolOptions']> }>({
 	deviceKey: 'opcua-device-1',
 	deviceName: '示例 OPC UA 设备',
 	enabled: true,

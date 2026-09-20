@@ -1,6 +1,7 @@
 import { createBlankTwinSceneManifest, type TwinRouteDefinition, type TwinSceneManifest, type TwinVector3 } from '../contracts';
 import type { TwinV7SceneManifest, TwinV7SceneObjectDefinition } from '../contracts/v7-components';
 import { getBuiltInComponentTemplate } from '../components/BuiltInComponentCatalog';
+import { persistCompiledRouteGraph } from '../routes/RouteAuthoringCompiler';
 
 /** 2026-09-11 用户确认图的像素标定；等比例，不冒充现场测量尺寸。 */
 export const drawingCalibration = { imageWidth: 1423, imageHeight: 1105, metersPerPixel: 0.08, origin: [800, 570] as [number, number], rollerWidthPixels: 14 };
@@ -54,7 +55,7 @@ function component(key: string, id: string, name: string, pixel: DrawingPixel, y
 	if (!template) throw new Error(`组件库未登记 ${key}`);
 	return { objectId: id, name, kind: 'component', transform: { position: drawingWorld(pixel), rotation: [0, yaw, 0], scale: [1, 1, 1] }, component: {
 		resourceKey: key, componentType: template.componentType, generator: template.generator, generatorVersion: template.generatorVersion,
-		properties: { ...template.defaultProperties, componentOwnedRoute: false, drawingCalibrationId: 'user-confirmed-0911', ...properties }, sectionId: String(properties.drawingZone || id),
+		properties: { ...template.defaultProperties, routeManagedExternally: true, componentOwnedRoute: false, drawingCalibrationId: 'user-confirmed-0911', ...properties }, sectionId: id,
 	} };
 }
 
@@ -63,10 +64,11 @@ export function createDrawingPackagingLineManifest(): TwinSceneManifest {
 	const manifest = createBlankTwinSceneManifest() as TwinV7SceneManifest;
 	manifest.sceneId = 'drawing-0911-new-scene';
 	manifest.name = '参考图双套袋环形包装产线 · 图纸重建 V1';
-	manifest.description = '按 2026-09-11 确认图等比例重建：外检上方双排载料向右，另有上方单排空回流向左；桁架下及抓丝区双排。图纸像素标定 0.08m/px，非现场测量尺寸。此版本仅确认实体和有向路线，未配置 PLC 或设备工艺动作。';
+	manifest.description = '按 2026-09-11 确认图等比例重建：外检上方双排向右，最上方单排空回流向左；桁架下及抓丝区双排。50 个小托盘用于物理空跑，仿真分组覆盖两套袋支路和空回流；未接 PLC、机器人抓放和工艺控制。图纸标定 0.08m/px，仅用于比例复刻，非现场测量尺寸。';
 	manifest.world.background = '#e8eef3';
 	manifest.runtime = { dataMode: 'simulation', initialView: 'top', maxPixelRatio: 1.5, showGrid: false, primarySmallPalletRouteId: smallRouteId,
-		routePalletInitializers: [{ routeId: smallRouteId, telemetryKey: 'drawing0911SmallPallets', simulationDefaultCount: 0, emptyValue: 0 }] };
+		routePalletInitializers: [{ routeId: smallRouteId, telemetryKey: 'drawing0911SmallPallets', simulationDefaultCount: 50, emptyValue: 0, simulationPlacement: 'non-overlapping', simulationTraffic: 'reserved-junctions',
+			simulationPayloadTemplates: [{ drawingProfile: 'main' }, { drawingProfile: 'main' }, { drawingProfile: 'empty' }, { drawingProfile: 'inner' }, { drawingProfile: 'buffer' }, { drawingProfile: 'short' }] }] };
 	const spans = getDrawingSpans();
 	const objects: TwinV7SceneObjectDefinition[] = [];
 	const allNodes = new Map<string, { pixel: DrawingPixel; spans: DrawingSpan[] }>();
@@ -74,7 +76,7 @@ export function createDrawingPackagingLineManifest(): TwinSceneManifest {
 		const key = pointId(pixel); const node = allNodes.get(key) || { pixel, spans: [] }; node.spans.push(span); allNodes.set(key, node);
 	}
 	const isMachineNode = (key: string) => allNodes.get(key)!.spans.some((s) => s.machine);
-	const needsTransferNode = (key: string) => {
+	const rawTransferNode = (key: string) => {
 		const node = allNodes.get(key)!;
 		if (isMachineNode(key) || node.spans.length <= 1) return false;
 		if (node.spans.length > 2) return true;
@@ -87,6 +89,13 @@ export function createDrawingPackagingLineManifest(): TwinSceneManifest {
 		const dot = vectors[0][0] * vectors[1][0] + vectors[0][1] * vectors[1][1];
 		return dot > -0.995;
 	};
+	const transferNodes = new Set([...allNodes.keys()].filter(rawTransferNode));
+	// 双排组件共用纵向长度：任一排有侧向接驳，另一排同截面也留出独立辊床，避免 B 排压进交叉口。
+	for (const span of spans.filter(s => s.zone === 'left-double')) for (const pixel of [span.from, span.to]) {
+		const paired = spans.filter(s => s.zone === span.zone).flatMap(s => [s.from, s.to]).filter(p => p[1] === pixel[1]);
+		if (paired.some(p => transferNodes.has(pointId(p)))) for (const p of paired) transferNodes.add(pointId(p));
+	}
+	const needsTransferNode = (key: string) => transferNodes.has(key);
 	const half = (span: DrawingSpan) => span.large ? 1.4 : WIDTH / 2;
 	const trim = (span: DrawingSpan, pixel: DrawingPixel) => needsTransferNode(pointId(pixel)) ? half(span) : 0;
 	const used = new Set<string>();
@@ -115,11 +124,11 @@ export function createDrawingPackagingLineManifest(): TwinSceneManifest {
 		objects.push(component(large ? 'builtin-large-roller-conveyor' : 'builtin-small-roller-conveyor', `drawing-transfer-${key}`, `接驳位 ${node.pixel.join(',')}`, node.pixel, 0, { length: width, width, height: large ? 0.82 : H, openTransferSides: true, drawingZone: 'transfer', drawingPixel: node.pixel, capacity: 1 }));
 	}
 	objects.push(
-		component('builtin-bagging-machine', 'drawing-bag-a', '套袋机 A（上）', [1170, 270], Math.PI, { length: 9.6, width: 5.4, conveyorWidth: WIDTH, conveyorHeight: H, machineHeight: 3.8 }),
-		component('builtin-bagging-machine', 'drawing-bag-b', '套袋机 B（下）', [1104, 448], Math.PI, { length: 9.6, width: 5.4, conveyorWidth: WIDTH, conveyorHeight: H, machineHeight: 3.8 }),
+		component('builtin-bagging-machine', 'drawing-bag-a', '套袋机 A（上）', [1170, 270], Math.PI, { length: 9.6, frameLength: 9, width: 5.4, conveyorWidth: WIDTH, conveyorHeight: H, machineHeight: 3.8 }),
+		component('builtin-bagging-machine', 'drawing-bag-b', '套袋机 B（下）', [1104, 448], Math.PI, { length: 9.6, frameLength: 9, width: 5.4, conveyorWidth: WIDTH, conveyorHeight: H, machineHeight: 3.8 }),
 		component('builtin-external-inspection', 'drawing-inspection', '外检机（出口在左侧）', [925, 728], Math.PI, { length: 12, chamberLength: 11.4, width: 6.6, conveyorWidth: WIDTH, conveyorHeight: H, machineHeight: 3.8 }),
-		component('builtin-industrial-robot', 'drawing-center-robot', '中央缓存机器人', [727, 351], 0, { upperArmLength: 3.7, forearmLength: 3.7 }),
-		component('builtin-industrial-robot', 'drawing-loading-robot', '抓丝机器人', [827, 989], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.6, gripperRowSpacing: 1.15, upperArmLength: 3.8, forearmLength: 3.8, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }),
+		component('builtin-industrial-robot', 'drawing-center-robot', '中央缓存机器人', [727, 351], 0, { upperArmLength: 3.5, forearmLength: 3.5 }),
+		component('builtin-industrial-robot', 'drawing-loading-robot', '抓丝机器人', [827, 989], 0, { toolType: 'silk-grid-2x6', gripperSpan: 6.6, gripperRowSpacing: 1.15, upperArmLength: 3.5, forearmLength: 3.5, axis1HomeYaw: 0, axis2HomePitch: -0.48, axis3HomePitch: Math.PI / 2 + 0.48 }),
 		component('builtin-turntable', 'drawing-turntable-left', '抓丝机器人左旋转台', [694, 989], Math.PI / 2, { deckLength: 11.2, width: 2.8, height: H, baseRadius: 5.7, withSilkCart: true, silkCartLoaded: true }),
 		component('builtin-turntable', 'drawing-turntable-right', '抓丝机器人右旋转台', [965, 989], Math.PI / 2, { deckLength: 11.2, width: 2.8, height: H, baseRadius: 5.7, withSilkCart: true, silkCartLoaded: true }),
 		component('builtin-silk-gantry', 'drawing-stacking-gantry', '左侧码垛桁架与双暂存台', [398, 309], Math.PI / 2, { length: 9.2, width: 25.6, height: 7.2, firstStockZ: -3.04, stockSpacingZ: 4.72, stockDeckWidthX: 8.5, stockDeckDepth: 3.2 }),
@@ -141,5 +150,24 @@ export function createDrawingPackagingLineManifest(): TwinSceneManifest {
 				authoring: { mode: 'manual', locked: false }, reservationTimeoutSeconds: 30 })),
 		};
 	});
+	// 仅为空跑验收指定稳定分组，不能当作 PLC 或载料判定规则。
+	const route = manifest.routes[0];
+	const select = (pixel: DrawingPixel, edge: string, payloadKey: string, matchValue: string, priority = 10) => route.decisionRules.push({
+		ruleId: `drawing-rule-${route.decisionRules.length + 1}`, name: `物理空跑 ${payloadKey}=${matchValue}`, junctionPointId: pointId(pixel), edgeId: `drawing-edge-${edge}`,
+		source: 'payload', payloadKey, operator: 'equals', matchValue, priority, enabled: true,
+	});
+	select([532, 861], 'robot-a-1', 'physicalLane', 'A'); select([532, 861], 'bottom-feed-2', 'physicalLane', 'B');
+	select([722, 624], 'inspection-exit-2', 'physicalLane', 'A'); select([722, 624], 'loaded-b-1', 'physicalLane', 'B');
+	select([1320, 554], 'empty-1', 'drawingProfile', 'empty', 100);
+	for (const profile of ['main', 'inner', 'buffer', 'short']) select([1320, 554], 'right-trunk-3', 'drawingProfile', profile);
+	select([1320, 432], 'right-trunk-4', 'routeCode', 'A'); select([1320, 432], 'bag-b-1', 'routeCode', 'B');
+	for (const profile of ['inner', 'buffer', 'short']) select([914, 164], 'inner-1', 'drawingProfile', profile, 100);
+	select([914, 164], 'top-2', 'drawingProfile', 'main');
+	select([543, 164], 'top-3', 'physicalLane', 'A'); select([543, 164], 'left-b-1', 'physicalLane', 'B');
+	select([775, 448], 'inner-buffer-1', 'drawingProfile', 'buffer', 100);
+	for (const profile of ['inner', 'short']) select([775, 448], 'inner-3', 'drawingProfile', profile);
+	select([596, 448], 'inner-link-1', 'drawingProfile', 'short', 100);
+	select([596, 448], 'inner-4', 'drawingProfile', 'inner');
+	persistCompiledRouteGraph(manifest as TwinSceneManifest);
 	return manifest as TwinSceneManifest;
 }

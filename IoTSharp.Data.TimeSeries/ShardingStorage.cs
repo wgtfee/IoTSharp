@@ -12,8 +12,14 @@ using System.Collections.Generic;
 
 namespace IoTSharp.Storage
 {
-    public class ShardingStorage : IStorage
+    public class ShardingStorage : IStorage, ISplitTelemetryBatchStorage
     {
+        // Durable row replay is a provider capability, not a generic property of the
+        // sharding wrapper. Only provider paths with a materialized-row writer that is
+        // safe for retry/replay advertise the capability.
+        public bool SupportsTelemetryHistoryRowReplay
+            => CanUseSqlServerMonthlyBulkCopy() || CanUsePostgreSqlMonthlyBinaryCopy();
+
         private static readonly string[] SqlServerHistoryColumns =
         [
             nameof(TelemetryData.DeviceId), nameof(TelemetryData.KeyName), nameof(TelemetryData.DateTime),
@@ -115,18 +121,20 @@ namespace IoTSharp.Storage
                 {
                     using (var context = scope.ServiceProvider.GetRequiredService<ShardingDbContext>())
                     {
-                        var lst = new List<TelemetryDataDto>();
-                        var kv = await context.Set<TelemetryData>()
-                            .Where(t => t.DeviceId == deviceId && t.DateTime >= begin && t.DateTime < end)
-                            .Select(t => new TelemetryDataDto() { DateTime = t.DateTime, KeyName = t.KeyName, Value = t.ToObject(), DataType = t.Type }).ToListAsync();
-                        if (!string.IsNullOrEmpty(keys))
+                        var keyNames = string.IsNullOrWhiteSpace(keys)
+                            ? Array.Empty<string>()
+                            : keys.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                .Distinct(StringComparer.Ordinal)
+                                .ToArray();
+                        var query = context.Set<TelemetryData>()
+                            .Where(t => t.DeviceId == deviceId && t.DateTime >= begin && t.DateTime < end);
+                        if (keyNames.Length > 0)
                         {
-                            lst = kv.Where(t => keys.Split(',', ' ', ';').Contains(t.KeyName)).ToList();
+                            query = query.Where(t => keyNames.Contains(t.KeyName));
                         }
-                        else
-                        {
-                            lst = kv.ToList();
-                        }
+                        var lst = await query
+                            .Select(t => new TelemetryDataDto() { DateTime = t.DateTime, KeyName = t.KeyName, Value = t.ToObject(), DataType = t.Type })
+                            .ToListAsync();
                         result = AggregateDataHelpers.AggregateData(lst, begin, end, every, aggregate);
                     }
                 }
@@ -216,6 +224,12 @@ namespace IoTSharp.Storage
                     if (!await ShardingSqlServerBatchWriter.TryStoreAsync(_appSettings, _scopeFactor, _logger, batch))
                         await StoreBatchWithEfAsync(batch);
                 }
+                else if (CanUsePostgreSqlMonthlyBinaryCopy())
+                {
+                    await StoreLatestValuesAsync(batch.LatestValues);
+                    if (!await ShardingPostgreSqlBatchWriter.TryStoreHistoryAsync(_appSettings, _logger, batch.HistoryRows))
+                        await StoreHistoryWithShardingEfAsync(batch.HistoryRows);
+                }
                 else
                 {
                     await StoreBatchWithEfAsync(batch);
@@ -241,8 +255,120 @@ namespace IoTSharp.Storage
             }
         }
 
+        public async Task<TelemetryBatchStoreResult> StoreTelemetryLatestBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+        {
+            var batch = ShardingTelemetryBatchBuilder.Build(messages);
+            if (batch.MessageCount == 0 || batch.LatestValues.Count == 0)
+                return new TelemetryBatchStoreResult(true, [], batch.MessageCount);
+
+            try
+            {
+                if (CanUseSqlServerMonthlyBulkCopy())
+                {
+                    var connectionString = _appSettings.ConnectionStrings!["TelemetryStorage"];
+                    var ok = await ShardingSqlServerBatchWriter.TryStoreLatestAsync(
+                        _scopeFactor,
+                        _logger,
+                        batch.LatestValues,
+                        connectionString);
+                    return new TelemetryBatchStoreResult(ok, [], batch.MessageCount);
+                }
+
+                await StoreLatestValuesAsync(batch.LatestValues);
+                return new TelemetryBatchStoreResult(true, [], batch.MessageCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Sharding telemetry Latest-only batch persistence failed. Messages={MessageCount}, LatestRows={LatestRows}",
+                    batch.MessageCount,
+                    batch.LatestValues.Count);
+                return new TelemetryBatchStoreResult(false, [], batch.MessageCount);
+            }
+        }
+
+        public async Task<TelemetryBatchStoreResult> StoreTelemetryHistoryBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+        {
+            var batch = ShardingTelemetryBatchBuilder.Build(messages);
+            if (batch.MessageCount == 0 || batch.HistoryRows.Count == 0)
+                return new TelemetryBatchStoreResult(true, batch.HistoryRows, batch.MessageCount);
+
+            try
+            {
+                if (CanUseSqlServerMonthlyBulkCopy())
+                {
+                    if (!await ShardingSqlServerBatchWriter.TryStoreHistoryAsync(
+                            _appSettings,
+                            _logger,
+                            batch.HistoryRows))
+                    {
+                        await StoreHistoryWithShardingEfAsync(batch.HistoryRows);
+                    }
+                }
+                else if (CanUsePostgreSqlMonthlyBinaryCopy())
+                {
+                    if (!await ShardingPostgreSqlBatchWriter.TryStoreHistoryAsync(_appSettings, _logger, batch.HistoryRows))
+                        await StoreHistoryWithShardingEfAsync(batch.HistoryRows);
+                }
+                else
+                {
+                    await StoreHistoryWithShardingEfAsync(batch.HistoryRows);
+                }
+
+                return new TelemetryBatchStoreResult(true, batch.HistoryRows, batch.MessageCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Sharding telemetry History-only batch persistence failed. Messages={MessageCount}, HistoryRows={HistoryRows}",
+                    batch.MessageCount,
+                    batch.HistoryRows.Count);
+                return new TelemetryBatchStoreResult(false, batch.HistoryRows, batch.MessageCount);
+            }
+        }
+
+        public async Task<TelemetryBatchStoreResult> StoreTelemetryHistoryRowsAsync(IReadOnlyCollection<TelemetryData> rows, int messageCount)
+        {
+            if (rows.Count == 0)
+                return new TelemetryBatchStoreResult(true, [], messageCount);
+
+            var materializedRows = rows as IReadOnlyList<TelemetryData> ?? rows.ToArray();
+            try
+            {
+                if (CanUseSqlServerMonthlyBulkCopy())
+                {
+                    if (!await ShardingSqlServerBatchWriter.TryStoreHistoryAsync(_appSettings, _logger, materializedRows))
+                        await StoreHistoryWithShardingEfAsync(materializedRows);
+                }
+                else if (CanUsePostgreSqlMonthlyBinaryCopy())
+                {
+                    if (!await ShardingPostgreSqlBatchWriter.TryStoreHistoryAsync(_appSettings, _logger, materializedRows))
+                        await StoreHistoryWithShardingEfAsync(materializedRows);
+                }
+                else
+                {
+                    await StoreHistoryWithShardingEfAsync(materializedRows);
+                }
+
+                return new TelemetryBatchStoreResult(true, materializedRows.ToList(), messageCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Sharding telemetry materialized History persistence failed. Messages={MessageCount}, HistoryRows={HistoryRows}", messageCount, materializedRows.Count);
+                return new TelemetryBatchStoreResult(false, materializedRows.ToList(), messageCount);
+            }
+        }
+
         private bool CanUseSqlServerMonthlyBulkCopy()
             => _appSettings.DataBase == DataBaseType.SqlServer
+               && _appSettings.ShardingByDateMode == ShardingByDateMode.PerMonth
+               && _appSettings.ConnectionStrings?.TryGetValue("TelemetryStorage", out var connectionString) == true
+               && !string.IsNullOrWhiteSpace(connectionString);
+
+        private bool CanUsePostgreSqlMonthlyBinaryCopy()
+            => _appSettings.DataBase == DataBaseType.PostgreSql
                && _appSettings.ShardingByDateMode == ShardingByDateMode.PerMonth
                && _appSettings.ConnectionStrings?.TryGetValue("TelemetryStorage", out var connectionString) == true
                && !string.IsNullOrWhiteSpace(connectionString);
@@ -426,12 +552,17 @@ namespace IoTSharp.Storage
                     history.FillKVToMe(pair);
                     historyRows.Add(history);
 
-                    latestByKey[(message.DeviceId, pair.Key)] = new ShardingTelemetryLatestValue(
-                        message.DeviceId,
-                        pair.Key,
-                        pair.Value,
-                        message.DataSide,
-                        message.ts);
+                    var latestKey = (message.DeviceId, pair.Key);
+                    if (!latestByKey.TryGetValue(latestKey, out var currentLatest)
+                        || message.ts >= currentLatest.Timestamp)
+                    {
+                        latestByKey[latestKey] = new ShardingTelemetryLatestValue(
+                            message.DeviceId,
+                            pair.Key,
+                            pair.Value,
+                            message.DataSide,
+                            message.ts);
+                    }
                 }
             }
 

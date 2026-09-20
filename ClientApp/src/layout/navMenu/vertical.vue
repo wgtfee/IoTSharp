@@ -60,7 +60,7 @@ export default defineComponent({
     const route = useRoute();
     const state = reactive({
       // 修复：https://gitee.com/lyt-top/vue-next-admin/issues/I3YX6G
-      defaultActive: route.meta.isDynamic ? route.meta.isDynamicPath : route.path,
+      defaultActive: route.meta.isDynamic ? String(route.meta.isDynamicPath || route.path) : route.path,
       isCollapse: false,
     });
     // 获取父级菜单数据

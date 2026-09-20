@@ -303,8 +303,8 @@ const onSignIn = async () => {
 	await openCaptchaDialog();
 };
 
-const onCaptchaRelease = async (value: number) => {
-	if (!captcha.ready || loading.signIn) return;
+const onCaptchaRelease = async (value: number | number[]) => {
+	if (Array.isArray(value) || !captcha.ready || loading.signIn) return;
 	await submitSignIn(Math.round(value));
 };
 

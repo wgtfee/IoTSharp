@@ -531,7 +531,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 			numberProperty('width', '检测舱宽度', 2.8, 'geometry', { min: 2, max: 8, step: 0.1, unit: 'm' }),
 			numberProperty('machineHeight', '检测舱高度', 3.0, 'geometry', { min: 2.2, max: 8, step: 0.1, unit: 'm' }),
 			numberProperty('conveyorWidth', '内置辊道宽度', 1.6, 'geometry', { min: 0.8, max: 4, step: 0.05, unit: 'm' }),
-			numberProperty('chamberLength', '暗室检测段长度', 2.6, 'geometry', { min: 1.6, max: 8, step: 0.1, unit: 'm' }),
+			numberProperty('chamberLength', '暗室检测段长度', 2.6, 'geometry', { min: 1.6, max: 11.4, step: 0.1, unit: 'm' }),
 			booleanProperty('withRotaryInspection', '顶部旋转检测夹具', true, 'geometry'),
 			numberProperty('cycleSeconds', '单托检测节拍', 2, 'process', { min: 0.1, max: 300, step: 0.1, unit: 's' }),
 			numberProperty('capacity', '检测位容量', 1, 'runtime', { min: 1, max: 10, step: 1 }),
@@ -577,6 +577,7 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		defaultProperties: { length: 5.2, width: 2.8, machineHeight: 3.2, conveyorHeight: 0.9, conveyorWidth: 1.6, filmWrapWidth: 1.5, filmWrapDepth: 1.45, filmRollDiameter: 0.55, cycleSeconds: 3, capacity: 1, transportUnitType: 'plastic-pallet', showBagFilm: true },
 		propertySchema: [
 			numberProperty('length', '设备总长度', 5.2, 'geometry', { min: 3.8, max: 12, step: 0.1, unit: 'm' }),
+			numberProperty('frameLength', '封装机架长度', 3.64, 'geometry', { min: 2, max: 11.8, step: 0.1, unit: 'm' }),
 			numberProperty('width', '机架总宽度', 2.8, 'geometry', { min: 2.1, max: 8, step: 0.1, unit: 'm' }),
 			numberProperty('machineHeight', '设备高度', 3.2, 'geometry', { min: 2.4, max: 8, step: 0.1, unit: 'm' }),
 			numberProperty('conveyorWidth', '内置小辊道宽度', 1.6, 'geometry', { min: 0.8, max: 4, step: 0.05, unit: 'm' }),
@@ -625,8 +626,8 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 		defaultProperties: { pedestalRadius: 0.72, upperArmLength: 1.65, forearmLength: 1.45, toolType: 'pallet-gripper', gripperSpan: 6.2, gripperRowSpacing: 1.15 },
 		propertySchema: [
 			numberProperty('pedestalRadius', '底座半径', 0.72, 'geometry', { min: 0.35, max: 1.5, step: 0.05, unit: 'm' }),
-			numberProperty('upperArmLength', '大臂长度', 1.65, 'geometry', { min: 0.7, max: 3.5, step: 0.05, unit: 'm' }),
-			numberProperty('forearmLength', '小臂长度', 1.45, 'geometry', { min: 0.7, max: 3.5, step: 0.05, unit: 'm' }),
+			numberProperty('upperArmLength', '大臂长度', 1.65, 'geometry', { min: 0.7, max: 8, step: 0.05, unit: 'm' }),
+			numberProperty('forearmLength', '小臂长度', 1.45, 'geometry', { min: 0.7, max: 8, step: 0.05, unit: 'm' }),
 			selectProperty('toolType', '末端夹具', 'pallet-gripper', 'geometry', [
 				{ label: '普通搬运夹具', value: 'pallet-gripper' },
 				{ label: '纸箱夹具', value: 'carton-gripper' },
@@ -635,6 +636,9 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 			]),
 			numberProperty('gripperSpan', '丝锭夹具横向跨度', 6.2, 'geometry', { min: 2.5, max: 9, step: 0.1, unit: 'm' }),
 			numberProperty('gripperRowSpacing', '2×6夹具排距', 1.15, 'geometry', { min: 0.5, max: 2.5, step: 0.05, unit: 'm' }),
+			booleanProperty('adaptiveGridGripper', '启用 2×6 夹具变距轴', false, 'geometry'),
+			numberProperty('gripperMaxSpan', '变距轴最大横向跨度', 10, 'geometry', { min: 6.6, max: 14, step: 0.1, unit: 'm' }),
+			numberProperty('gripperMaxDepth', '变距轴最大排距', 2.5, 'geometry', { min: 1.15, max: 4, step: 0.05, unit: 'm' }),
 			numberProperty('cartonGripWidth', '纸箱夹持宽度', 1.6, 'geometry', { min: 0.5, max: 3.5, step: 0.05, unit: 'm' }),
 			numberProperty('cartonGripDepth', '纸箱夹具深度', 1.2, 'geometry', { min: 0.4, max: 3, step: 0.05, unit: 'm' }),
 		],
@@ -677,6 +681,10 @@ export const builtInComponentTemplates: TwinComponentTemplate[] = [
 			numberProperty('stockSpacingZ', '两暂存台中心距', PACKAGING_WOOD_PALLET_WIDTH + 0.90, 'geometry', { min: 1, max: 36, step: 0.1, unit: 'm' }),
 			numberProperty('stockDeckWidthX', '暂存台 X 向尺寸', PACKAGING_WOOD_PALLET_LENGTH + 0.60, 'geometry', { min: 1, max: 29.5, step: 0.1, unit: 'm' }),
 			numberProperty('stockDeckDepth', '暂存台 Z 向尺寸', PACKAGING_WOOD_PALLET_WIDTH + 0.60, 'geometry', { min: 1, max: 10, step: 0.1, unit: 'm' }),
+			numberProperty('silkGripColumnSpacing', '六抓位列距', 1.8, 'geometry', { min: .7, max: 3, step: .05, unit: 'm' }),
+			numberProperty('silkGripRowSpacing', '六抓位排距', 3.4, 'geometry', { min: .7, max: 4, step: .05, unit: 'm' }),
+			numberProperty('separatorLength', '隔板长度（匹配木托）', PACKAGING_WOOD_PALLET_LENGTH, 'geometry', { min: 1, max: 8, step: .05, unit: 'm' }),
+			numberProperty('separatorWidth', '隔板宽度（匹配木托）', PACKAGING_WOOD_PALLET_WIDTH, 'geometry', { min: .8, max: 4, step: .05, unit: 'm' }),
 		],
 	},
 	{

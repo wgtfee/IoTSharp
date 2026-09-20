@@ -81,6 +81,7 @@ export class ThreeJsEditorAdapter {
 	getMaterialFlowSnapshot() {
 		return this.runtime.getMaterialFlowSnapshot();
 	}
+	getActionFlowSnapshots() { return this.runtime.getActionFlowSnapshots(); }
 
 	getActuatorSnapshot() {
 		return this.runtime.getActuatorSnapshot();

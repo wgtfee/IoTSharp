@@ -84,7 +84,9 @@ const initTageView = () => {
 	});
 };
 // 当前菜单选中时
-const onHandleSelect = (item: RouteItem) => {
+const onHandleSelect = (value: Record<string, unknown>) => {
+	if (typeof value.path !== 'string') return;
+	const item = value as RouteItem;
 	let { path, redirect } = item;
 	if (item.meta?.isLink && !item.meta?.isIframe) window.open(item.meta?.isLink);
 	else if (redirect) router.push(redirect);

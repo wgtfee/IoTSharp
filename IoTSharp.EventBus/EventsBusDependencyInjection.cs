@@ -39,6 +39,13 @@ namespace IoTSharp.EventBus
             var _EventBusMQ = options.EventBusMQ;
             services.AddSingleton(options);
 
+            if (settings.TelemetryHistorySpool?.Enabled == true)
+            {
+                services.AddSingleton<TelemetryHistorySpool>();
+                services.AddSingleton<IDurableTelemetryHistoryQueue>(sp => sp.GetRequiredService<TelemetryHistorySpool>());
+                services.AddHostedService<TelemetryHistoryPersistenceDispatcher>();
+            }
+
             return services;
         }
 

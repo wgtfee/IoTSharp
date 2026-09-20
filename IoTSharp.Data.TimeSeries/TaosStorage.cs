@@ -4,7 +4,6 @@ using IoTSharp.Data;
 using IoTSharp.Data.Taos;
 using IoTSharp.Extensions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -17,17 +16,19 @@ namespace IoTSharp.Storage
     {
         private readonly AppSettings _appSettings;
         private readonly ILogger _logger;
-        private readonly IServiceScope scope;
         private readonly TaosConnection _taos;
 
-        public TaosStorage(ILogger<TaosStorage> logger, IServiceScopeFactory scopeFactor
-           , IOptions<AppSettings> options
-            )
+        public TaosStorage(ILogger<TaosStorage> logger, IOptions<AppSettings> options)
         {
             _appSettings = options.Value;
             _logger = logger;
-            scope = scopeFactor.CreateScope();
-            _taos = new TaosConnection(_appSettings.ConnectionStrings["TelemetryStorage"]);
+            if (_appSettings.ConnectionStrings?.TryGetValue("TelemetryStorage", out var connectionString) != true
+                || string.IsNullOrWhiteSpace(connectionString))
+            {
+                throw new InvalidOperationException("ConnectionStrings:TelemetryStorage is required for TDengine telemetry storage.");
+            }
+
+            _taos = new TaosConnection(connectionString);
         }
 
         public Task<bool> CheckTelemetryStorage()
@@ -148,6 +149,7 @@ namespace IoTSharp.Storage
             try
             {
                 List<string> lst = new List<string>();
+                var timestamp = new DateTimeOffset(msg.ts.ToUniversalTime()).ToUnixTimeMilliseconds();
                 msg.MsgBody.ToList().ForEach(kp =>
                     {
                         if (kp.Value != null)
@@ -209,7 +211,7 @@ namespace IoTSharp.Storage
                             }
                             if (_hasvalue)
                             {
-                                string vals = $"device_{tdata.DeviceId:N}_{Pinyin4Net.GetPinyin(tdata.KeyName, PinyinFormat.WITHOUT_TONE).Replace(" ", string.Empty).Replace("@", string.Empty).Replace(":", string.Empty)} USING telemetrydata TAGS('{tdata.DeviceId:N}','{tdata.KeyName}')  (ts,value_type,{_type}) values (now,{(int)tdata.Type},{_value})";
+                                string vals = $"device_{tdata.DeviceId:N}_{Pinyin4Net.GetPinyin(tdata.KeyName, PinyinFormat.WITHOUT_TONE).Replace(" ", string.Empty).Replace("@", string.Empty).Replace(":", string.Empty)} USING telemetrydata TAGS('{tdata.DeviceId:N}','{tdata.KeyName}')  (ts,value_type,{_type}) values ({timestamp},{(int)tdata.Type},{_value})";
                                 lst.Add(vals);
                                 telemetries.Add(tdata);
                             }
@@ -220,6 +222,7 @@ namespace IoTSharp.Storage
                 var cmd = _taos.CreateCommand($"INSERT INTO {string.Join("\r\n", lst)}");
                 _logger.LogInformation(cmd.CommandText);
                 int dt = await cmd.ExecuteNonQueryAsync();
+                result = true;
                 _logger.LogInformation($"数据入库完成,共数据{lst.Count}条，写入{dt}条");
             }
             catch (TaosException ex)
@@ -231,6 +234,119 @@ namespace IoTSharp.Storage
                 _logger.LogError(ex, $"{msg.DeviceId}数据处理失败{ex.Message} {ex.InnerException?.Message} ");
             }
             return (result, telemetries);
+        }
+
+        public async Task<TelemetryBatchStoreResult> StoreTelemetryBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+        {
+            const int commandChunkSize = 1000;
+            var values = new List<string>();
+            var telemetries = new List<TelemetryData>();
+
+            foreach (var msg in messages)
+            {
+                foreach (var kp in msg.MsgBody)
+                {
+                    if (kp.Value == null)
+                    {
+                        continue;
+                    }
+
+                    var tdata = new TelemetryData
+                    {
+                        DateTime = msg.ts,
+                        DeviceId = msg.DeviceId,
+                        KeyName = kp.Key,
+                        Value_DateTime = DateTime.UnixEpoch
+                    };
+                    tdata.FillKVToMe(kp);
+
+                    string type = string.Empty;
+                    string value = string.Empty;
+                    var hasValue = true;
+                    switch (tdata.Type)
+                    {
+                        case DataType.Boolean:
+                            type = "value_boolean";
+                            value = tdata.Value_Boolean.GetValueOrDefault().ToString().ToLowerInvariant();
+                            hasValue = tdata.Value_Boolean.HasValue;
+                            break;
+                        case DataType.String:
+                            type = "value_string";
+                            value = $"'{tdata.Value_String?.Replace("'", "\\'")}'";
+                            break;
+                        case DataType.Long:
+                            type = "value_long";
+                            value = $"{tdata.Value_Long}";
+                            hasValue = tdata.Value_Long.HasValue;
+                            break;
+                        case DataType.Double:
+                            type = "value_double";
+                            value = Convert.ToString(tdata.Value_Double, System.Globalization.CultureInfo.InvariantCulture) ?? "0";
+                            hasValue = tdata.Value_Double.HasValue;
+                            break;
+                        case DataType.Json:
+                            type = "value_string";
+                            value = $"'{tdata.Value_Json?.Replace("'", "\\'")}'";
+                            break;
+                        case DataType.XML:
+                            type = "value_string";
+                            value = $"'{tdata.Value_XML?.Replace("'", "\\'")}'";
+                            break;
+                        case DataType.Binary:
+                            type = "value_string";
+                            value = $"\"{Hex.BytesToHex(tdata.Value_Binary)}\"";
+                            break;
+                        case DataType.DateTime:
+                            type = "value_datetime";
+                            value = Convert.ToString(tdata.Value_DateTime?.Subtract(DateTime.UnixEpoch).TotalMilliseconds, System.Globalization.CultureInfo.InvariantCulture) ?? "0";
+                            hasValue = tdata.Value_DateTime.HasValue;
+                            break;
+                    }
+
+                    if (!hasValue || string.IsNullOrEmpty(type))
+                    {
+                        continue;
+                    }
+
+                    var tableName = $"device_{tdata.DeviceId:N}_{Pinyin4Net.GetPinyin(tdata.KeyName, PinyinFormat.WITHOUT_TONE).Replace(" ", string.Empty).Replace("@", string.Empty).Replace(":", string.Empty)}";
+                    var timestamp = new DateTimeOffset(msg.ts.ToUniversalTime()).ToUnixTimeMilliseconds();
+                    values.Add($"{tableName} USING telemetrydata TAGS('{tdata.DeviceId:N}','{tdata.KeyName}') (ts,value_type,{type}) values ({timestamp},{(int)tdata.Type},{value})");
+                    telemetries.Add(tdata);
+                }
+            }
+
+            if (values.Count == 0)
+            {
+                return new TelemetryBatchStoreResult(true, telemetries, messages.Count);
+            }
+
+            try
+            {
+                if (_taos.State != ConnectionState.Open)
+                {
+                    _taos.Open();
+                }
+
+                for (var offset = 0; offset < values.Count; offset += commandChunkSize)
+                {
+                    var count = Math.Min(commandChunkSize, values.Count - offset);
+                    var command = _taos.CreateCommand($"INSERT INTO {string.Join("\r\n", values.GetRange(offset, count))}");
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                _logger.LogInformation("TDengine telemetry batch write completed. Messages={Messages}, Points={Points}", messages.Count, values.Count);
+                return new TelemetryBatchStoreResult(true, telemetries, messages.Count);
+            }
+            catch (TaosException ex)
+            {
+                _logger.LogError(ex, "TDengine telemetry batch write failed. ErrorCode={ErrorCode}, Messages={Messages}, Points={Points}", ex.ErrorCode, messages.Count, values.Count);
+                return new TelemetryBatchStoreResult(false, telemetries, messages.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TDengine telemetry batch write failed. Messages={Messages}, Points={Points}", messages.Count, values.Count);
+                return new TelemetryBatchStoreResult(false, telemetries, messages.Count);
+            }
         }
 
         public async Task<DataType?> GetTelemetryDataType(Guid deviceId, string key)

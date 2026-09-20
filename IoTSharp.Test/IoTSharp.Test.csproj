@@ -34,4 +34,8 @@
     <ProjectReference Include="..\SonnetDB\src\Testcontainers.SonnetDB\Testcontainers.SonnetDB.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\ClientApp\public\digital-twin\templates\drawing-0911-process.scene.json" Link="TestData\drawing-0911-process.scene.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

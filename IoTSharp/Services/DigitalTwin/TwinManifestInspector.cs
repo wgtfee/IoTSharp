@@ -49,7 +49,7 @@ internal static class TwinManifestInspector
     };
     private static readonly HashSet<string> AllowedActuatorUnits = new(StringComparer.OrdinalIgnoreCase)
     {
-        "rad", "degree", "meter", "boolean"
+        "rad", "degree", "meter", "millimeter", "boolean"
     };
     private static readonly HashSet<string> AllowedInterlockOperators = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -123,10 +123,88 @@ internal static class TwinManifestInspector
         ValidateComponentBindingReferences(result);
         InspectActionOrchestration(manifest, objectIds, result);
         InspectRoutes(manifest, objectIds, result);
+        ValidatePhysicalProcessContract(manifest, objectIds, result);
         var actionFlowInspection = TwinActionFlowServerCompiler.Inspect(manifest);
         result.Diagnostics.AddRange(actionFlowInspection.Diagnostics);
         result.ActionFlows.AddRange(actionFlowInspection.ActionFlows);
         return result;
+    }
+
+    /// <summary>
+    /// 校验按真实路线停车、夹具变距及笛卡尔驱动的增量合同；旧场景未配置这些字段时保持兼容。
+    /// </summary>
+    private static void ValidatePhysicalProcessContract(JsonElement manifest, HashSet<string> objectIds, TwinManifestInspection result)
+    {
+        static IEnumerable<JsonElement> Items(JsonElement parent, string key) => parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : [];
+        static bool IsBoolean(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
+        static int Count(JsonElement process, string key, int fallback) => !process.TryGetProperty(key, out var value) ? fallback : value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var count) ? count : -1;
+        var axes = Items(manifest, "actuators").Where(a => a.ValueKind == JsonValueKind.Object).ToArray();
+        foreach (var (frame, index) in Items(manifest, "toolFrames").Select((value, index) => (value, index)))
+        {
+            if (frame.ValueKind != JsonValueKind.Object || !frame.TryGetProperty("cartesianActuatorIds", out var ids)) continue;
+            var objectId = GetString(frame, "objectId");
+            var values = ids.ValueKind == JsonValueKind.Array ? ids.EnumerateArray().ToArray() : [];
+            if (ids.ValueKind != JsonValueKind.Array || values.Length > 3 || values.Any(id => id.ValueKind != JsonValueKind.String) ||
+                values.Select(id => id.ToString()).Distinct(StringComparer.Ordinal).Count() != values.Length ||
+                values.Any(id => !axes.Any(axis => GetString(axis, "actuatorId") == id.ToString() && GetString(axis, "objectId") == objectId && GetString(axis, "kind") == "linear-axis")))
+                result.Diagnostics.Add(Error("twin.behavior.tool-frame.cartesian.invalid", "TCP 驱动轴必须是所属设备的最多三个、不重复的直线轴。", $"toolFrames[{index}].cartesianActuatorIds"));
+        }
+        foreach (var (behavior, behaviorIndex) in Items(manifest, "behaviors").Select((value, index) => (value, index)))
+        foreach (var (action, actionIndex) in Items(behavior, "actions").Select((value, index) => (value, index)))
+        {
+            if (action.ValueKind != JsonValueKind.Object || !action.TryGetProperty("alignPayloadGrid", out var align)) continue;
+            var source = TryGetNonEmptyString(action, "sourceSlotId", out _);
+            var target = TryGetNonEmptyString(action, "targetSlotId", out _);
+            if (!IsBoolean(align) || (align.ValueKind == JsonValueKind.True && (GetString(action, "kind") != "moveTo" || source == target || Count(action, "payloadCount", 1) is < 1 or > 12)))
+                result.Diagnostics.Add(Error("twin.behavior.action.grid.invalid", "变距对齐仅用于 moveTo，必须且只能选择来源或目标槽位，抓位数量为 1 至 12。", $"behaviors[{behaviorIndex}].actions[{actionIndex}].alignPayloadGrid"));
+        }
+        var stations = new Dictionary<string, List<(string PointId, int Required, int Lane)>>(StringComparer.Ordinal);
+        foreach (var (route, routeIndex) in Items(manifest, "routes").Select((value, index) => (value, index)))
+        {
+            if (route.ValueKind != JsonValueKind.Object) continue;
+            var path = $"routes[{routeIndex}]";
+            if (route.TryGetProperty("replanUpcomingJunctions", out var replan) && (!IsBoolean(replan) || (replan.ValueKind == JsonValueKind.True && GetString(route, "curveKind") != "line")))
+                result.Diagnostics.Add(Error("twin.route.replan.invalid", "未经过岔口重规划仅支持折线路线，开关必须为布尔值。", $"{path}.replanUpcomingJunctions"));
+            foreach (var (point, pointIndex) in Items(route, "points").Select((value, index) => (value, index)))
+            {
+                if (point.ValueKind != JsonValueKind.Object || !point.TryGetProperty("process", out var process) || process.ValueKind != JsonValueKind.Object) continue;
+                var processPath = $"{path}.points[{pointIndex}].process";
+                if (process.TryGetProperty("batchArrivalMode", out var mode) && (mode.ValueKind != JsonValueKind.String || mode.GetString() is not ("legacy" or "route-aligned")))
+                    result.Diagnostics.Add(Error("twin.route.batch.mode.invalid", "批次到位方式不受支持。", processPath));
+                if (process.TryGetProperty("materialAdmission", out var admission) && (admission.ValueKind != JsonValueKind.String || admission.GetString() is not ("any" or "loaded" or "empty")))
+                    result.Diagnostics.Add(Error("twin.route.batch.admission.invalid", "进站条件只支持任意、空托或载料。", processPath));
+                if (process.TryGetProperty("materialStageOnComplete", out var stage) && (stage.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(stage.GetString()) || stage.GetString()!.Length > 128))
+                    result.Diagnostics.Add(Error("twin.route.batch.stage.invalid", "物料完成阶段必须是 1 至 128 字符的文本。", processPath));
+                if (GetString(process, "batchArrivalMode") != "route-aligned") continue;
+                var componentId = GetString(point, "componentObjectId") ?? "";
+                if (GetString(route, "curveKind") != "line" || !objectIds.Contains(componentId))
+                    result.Diagnostics.Add(Error("twin.route.batch.anchor.invalid", "沿路线停车必须使用折线并关联实际设备对象。", processPath));
+                var required = Count(process, "batchSize", 1);
+                var lane = Count(process, "batchLaneSize", required);
+                if (required is < 1 or > 99 || lane is < 1 or > 99 || lane > required)
+                    result.Diagnostics.Add(Error("twin.route.batch.size.invalid", "批次和通道停车数必须为 1 至 99 的整数，通道数不能超过批次总数。", processPath));
+                if (!stations.TryGetValue(componentId, out var members)) stations[componentId] = members = [];
+                members.Add((GetString(point, "pointId") ?? "", required, lane));
+            }
+        }
+        foreach (var (objectId, points) in stations)
+        {
+            var required = points[0].Required;
+            if (points.Any(p => p.Required != required) || points.Sum(p => (long)p.Lane) != required || points.Select(p => p.PointId).Distinct(StringComparer.Ordinal).Count() != points.Count)
+                result.Diagnostics.Add(Error("twin.route.batch.capacity.invalid", $"设备 {objectId} 的各通道停车数之和必须等于批次总数，且到位点不能重复。", "routes"));
+        }
+        if (!manifest.TryGetProperty("runtime", out var runtime)) return;
+        foreach (var (initializer, index) in Items(runtime, "routePalletInitializers").Select((value, index) => (value, index)))
+        {
+            if (initializer.ValueKind != JsonValueKind.Object) continue;
+            var path = $"runtime.routePalletInitializers[{index}]";
+            if (initializer.TryGetProperty("transportUnitProperties", out var properties) &&
+                (properties.ValueKind != JsonValueKind.Object || properties.EnumerateObject().Any(p => p.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) ||
+                    (p.Value.ValueKind == JsonValueKind.Number && (!p.Value.TryGetDouble(out var number) || !double.IsFinite(number))))))
+                result.Diagnostics.Add(Error("twin.runtime.transport-properties.invalid", "仿真托盘参数只允许文本、有限数字和布尔值。", $"{path}.transportUnitProperties"));
+            if (initializer.TryGetProperty("simulationHideAtExit", out var hide) && !IsBoolean(hide))
+                result.Diagnostics.Add(Error("twin.runtime.hide-exit.invalid", "出料后隐藏必须是布尔值。", $"{path}.simulationHideAtExit"));
+        }
     }
 
     private static void ValidateTopLevel(JsonElement manifest, TwinManifestInspection result)
@@ -724,6 +802,12 @@ internal static class TwinManifestInspector
             else if (!string.IsNullOrWhiteSpace(actuatorId)) actuatorKinds[actuatorId] = kind;
             if (!TryGetNonEmptyString(actuator, "unit", out var unit) || !AllowedActuatorUnits.Contains(unit))
                 result.Diagnostics.Add(Error("twin.behavior.actuator.unit.invalid", "执行机构单位不受支持。", $"{path}.unit"));
+            if (kind == "gripper" && unit != "boolean")
+                result.Diagnostics.Add(Error("twin.behavior.actuator.gripper-unit.invalid", "夹具执行机构必须使用 boolean 单位。", $"{path}.unit"));
+            if (kind == "rotary-joint" && unit is not ("rad" or "degree"))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.rotary-unit.invalid", "旋转关节单位必须是 rad 或 degree。", $"{path}.unit"));
+            if (kind == "linear-axis" && unit is not ("meter" or "millimeter"))
+                result.Diagnostics.Add(Error("twin.behavior.actuator.linear-unit.invalid", "直线轴单位必须是 meter 或 millimeter。", $"{path}.unit"));
             if (!kind.Equals("gripper", StringComparison.OrdinalIgnoreCase) &&
                 (!TryGetNonEmptyString(actuator, "motionAxis", out var axis) || !(axis is "x" or "y" or "z")))
                 result.Diagnostics.Add(Error("twin.behavior.actuator.axis.invalid", "旋转关节和直线轴必须配置 X/Y/Z 运动轴。", $"{path}.motionAxis"));

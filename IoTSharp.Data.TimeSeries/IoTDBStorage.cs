@@ -15,25 +15,35 @@ using System.Threading.Tasks;
 
 namespace IoTSharp.Storage
 {
-    public class IoTDBStorage : IStorage
+    public class IoTDBStorage : IStorage, ISplitTelemetryBatchStorage
     {
+        private const int BatchMessageChunkSize = 1000;
+        private const int BatchTelemetryValueChunkSize = 5000;
         private readonly AppSettings _appSettings;
         private readonly ILogger _logger;
         private readonly Apache.IoTDB.SessionPool _session;
         private readonly IoTDBConnection _ioTDB;
-        private string _StorageGroupName = string.Empty;
-        public IoTDBStorage(ILogger<IoTDBStorage> logger, IOptions<AppSettings> options, IoTDBConnection ioTDB
+        private readonly IoTDBTelemetryHistoryWriter _historyWriter;
+        private readonly string _StorageGroupName;
+        public IoTDBStorage(
+            ILogger<IoTDBStorage> logger,
+            IOptions<AppSettings> options,
+            IoTDBConnection ioTDB,
+            IoTDBTelemetryHistoryWriter historyWriter
             )
         {
             _appSettings = options.Value;
             _logger = logger;
             _session = ioTDB.SessionPool;
             _ioTDB = ioTDB;
-
+            _historyWriter = historyWriter;
+            _StorageGroupName = ResolveStorageGroupName(_appSettings.ConnectionStrings?["TelemetryStorage"]);
         }
+
+        public bool SupportsTelemetryHistoryRowReplay => _historyWriter.IsConfigured;
         public async Task<bool> CheckTelemetryStorage()
         {
-            bool _ok = false;
+            bool _ok = _session.IsOpen();
             if (!_session.IsOpen())
             {
                 _ok = Retry.RetryOnAny(10, f =>
@@ -49,14 +59,6 @@ namespace IoTSharp.Storage
             {
                 try
                 {
-                    var str = _appSettings.ConnectionStrings["TelemetryStorage"];
-                    Dictionary<string, string> pairs = new Dictionary<string, string>();
-                    str.Split(';', StringSplitOptions.RemoveEmptyEntries).ForEach(f =>
-                    {
-                        var kv = f.Split('=');
-                        pairs.TryAdd(key: kv[0], value: kv[1]);
-                    });
-                    _StorageGroupName = pairs.GetValueOrDefault("DefaultGroupName") ?? "iotsharp";
                     var groupName = $"root.{_StorageGroupName}";
                     using var query = await _session.ExecuteQueryStatementAsync($"show storage group {groupName}");//判断存储组是否已经存在
                     if (query.HasNext())
@@ -75,6 +77,27 @@ namespace IoTSharp.Storage
                 }
             }
             return _ok;
+        }
+
+        private static string ResolveStorageGroupName(string? connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                return "iotsharp";
+            }
+
+            foreach (var item in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var pair = item.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (pair.Length == 2
+                    && pair[0].Equals("DefaultGroupName", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(pair[1]))
+                {
+                    return pair[1];
+                }
+            }
+
+            return "iotsharp";
         }
 
 
@@ -114,16 +137,27 @@ namespace IoTSharp.Storage
                         result = Convert.ToSingle(v);
                         break;
                     case "TEXT":
+                    case "STRING":
                         result = Convert.ToString(v);
                         break;
                     case "INT64":
                         result = Convert.ToInt64(v);
                         break;
                     case "IN32":
+                    case "INT32":
                         result = Convert.ToInt32(v);
                         break;
                     case "BOOLEAN":
                         result = Convert.ToBoolean(v);
+                        break;
+                    case "DATE":
+                        result = v is DateTime dateValue ? dateValue : Convert.ToDateTime(v);
+                        break;
+                    case "TIMESTAMP":
+                        result = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(v)).UtcDateTime;
+                        break;
+                    case "BLOB":
+                        result = v as byte[] ?? throw new Exception("IoTDB BLOB value is not a byte array.");
                         break;
                     default:
                         throw new Exception($"不支持的IotDB数据类型：{iotDataType}");
@@ -139,9 +173,13 @@ namespace IoTSharp.Storage
                 "DOUBLE" => DataType.Double,
                 "FLOAT" => DataType.Double,
                 "TEXT" => DataType.String,
+                "STRING" => DataType.String,
                 "INT64" => DataType.Long,
                 "INT32" => DataType.Long,
                 "BOOLEAN" => DataType.Boolean,
+                "DATE" => DataType.DateTime,
+                "TIMESTAMP" => DataType.DateTime,
+                "BLOB" => DataType.Binary,
                 _ => throw new Exception($"不支持的IotDB数据类型：{iotDataType}")
             };
         }
@@ -297,58 +335,13 @@ namespace IoTSharp.Storage
             List<TelemetryData> telemetries = new List<TelemetryData>();
             try
             {
-                string device = $"root.{_StorageGroupName}.{msg.DeviceId:N}";
-                List<object> values = new List<object>();
-                List<TSDataType> dataTypes = new List<TSDataType>();
-                List<string> memas = new List<string>();
-                msg.MsgBody.ToList().ForEach(kp =>
+                var record = BuildRecord(msg, telemetries);
+                if (record != null)
                 {
-                    if (kp.Value != null)
-                    {
-                        TelemetryData tdata = new TelemetryData() { DateTime = msg.ts, DeviceId = msg.DeviceId, KeyName = kp.Key, Value_DateTime = DateTime.UnixEpoch };
-                        tdata.FillKVToMe(kp);
-                        object? _value = null;
-                        bool _hasvalue = true;
-                        TSDataType tsdata = TSDataType.NONE;
-                        switch (tdata.Type)
-                        {
-                            case DataType.Boolean:
-                                _value = tdata.Value_Boolean;
-                                tsdata = TSDataType.BOOLEAN;
-                                _hasvalue = tdata.Value_Boolean.HasValue;
-                                break;
-                            case DataType.String:
-                                _value = tdata.Value_String;
-                                tsdata = TSDataType.STRING;
-                                break;
-                            case DataType.Long:
-                                _value = tdata.Value_Long;
-                                _hasvalue = tdata.Value_Long.HasValue;
-                                tsdata = TSDataType.INT64;
-                                break;
-                            case DataType.Double:
-                                _value = tdata.Value_Double;
-                                _hasvalue = tdata.Value_Double.HasValue;
-                                tsdata = TSDataType.DOUBLE;
-                                break;
-                            case DataType.DateTime:
-                                _value = tdata.Value_DateTime;
-                                _hasvalue = tdata.Value_DateTime.HasValue;
-                                tsdata = TSDataType.DATE;
-                                break;
-                        }
-                        if (_hasvalue && _value != null)
-                        {
-                            values.Add(_value);
-                            telemetries.Add(tdata);
-                            dataTypes.Add(tsdata);
-                            memas.Add(kp.Key);
-                        }
-                    }
-                });
-                var record = new RowRecord(msg.ts, values, memas, dataTypes);
-                var okCount = await _session.InsertRecordAsync(device, record);
-                _logger.LogInformation($"数据入库完成，准备写入{values.Count}条数据，实际写入{okCount}条");
+                    string device = $"root.{_StorageGroupName}.{msg.DeviceId:N}";
+                    var okCount = await _session.InsertRecordAsync(device, record);
+                    _logger.LogInformation($"数据入库完成，准备写入{record.Values.Count}条数据，写入结果{okCount}");
+                }
                 result = true;
             }
             catch (Exception ex)
@@ -356,6 +349,155 @@ namespace IoTSharp.Storage
                 _logger.LogError(ex, $"{msg.DeviceId}数据处理失败{ex.Message} {ex.InnerException?.Message} ");
             }
             return (result, telemetries);
+        }
+
+        public Task<TelemetryBatchStoreResult> StoreTelemetryBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+            => StoreTelemetryHistoryBatchAsync(messages);
+
+        public Task<TelemetryBatchStoreResult> StoreTelemetryLatestBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+            => Task.FromResult(new TelemetryBatchStoreResult(true, [], messages.Count));
+
+        public Task<TelemetryBatchStoreResult> StoreTelemetryHistoryBatchAsync(IReadOnlyCollection<PlayloadData> messages)
+            => _historyWriter.WriteMessagesAsync(messages);
+
+        public Task<TelemetryBatchStoreResult> StoreTelemetryHistoryRowsAsync(
+            IReadOnlyCollection<TelemetryData> rows,
+            int messageCount)
+            => _historyWriter.WriteRowsAsync(rows, messageCount);
+
+        private async Task<TelemetryBatchStoreResult> StoreTelemetryBatchLegacyAsync(IReadOnlyCollection<PlayloadData> messages)
+        {
+            var telemetries = new List<TelemetryData>();
+            if (messages.Count == 0)
+            {
+                return new TelemetryBatchStoreResult(true, telemetries, 0);
+            }
+
+            try
+            {
+                var devices = new List<string>(Math.Min(messages.Count, BatchMessageChunkSize));
+                var records = new List<RowRecord>(Math.Min(messages.Count, BatchMessageChunkSize));
+                var pendingValueCount = 0;
+
+                foreach (var msg in messages)
+                {
+                    var record = BuildRecord(msg, telemetries);
+                    if (record == null)
+                    {
+                        continue;
+                    }
+
+                    devices.Add($"root.{_StorageGroupName}.{msg.DeviceId:N}");
+                    records.Add(record);
+                    pendingValueCount += record.Values.Count;
+
+                    if (records.Count >= BatchMessageChunkSize || pendingValueCount >= BatchTelemetryValueChunkSize)
+                    {
+                        var writeResult = await _session.InsertRecordsAsync(devices, records);
+                        _logger.LogInformation("IoTDB批量遥测写入完成，消息{Messages}条，写入结果{WriteResult}", records.Count, writeResult);
+                        devices.Clear();
+                        records.Clear();
+                        pendingValueCount = 0;
+                    }
+                }
+
+                if (records.Count > 0)
+                {
+                    var writeResult = await _session.InsertRecordsAsync(devices, records);
+                    _logger.LogInformation("IoTDB批量遥测写入完成，消息{Messages}条，写入结果{WriteResult}", records.Count, writeResult);
+                }
+
+                return new TelemetryBatchStoreResult(true, telemetries, messages.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "IoTDB批量遥测数据处理失败，消息{Messages}条: {Message} {InnerMessage}", messages.Count, ex.Message, ex.InnerException?.Message);
+                return new TelemetryBatchStoreResult(false, telemetries, messages.Count);
+            }
+        }
+
+        private static RowRecord? BuildRecord(PlayloadData msg, List<TelemetryData> telemetries)
+        {
+            var values = new List<object>();
+            var dataTypes = new List<TSDataType>();
+            var measurements = new List<string>();
+
+            foreach (var kp in msg.MsgBody)
+            {
+                if (kp.Value == null)
+                {
+                    continue;
+                }
+
+                var tdata = new TelemetryData
+                {
+                    DateTime = msg.ts,
+                    DeviceId = msg.DeviceId,
+                    KeyName = kp.Key,
+                    Value_DateTime = DateTime.UnixEpoch
+                };
+                tdata.FillKVToMe(kp);
+
+                object? value = null;
+                bool hasValue = true;
+                TSDataType dataType = TSDataType.NONE;
+                switch (tdata.Type)
+                {
+                    case DataType.Boolean:
+                        value = tdata.Value_Boolean;
+                        dataType = TSDataType.BOOLEAN;
+                        hasValue = tdata.Value_Boolean.HasValue;
+                        break;
+                    case DataType.String:
+                        value = tdata.Value_String;
+                        dataType = TSDataType.STRING;
+                        break;
+                    case DataType.Long:
+                        value = tdata.Value_Long;
+                        dataType = TSDataType.INT64;
+                        hasValue = tdata.Value_Long.HasValue;
+                        break;
+                    case DataType.Double:
+                        value = tdata.Value_Double;
+                        dataType = TSDataType.DOUBLE;
+                        hasValue = tdata.Value_Double.HasValue;
+                        break;
+                    case DataType.Json:
+                        value = tdata.Value_Json;
+                        dataType = TSDataType.STRING;
+                        hasValue = tdata.Value_Json != null;
+                        break;
+                    case DataType.XML:
+                        value = tdata.Value_XML;
+                        dataType = TSDataType.STRING;
+                        hasValue = tdata.Value_XML != null;
+                        break;
+                    case DataType.Binary:
+                        value = tdata.Value_Binary;
+                        dataType = TSDataType.BLOB;
+                        hasValue = tdata.Value_Binary != null;
+                        break;
+                    case DataType.DateTime:
+                        value = tdata.Value_DateTime;
+                        dataType = TSDataType.DATE;
+                        hasValue = tdata.Value_DateTime.HasValue;
+                        break;
+                }
+
+                if (!hasValue || value == null)
+                {
+                    continue;
+                }
+
+                values.Add(value);
+                telemetries.Add(tdata);
+                dataTypes.Add(dataType);
+                measurements.Add(kp.Key);
+            }
+
+            return values.Count == 0
+                ? null
+                : new RowRecord(msg.ts, values, measurements, dataTypes);
         }
     }
 

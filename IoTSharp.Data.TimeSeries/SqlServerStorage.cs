@@ -277,7 +277,8 @@ public sealed class SqlServerStorage : EFStorage
             typeof(string), typeof(long), typeof(DateTime), typeof(double), typeof(string), typeof(string), typeof(byte[])
         ];
 
-        private readonly IReadOnlyList<SqlServerTelemetryRow> _rows;
+        private readonly IReadOnlyList<SqlServerTelemetryRow>? _rows;
+        private readonly IReadOnlyList<TelemetryData>? _telemetryRows;
         private readonly IReadOnlyList<int>? _rowIndices;
         private readonly bool _includeCatalog;
         private readonly object? _catalogOverrideValue;
@@ -299,6 +300,20 @@ public sealed class SqlServerStorage : EFStorage
             _dateTimeOverrideValue = dateTimeOverride.HasValue ? (object)dateTimeOverride.Value : null;
         }
 
+        public TelemetryBulkDataReader(
+            IReadOnlyList<TelemetryData> rows,
+            bool includeCatalog,
+            IReadOnlyList<int>? rowIndices = null,
+            DataCatalog? catalogOverride = null,
+            DateTime? dateTimeOverride = null)
+        {
+            _telemetryRows = rows;
+            _rowIndices = rowIndices;
+            _includeCatalog = includeCatalog;
+            _catalogOverrideValue = catalogOverride.HasValue ? (object)(int)catalogOverride.Value : null;
+            _dateTimeOverrideValue = dateTimeOverride.HasValue ? (object)dateTimeOverride.Value : null;
+        }
+
         public int FieldCount => ValueColumns.Length + (_includeCatalog ? 1 : 0);
         public object this[int i] => GetValue(i);
         public object this[string name] => GetValue(GetOrdinal(name));
@@ -308,7 +323,7 @@ public sealed class SqlServerStorage : EFStorage
 
         public bool Read()
         {
-            var count = _rowIndices?.Count ?? _rows.Count;
+            var count = _rowIndices?.Count ?? _telemetryRows?.Count ?? _rows?.Count ?? 0;
             if (_closed || _index + 1 >= count)
                 return false;
             _index++;
@@ -345,18 +360,22 @@ public sealed class SqlServerStorage : EFStorage
 
         public object GetValue(int i)
         {
-            var count = _rowIndices?.Count ?? _rows.Count;
+            var count = _rowIndices?.Count ?? _telemetryRows?.Count ?? _rows?.Count ?? 0;
             if (_index < 0 || _index >= count)
                 throw new InvalidOperationException("Reader is not positioned on a row.");
 
             var rowIndex = _rowIndices is null ? _index : _rowIndices[_index];
-            var value = _rows[rowIndex];
             if (_includeCatalog)
             {
                 if (i == 0)
                     return _catalogOverrideValue ?? (object)(int)DataCatalog.None;
                 i--;
             }
+
+            if (_telemetryRows is not null)
+                return GetTelemetryValue(_telemetryRows[rowIndex], i);
+
+            var value = _rows![rowIndex];
 
             return i switch
             {
@@ -373,6 +392,27 @@ public sealed class SqlServerStorage : EFStorage
                 10 => GetTypedValue(value, DataType.Json),
                 11 => GetTypedValue(value, DataType.XML),
                 12 => GetTypedValue(value, DataType.Binary),
+                _ => throw new IndexOutOfRangeException()
+            };
+        }
+
+        private object GetTelemetryValue(TelemetryData value, int i)
+        {
+            return i switch
+            {
+                0 => value.DeviceId,
+                1 => value.KeyName,
+                2 => _dateTimeOverrideValue ?? value.DateTime,
+                3 => (int)value.DataSide,
+                4 => BoxedDataTypes[(int)value.Type],
+                5 => value.Value_Boolean.HasValue ? value.Value_Boolean.Value : DBNull.Value,
+                6 => value.Value_String ?? (object)DBNull.Value,
+                7 => value.Value_Long.HasValue ? value.Value_Long.Value : DBNull.Value,
+                8 => value.Value_DateTime.HasValue ? value.Value_DateTime.Value : DBNull.Value,
+                9 => value.Value_Double.HasValue ? value.Value_Double.Value : DBNull.Value,
+                10 => value.Value_Json ?? (object)DBNull.Value,
+                11 => value.Value_XML ?? (object)DBNull.Value,
+                12 => value.Value_Binary ?? (object)DBNull.Value,
                 _ => throw new IndexOutOfRangeException()
             };
         }

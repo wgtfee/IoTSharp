@@ -56,8 +56,12 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 		const carriage = createMaterial(0x64748b, { roughness: 0.4, metalness: 0.66 });
 		const tool = createMaterial(0x94a3b8, { roughness: 0.36, metalness: 0.82 });
 		const cover = createMaterial(0xe2e8f0, { roughness: 0.82, metalness: 0.06 });
-		const stackFootprintX = 4.2;
-		const stackFootprintZ = 4.0;
+		const silkGripColumnSpacing = resolveNumber(props, 'silkGripColumnSpacing', 1.8, .7, 3);
+		const silkGripRowSpacing = resolveNumber(props, 'silkGripRowSpacing', 3.4, .7, 4);
+		const stackFootprintX = silkGripColumnSpacing * 2 + .6;
+		const stackFootprintZ = silkGripRowSpacing + .6;
+		const separatorLength = resolveNumber(props, 'separatorLength', PACKAGING_WOOD_PALLET_LENGTH, 1, 8);
+		const separatorWidth = resolveNumber(props, 'separatorWidth', PACKAGING_WOOD_PALLET_WIDTH, .8, 4);
 
 		for (const x of [-length / 2, length / 2]) for (const z of [-width / 2, width / 2]) {
 			const post = addBox(root, `Gantry-Support-Post-${x > 0 ? 'R' : 'L'}-${z > 0 ? 'F' : 'B'}`, [0.24, height, 0.24], [x, height / 2, z], frame);
@@ -157,7 +161,7 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 				for (let row = 0; row < 2; row += 1) for (let column = 0; column < 3; column += 1) {
 					const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.30, 16), tool);
 					head.name = `Silk-Grip-${row + 1}-${column + 1}`;
-					head.position.set(-1.8 + column * 1.8, -0.20, -1.7 + row * 3.4);
+					head.position.set((column - 1) * silkGripColumnSpacing, -0.20, (row - .5) * silkGripRowSpacing);
 					gripper.add(head);
 				}
 			} else {
@@ -224,9 +228,9 @@ export class SilkGantryComponent implements TwinComponentGenerator {
 			feeder.position.set(0, 0, 0);
 			feeder.userData.separatorFeeder = true;
 			feeder.userData.separatorCategory = separatorCategory;
-			addBox(feeder, `FeederBase-${separatorCategory}`, [PACKAGING_WOOD_PALLET_LENGTH + 0.20, 0.72, PACKAGING_WOOD_PALLET_WIDTH + 0.20], [0, 0.36, 0], frame);
+			addBox(feeder, `FeederBase-${separatorCategory}`, [separatorLength + 0.20, 0.72, separatorWidth + 0.20], [0, 0.36, 0], frame);
 			for (let i = 0; i < 5; i += 1) {
-				const sheet = addBox(feeder, `SeparatorSheet-${separatorCategory}-${i + 1}`, [PACKAGING_WOOD_PALLET_LENGTH, 0.025, PACKAGING_WOOD_PALLET_WIDTH], [0, 1.10 + i * 0.04, 0], cover);
+				const sheet = addBox(feeder, `SeparatorSheet-${separatorCategory}-${i + 1}`, [separatorLength, 0.025, separatorWidth], [0, 1.10 + i * 0.04, 0], cover);
 				sheet.userData.separatorCategory = separatorCategory;
 				sheet.userData.materialEntity = true;
 				sheet.userData.payloadType = 'separator';

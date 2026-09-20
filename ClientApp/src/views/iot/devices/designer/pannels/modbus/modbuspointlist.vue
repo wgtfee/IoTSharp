@@ -251,7 +251,7 @@ const onAddRow = () => {
 	})
 };
 const deleterow = (row: modbusmapping) => {
-	props.modelValue.node.bizdata.mappings=props.modelValue.node.bizdata.mappings.filter((c) => c._id !== row._id)
+	props.modelValue.node.bizdata.mappings=props.modelValue.node.bizdata.mappings.filter((c: modbusmapping) => c._id !== row._id)
 };
 const save = async () => {
 	emit("submit", {

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
@@ -37,6 +38,19 @@ public sealed record TelemetryIngestSnapshot(
 /// </summary>
 public sealed class TelemetryIngestPipeline : BackgroundService
 {
+    private static readonly Meter Meter = new("IoTSharp.Telemetry", "1.0.0");
+    private static readonly Counter<long> EnqueuedCounter = Meter.CreateCounter<long>(
+        "iotsharp.telemetry.ingest.enqueued_messages", "messages");
+    private static readonly Counter<long> PublishedCounter = Meter.CreateCounter<long>(
+        "iotsharp.telemetry.ingest.published_messages", "messages");
+    private static readonly Counter<long> PublishedBatchCounter = Meter.CreateCounter<long>(
+        "iotsharp.telemetry.ingest.published_batches", "batches");
+    private static readonly Counter<long> PublishFailureCounter = Meter.CreateCounter<long>(
+        "iotsharp.telemetry.ingest.publish_failures", "batches");
+    private static readonly Counter<long> BackpressureCounter = Meter.CreateCounter<long>(
+        "iotsharp.telemetry.ingest.backpressure_waits", "waits");
+    private static readonly Histogram<long> BatchSizeHistogram = Meter.CreateHistogram<long>(
+        "iotsharp.telemetry.ingest.batch_size", "messages");
     private readonly IPublisher _publisher;
     private readonly ILogger<TelemetryIngestPipeline> _logger;
     private readonly TelemetryIngestOptions _options;
@@ -77,10 +91,15 @@ public sealed class TelemetryIngestPipeline : BackgroundService
         if (Volatile.Read(ref _stopping) != 0)
             return;
 
+        // Measure platform-internal lag with server time so historical device timestamps do not trigger throttling.
+        if (message.ServerIngestedAtUtc == default)
+            message.ServerIngestedAtUtc = DateTime.UtcNow;
+
         var channel = _partitions[GetPartition(message.DeviceId)];
         if (!channel.Writer.TryWrite(message))
         {
             Interlocked.Increment(ref _backpressureWaits);
+            BackpressureCounter.Add(1);
             Interlocked.Increment(ref _pendingWriters);
             try
             {
@@ -97,6 +116,7 @@ public sealed class TelemetryIngestPipeline : BackgroundService
         }
 
         Interlocked.Increment(ref _enqueuedMessages);
+        EnqueuedCounter.Add(1);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -201,6 +221,9 @@ public sealed class TelemetryIngestPipeline : BackgroundService
                 await _publisher.PublishTelemetryDataBatch(batch);
                 Interlocked.Add(ref _publishedMessages, batch.Count);
                 Interlocked.Increment(ref _publishedBatches);
+                PublishedCounter.Add(batch.Count);
+                PublishedBatchCounter.Add(1);
+                BatchSizeHistogram.Record(batch.Count);
                 return;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -210,6 +233,7 @@ public sealed class TelemetryIngestPipeline : BackgroundService
             catch (Exception ex)
             {
                 Interlocked.Increment(ref _publishFailures);
+                PublishFailureCounter.Add(1);
                 _logger.LogWarning(
                     ex,
                     "Telemetry ingest batch publish failed. partition={Partition}, count={Count}; retrying.",

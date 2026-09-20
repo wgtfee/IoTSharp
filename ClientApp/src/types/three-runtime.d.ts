@@ -1,7 +1,3 @@
-// Three.js r165 does not publish TypeScript declarations in the package itself.
-// Phase 0 keeps these modules isolated behind the digital-twin adapter. A matching
-// @types/three package will replace this compatibility shim during dependency alignment.
-declare module 'three';
-declare module 'three/examples/jsm/controls/OrbitControls.js';
-declare module 'three/examples/jsm/controls/TransformControls.js';
-declare module 'three/examples/jsm/loaders/GLTFLoader.js';
+// Three.js r165 的类型由精确匹配的 @types/three 提供。
+// 不再用空模块声明遮蔽 Scene、Object3D 和控制器的真实类型。
+export {};

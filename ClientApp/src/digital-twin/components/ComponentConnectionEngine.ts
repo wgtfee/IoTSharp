@@ -5,6 +5,7 @@ import type {
 	TwinRoutePointDefinition,
 	TwinSceneManifest,
 	TwinTransform,
+	TwinVector3,
 } from '/@/digital-twin/contracts';
 import type {
 	TwinComponentConnectionDefinition,
@@ -647,6 +648,7 @@ const buildComponentNetworkRoute = (manifest: TwinSceneManifest, objects: TwinV7
 	}
 	const edges: TwinRouteEdgeDefinition[] = [];
 	for (const object of objects) {
+		if (!isComponentSceneObject(object)) continue;
 		const ports = portsByObject.get(object.objectId) || [];
 		const properties = resolveObjectProperties(object);
 		const internalFlows = resolveComponentInternalFlows(object);
@@ -801,6 +803,7 @@ export const upsertGeneratedComponentRoutes = (manifest: TwinSceneManifest): Twi
 		point.position = [port.worldPosition.x, port.worldPosition.y, port.worldPosition.z];
 	}
 	for (const object of components) {
+		if (!isComponentSceneObject(object)) continue;
 		const firstEdge = results.flatMap((item) => item.route.edges).find((edge) => edge.componentObjectId === object.objectId);
 		object.component.sectionId ||= `section-${object.objectId}`;
 		object.component.routeEdgeId = firstEdge?.edgeId;

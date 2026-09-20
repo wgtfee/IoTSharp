@@ -1118,7 +1118,8 @@ export const buildReferencePackagingLineTwinSceneManifest = (): TwinSceneManifes
  * 新建场景只实例化该资产并生成新的 sceneId；动作编排不再由 Builder/Runtime 注入。
  */
 export const createReferencePackagingLineTwinSceneManifest = (): TwinSceneManifest => {
-	const manifest = structuredClone(referencePackagingSceneV19) as TwinSceneManifest;
+	// JSON 导入会拓宽字面量类型；这里只实例化经过场景校验的历史模板数据。
+	const manifest = structuredClone(referencePackagingSceneV19) as unknown as TwinSceneManifest;
 	manifest.sceneId = createBlankTwinSceneManifest().sceneId;
 	return manifest;
 };

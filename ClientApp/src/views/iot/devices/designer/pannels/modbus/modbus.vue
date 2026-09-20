@@ -117,7 +117,7 @@ const emit = defineEmits(['submit']);
 
 const activeSections = ref(['connection', 'devices', 'points', 'mapping']);
 
-const connection = reactive<ModbusConnectionModel>({
+const connection = reactive<ModbusConnectionModel & { protocolOptions: NonNullable<ModbusConnectionModel['protocolOptions']> }>({
 	connectionKey: 'default-connection',
 	connectionName: '默认连接',
 	protocol: 'Modbus',
@@ -132,7 +132,7 @@ const connection = reactive<ModbusConnectionModel>({
 	},
 });
 
-const device = reactive<ModbusDeviceModel>({
+const device = reactive<ModbusDeviceModel & { protocolOptions: NonNullable<ModbusDeviceModel['protocolOptions']> }>({
 	deviceKey: 'device-1',
 	deviceName: '示例 Modbus 设备',
 	enabled: true,

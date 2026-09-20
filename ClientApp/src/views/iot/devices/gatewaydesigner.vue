@@ -211,7 +211,7 @@ const initSortable = () => {
         if (clientX < x || clientX > width + x || clientY < y || y > y + height) {
           ElMessage.warning("请把节点拖入到画布中");
         } else {
-          var target = [];
+          var target: Array<{ profile: Record<string, unknown> & { shape: string; name: string } }> = [];
           findtoolitem(id, state.leftNavList, target);
           var item = target[0]
           if (item) {
@@ -669,7 +669,7 @@ const initgraph: () => void = () => {
 
 
   //update bizdata right here
-  graph.on("edge:connected", ({ isNew, edge }) => {
+  graph.on("edge:connected", ({ isNew, edge }: { isNew: boolean; edge: import('@antv/x6').Edge }) => {
     //create mapping
     if (isNew) {
 
@@ -679,17 +679,18 @@ const initgraph: () => void = () => {
 
 
     }
-    edge.store.data.bizdata.incomepoint = edge.store.data.target.port
-    edge.store.data.bizdata.outgoingpoint = edge.store.data.source.port
-    edge.store.data.bizdata.incomeshape = edge.store.data.target.cell
-    edge.store.data.bizdata.outgoingshape = edge.store.data.source.cell
+    edge.prop('bizdata', {
+      ...edge.prop('bizdata'),
+      incomepoint: edge.getTargetPortId(), outgoingpoint: edge.getSourcePortId(),
+      incomeshape: edge.getTargetCellId(), outgoingshape: edge.getSourceCellId()
+    });
   });
-  graph.on("edge:contextmenu", (e) => {
+  graph.on("edge:contextmenu", (e: { edge: import('@antv/x6').Edge }) => {
     var { edge } = e;
     contextmenunodeRef.value.openContextmenu(edge);
   });
 
-  graph.on("edge:click", (e) => {
+  graph.on("edge:click", () => {
     // can't get point info
   });
 

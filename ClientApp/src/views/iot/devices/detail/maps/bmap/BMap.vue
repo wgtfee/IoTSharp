@@ -247,7 +247,7 @@ const initEchartsMap = (centerX: number, centerY: number) => {
                 },
                 hoverAnimation: true,
                 label: {
-                    formatter: x => {
+                    formatter: (x: { name: string }) => {
                         return x.name;
                     },
                     position: 'right',
@@ -327,7 +327,7 @@ const create = async () => {
 
 const getData = async (deviceid: string) => {
     const res = await deviceApi().getDeviceLatestTelemetry(deviceid);
-    state.telemetryKeys = res.data.map((c) => c.keyName);
+    state.telemetryKeys = (res.data as { keyName: string }[]).map(c => c.keyName);
 }
 watch(() => props.deviceId, async () => {
     await getData(props.deviceId)

@@ -193,8 +193,8 @@
 							</el-table-column>
 							<el-table-column label="Diff" min-width="160" show-overflow-tooltip>
 								<template #default="scope">
-									<el-tag :type="assignmentHasDifference(scope.row) ? 'warning' : 'success'" effect="plain">
-										{{ assignmentDifferenceText(scope.row) }}
+									<el-tag :type="assignmentHasDifference(scope.row as EdgeCollectionAssignment) ? 'warning' : 'success'" effect="plain">
+										{{ assignmentDifferenceText(scope.row as EdgeCollectionAssignment) }}
 									</el-tag>
 								</template>
 							</el-table-column>
@@ -412,7 +412,7 @@ import {
 	type EdgeTaskStateMachine,
 } from '/@/api/edge/index';
 
-type TagType = '' | 'success' | 'warning' | 'info' | 'danger';
+type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger';
 type Tone = 'primary' | 'accent' | 'success' | 'warning' | 'danger';
 
 interface NormalizedHistoryRecord {

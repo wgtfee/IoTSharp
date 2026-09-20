@@ -26,10 +26,11 @@ internal static class TwinActionFlowServerCompiler
         "PrepareSlot", "ReserveSlot", "TransferMaterial", "ReleaseSlot",
         "ReserveSection", "EnterSection", "LeaveSection", "SelectRoute",
         "WaitSignal", "WriteCommand", "WaitAck", "Delay", "Deadline", "Subflow",
-        "ManualConfirm", "RaiseAlarm", "Compensate"
+        "ManualConfirm", "RaiseAlarm", "Compensate",
+        "WaitStation", "CompleteStation", "WaitInterlock", "SetState", "MarkMaterial", "Loop", "Pick", "Place"
     };
     private static readonly HashSet<string> BlockingNodeTypes = new(StringComparer.Ordinal)
-        { "ReserveSlot", "ReserveSection", "WaitSignal", "WaitAck", "ManualConfirm", "Deadline", "WriteCommand" };
+        { "ReserveSlot", "ReserveSection", "WaitSignal", "WaitAck", "ManualConfirm", "Deadline", "WriteCommand", "WaitStation", "WaitInterlock" };
     private static readonly HashSet<string> MotionNodeTypes = new(StringComparer.Ordinal)
         { "MoveTo", "MovePose", "JointMove", "AxisMove", "Home" };
     private static readonly HashSet<string> ActuatorNodeTypes = new(StringComparer.Ordinal)
@@ -95,6 +96,21 @@ internal static class TwinActionFlowServerCompiler
         var interlockIds = IdSet(manifest, "interlocks", "interlockId");
         var declaredVariables = IdSet(flow, "variables", "name");
         allFlowIds ??= new HashSet<string>(new[] { flowId ?? string.Empty }, StringComparer.Ordinal);
+        var sceneFlow = ConfigString(policies, "executionTarget") == "scene";
+        if (sceneFlow)
+        {
+            var modes = ConfigStringArray(policies, "allowedRuntimeModes");
+            if (modes.Count != 1 || modes[0] != "simulation") result.Diagnostics.Add(Error("AF1401", "三维联动节点只允许 simulation；不得作为 Live 设备流程运行。", "policies", flowId));
+            if (Array(manifest, "behaviors").Any(b => !b.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False)) result.Diagnostics.Add(Error("AF1402", "三维动作流场景不能混用启用中的 V1 序列，请完整迁移或停用旧序列。", "behaviors", flowId));
+        }
+
+        var variableNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var variable in Array(flow, "variables"))
+        {
+            var variableName = GetString(variable, "name") ?? ""; var variableType = GetString(variable, "type");
+            var validValue = !variable.TryGetProperty("initialValue", out var initial) || variableType == "json" || variableType == "string" && initial.ValueKind == JsonValueKind.String || variableType == "number" && initial.ValueKind == JsonValueKind.Number || variableType == "boolean" && (initial.ValueKind is JsonValueKind.True or JsonValueKind.False);
+            if (string.IsNullOrWhiteSpace(variableName) || !variableNames.Add(variableName) || (variableName is "__proto__" or "constructor" or "prototype") || variableType is not ("string" or "number" or "boolean" or "json") || !validValue) result.Diagnostics.Add(Error("AF1408", "变量名必须唯一且非保留名，初始值必须符合声明类型。", "variables", flowId));
+        }
 
         var nodeIds = new HashSet<string>(StringComparer.Ordinal);
         var nodeById = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
@@ -169,6 +185,13 @@ internal static class TwinActionFlowServerCompiler
                 if (speedRatio.HasValue && (speedRatio <= 0 || speedRatio > 2)) result.Diagnostics.Add(Error("AF1204", "运动速度倍率必须大于 0 且不超过 2。", $"{nodePath}.config.speedRatio", flowId, nodeId));
             }
             if (config.HasValue) ScanUnsafe(config.Value, $"{nodePath}.config", flowId, nodeId, result.Diagnostics);
+            if (type == "Condition")
+            {
+                var predicate = config.HasValue ? Object(config.Value, "predicate") : null;
+                if (!predicate.HasValue) result.Diagnostics.Add(Error("AF1409", "条件节点必须配置结构化条件。", $"{nodePath}.config.predicate", flowId, nodeId));
+                else ValidatePredicate(predicate.Value, manifest, declaredVariables, bindingIds, result.Diagnostics, flowId, null, $"{nodePath}.config.predicate", sceneFlow);
+            }
+            if (sceneFlow && config.HasValue) ValidateSceneNode(node, config.Value, manifest, flow, declaredVariables, workPointIds, slotIds, interlockIds, result.Diagnostics, flowId);
         }
 
         var edgeIds = new HashSet<string>(StringComparer.Ordinal);
@@ -185,7 +208,7 @@ internal static class TwinActionFlowServerCompiler
             if (string.IsNullOrWhiteSpace(edgeId) || !edgeIds.Add(edgeId)) result.Diagnostics.Add(Error("AF1002", "边 ID 不能为空且必须唯一。", $"{edgePath}.edgeId", flowId, edgeId: edgeId));
             if (!nodeIds.Contains(source) || !nodeIds.Contains(target)) result.Diagnostics.Add(Error("AF1005", "流程边引用了不存在的节点。", edgePath, flowId, edgeId: edgeId));
             else { outgoing[source].Add(target); incoming[target].Add(source); }
-            if (edge.TryGetProperty("predicate", out var predicate) && predicate.ValueKind == JsonValueKind.Object) ValidatePredicate(predicate, manifest, declaredVariables, bindingIds, result.Diagnostics, flowId, edgeId, $"{edgePath}.predicate");
+            if (edge.TryGetProperty("predicate", out var predicate)) ValidatePredicate(predicate, manifest, declaredVariables, bindingIds, result.Diagnostics, flowId, edgeId, $"{edgePath}.predicate", sceneFlow);
         }
 
         var starts = nodes.Where(item => string.Equals(GetString(item, "type"), "Start", StringComparison.Ordinal)).ToList();
@@ -210,6 +233,13 @@ internal static class TwinActionFlowServerCompiler
             if (type == "ParallelJoin" && incoming.GetValueOrDefault(nodeId, []).Count < 2) result.Diagnostics.Add(Error("AF1009", "ParallelJoin 至少需要两个输入分支。", null, flowId, nodeId));
         }
 
+        if (sceneFlow) foreach (var node in nodes)
+        {
+            var nodeId = GetString(node, "nodeId");
+            var type = GetString(node, "type");
+            var ports = type == "End" ? System.Array.Empty<string>() : type == "Condition" ? new[] { "true", "false" } : type == "Loop" ? new[] { "repeat", "done" } : new[] { "success" };
+            foreach (var port in ports) if (!edges.Any(e => GetString(e, "sourceNodeId") == nodeId && GetString(e, "sourcePort") == port)) result.Diagnostics.Add(Error("AF1407", $"节点缺少 {port} 连线，禁止断图假完成。", "edges", flowId, nodeId));
+        }
         if (result.Diagnostics.Any(item => string.Equals(item.Severity, "error", StringComparison.OrdinalIgnoreCase))) return result;
 
         var graphNode = JsonNode.Parse(flow.GetRawText())!.AsObject();
@@ -234,6 +264,7 @@ internal static class TwinActionFlowServerCompiler
             ["name"] = name,
             ["contractVersion"] = "2.0",
             ["revision"] = TryLong(flow, "revision", out var revision) ? revision : 1,
+            ["variables"] = graphNode["variables"]?.DeepClone() ?? new JsonArray(),
             ["entryNodeId"] = entryNodeId,
             ["nodes"] = graphNode["nodes"]?.DeepClone(),
             ["edges"] = graphNode["edges"]?.DeepClone(),
@@ -251,6 +282,68 @@ internal static class TwinActionFlowServerCompiler
             Enabled = !flow.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False
         };
         return result;
+    }
+
+    /// <summary>验证三维联动节点引用；与客户端一致地拒绝断图、假动作和错误工位归属。</summary>
+    private static void ValidateSceneNode(JsonElement node, JsonElement config, JsonElement manifest, JsonElement flow, HashSet<string> variables, HashSet<string> workPoints, HashSet<string> slots, HashSet<string> interlocks, List<TwinValidationDiagnosticDto> diagnostics, string? flowId)
+    {
+        var type = GetString(node, "type") ?? ""; var nodeId = GetString(node, "nodeId"); var actor = GetString(node, "actorObjectId");
+        var supported = new HashSet<string>(new[] { "Start", "End", "Merge", "Condition", "Loop", "Delay", "WaitStation", "CompleteStation", "WaitInterlock", "SetState", "MarkMaterial", "SelectRoute", "MoveTo", "MovePose", "JointMove", "AxisMove", "Home", "GripOpen", "GripClose", "Attach", "Detach", "Pick", "Place", "PrepareSlot", "RaiseAlarm" });
+        void Reject(string code, string message) => diagnostics.Add(Error(code, message, "config", flowId, nodeId));
+        bool ReadOnly(string reference) { var key = reference.Trim(); return key.StartsWith("material/", StringComparison.Ordinal) || key.StartsWith("binding:", StringComparison.Ordinal) || key.StartsWith("station.", StringComparison.Ordinal) || Array(manifest,"bindings").Any(b=>GetString(b,"bindingId")==key); }
+        var safety = new HashSet<string>(new[] { "MoveTo", "MovePose", "JointMove", "AxisMove", "Home", "GripOpen", "GripClose", "Attach", "Detach", "Pick", "Place", "PrepareSlot", "WaitInterlock", "WaitStation", "CompleteStation", "MarkMaterial", "SelectRoute" });
+        var timeoutPolicy = Object(node,"timeoutPolicy");
+        if (safety.Contains(type) && ((timeoutPolicy.HasValue && (GetString(timeoutPolicy.Value,"onTimeout") ?? "fault") != "fault") || ConfigNumber(Object(node,"retryPolicy"),"maxAttempts") > 1 || !string.IsNullOrEmpty(GetString(node,"compensationNodeId")) || Array(flow,"edges").Any(e=>GetString(e,"sourceNodeId")==nodeId && (GetString(e,"sourcePort") is "failure" or "timeout")))) Reject("AF1414","安全动作只允许超时/失败停机，禁止跳过、自动重试或错误分支绕行。");
+        foreach (var key in new[] { "onStartState", "onCompleteState" }) if (Array(config,key).Any(a=>ReadOnly(GetString(a,"source") ?? ""))) Reject("AF1411","绑定、物料及工位状态只读，禁止动作赋值。");
+        if (!supported.Contains(type)) Reject("AF1403", $"{type} 未提供三维执行适配器，不能以计时假完成。");
+        if (type is "AxisMove" or "JointMove" or "GripOpen" or "GripClose")
+        {
+            var axis = Array(manifest,"actuators").FirstOrDefault(a=>GetString(a,"actuatorId")==ConfigString(config,"actuatorId"));
+            if (axis.ValueKind == JsonValueKind.Object)
+            {
+                if (GetString(axis,"objectId") != actor || ((type is "GripOpen" or "GripClose") && GetString(axis,"kind") != "gripper")) Reject("AF1413","执行轴必须属于当前设备且夹具类型匹配。");
+                if (type is "AxisMove" or "JointMove")
+                {
+                    if (!config.TryGetProperty("targetValue",out var target) || target.ValueKind != JsonValueKind.Number || !target.TryGetDouble(out var number) || !double.IsFinite(number)
+                        || (axis.TryGetProperty("minValue",out var min) && min.TryGetDouble(out var lo) && number < lo)
+                        || (axis.TryGetProperty("maxValue",out var max) && max.TryGetDouble(out var hi) && number > hi)) Reject("AF1413","运动目标必须符合声明行程。");
+                }
+            }
+        }
+        if ((type is "WaitStation" or "CompleteStation" or "MarkMaterial" or "SelectRoute" or "Pick" or "Place" or "Attach" or "Detach" or "PrepareSlot") && string.IsNullOrWhiteSpace(actor)) Reject("AF1101", "节点必须指定执行设备。");
+        if (type is "WaitStation" or "CompleteStation")
+        {
+            var group = ConfigString(config, "completionGroup");
+            var found = Array(manifest, "routes").SelectMany(r => Array(r, "points")).Any(p => GetString(p, "componentObjectId") == actor && Object(p, "process") is JsonElement process &&
+                (ConfigStringArray(process, "behaviorCompletionGroups").Contains(group) || ConfigNumber(Object(process, "behaviorCompletionRequirements"), group) > 0));
+            if (string.IsNullOrWhiteSpace(group) || !found) Reject("AF1404", "节点必须引用设备工位已有的完成组。");
+        }
+        if (type == "WaitInterlock" && !interlocks.Contains(ConfigString(config, "interlockId"))) Reject("AF1103", "等待联锁引用不存在。");
+        if (type == "SetState" && ConfigString(config,"scope") == "semantic" && ReadOnly(ConfigString(config,"ref"))) Reject("AF1411", "绑定、物料及工位状态只读，禁止写入。");
+        if (type is "Attach" or "Detach" or "Pick" or "Place")
+        {
+            var pick = type is "Attach" or "Pick";
+            var slot = Array(manifest,"materialSlots").FirstOrDefault(s => GetString(s,"slotId") == ConfigString(config,pick ? "sourceSlotId" : "targetSlotId"));
+            var point = Array(manifest,"workPoints").FirstOrDefault(p => GetString(p,"workPointId") == ConfigString(config,"workPointId"));
+            var frameId = ConfigString(config,"toolFrameId");
+            if (string.IsNullOrWhiteSpace(frameId) && point.ValueKind == JsonValueKind.Object) frameId = GetString(point,"toolFrameId") ?? "";
+            var frame = Array(manifest,"toolFrames").FirstOrDefault(f => GetString(f,"toolFrameId") == frameId);
+            var payloadType = ConfigString(config,"payloadType");
+            var slotType = slot.ValueKind == JsonValueKind.Object ? GetString(slot,"payloadType") : null;
+            if (string.IsNullOrEmpty(payloadType) && pick) payloadType = slotType ?? "";
+            var toolTypes = frame.ValueKind == JsonValueKind.Object ? ConfigStringArray(frame,"payloadTypes") : new List<string>();
+            if (!string.IsNullOrEmpty(payloadType) && ((!string.IsNullOrEmpty(slotType) && slotType != payloadType) || (toolTypes.Any() && !toolTypes.Contains(payloadType)))) Reject("AF1412","物料类型必须与槽位及工具允许类型一致。");
+            if (slot.ValueKind != JsonValueKind.Object || frame.ValueKind != JsonValueKind.Object || GetString(frame,"objectId") != actor
+                || (point.ValueKind == JsonValueKind.Object && (GetString(point,"materialSlotId") != GetString(slot,"slotId") || GetString(point,"toolFrameId") != frameId))
+                || (pick ? GetString(slot,"role") == "target" : GetString(slot,"role") == "source")) Reject("AF1412", "物料交接必须引用角色正确的槽位、当前设备 TCP 和一致的工作点。");
+            if (config.TryGetProperty("payloadCount", out var count) && (count.ValueKind != JsonValueKind.Number || !count.TryGetInt32(out var n) || n < 1)) Reject("AF1412", "抓取数量必须为正整数。");
+        }
+        if ((type is "Pick" or "Place") && (!workPoints.Contains(ConfigString(config, "workPointId")) || !slots.Contains(ConfigString(config, type == "Pick" ? "sourceSlotId" : "targetSlotId")))) Reject("AF1103", "抓放节点必须引用有效工作点和物料槽位。");
+        if (type == "SetState" && ((ConfigString(config, "scope") is not ("variable" or "semantic")) || string.IsNullOrWhiteSpace(ConfigString(config, "ref")) || (ConfigString(config, "ref") is "__proto__" or "constructor" or "prototype") || !config.TryGetProperty("value", out _) || (ConfigString(config, "scope") == "variable" && !variables.Contains(ConfigString(config, "ref"))))) Reject("AF1405", "状态节点需要有效范围、语义键或已声明变量以及状态值。");
+        if (type == "MarkMaterial" && string.IsNullOrWhiteSpace(ConfigString(config, "stage"))) Reject("AF1405", "工艺标记不能为空。");
+        if (type == "SelectRoute" && !Array(manifest, "routes").Where(r => GetString(r, "routeId") == ConfigString(config, "routeId")).SelectMany(r => Array(r, "edges")).Any(e => GetString(e, "edgeId") == ConfigString(config, "edgeId") && GetString(e, "fromPointId") == ConfigString(config, "junctionPointId") && (!e.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False))) Reject("AF1106", "必须选择路线中真实存在的岔口出边。");
+        if (config.TryGetProperty("alignPayloadGrid", out var grid) && grid.ValueKind == JsonValueKind.True && (type != "MoveTo" || string.IsNullOrWhiteSpace(ConfigString(config, "sourceSlotId")) == string.IsNullOrWhiteSpace(ConfigString(config, "targetSlotId")) || ConfigNumber(config, "payloadCount") > 12)) Reject("AF1406", "变距需唯一来源或目标，不能超出 12 抓位。");
+        foreach (var key in new[] { "payloadCount", "minimumPayloadCount", "durationSeconds" }) if (config.TryGetProperty(key, out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number) || number < 0)) Reject("AF1406", $"{key} 必须为有限非负数。");
     }
 
     private static JsonObject BuildPolicies(JsonElement? policies, double timeout, int maxLoop, bool requireInterlock)
@@ -271,23 +364,43 @@ internal static class TwinActionFlowServerCompiler
         return JsonSerializer.Serialize(actors.OrderBy(item => item, StringComparer.Ordinal).ToArray(), WebJsonOptions);
     }
 
-    private static void ValidatePredicate(JsonElement group, JsonElement manifest, HashSet<string> variables, HashSet<string> bindings, List<TwinValidationDiagnosticDto> diagnostics, string? flowId, string? edgeId, string path)
+    private static void ValidatePredicate(JsonElement group, JsonElement manifest, HashSet<string> variables, HashSet<string> bindings, List<TwinValidationDiagnosticDto> diagnostics, string? flowId, string? edgeId, string path, bool requireNonEmpty = false, int depth = 0)
     {
-        if (!group.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) return;
+        if (group.ValueKind != JsonValueKind.Object || depth >= 32 || (GetString(group, "logic") is not ("and" or "or")) || !group.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array || (requireNonEmpty && items.GetArrayLength() == 0)) { diagnostics.Add(Error("AF1409", "条件组必须配置有效逻辑及条件列表。", path, flowId, edgeId:edgeId)); return; }
         var i = 0;
         foreach (var item in items.EnumerateArray())
         {
-            if (item.ValueKind != JsonValueKind.Object) { i++; continue; }
-            if (item.TryGetProperty("logic", out _)) ValidatePredicate(item, manifest, variables, bindings, diagnostics, flowId, edgeId, $"{path}.items[{i}]");
+            if (item.ValueKind != JsonValueKind.Object) { diagnostics.Add(Error("AF1409", "条件项必须为结构化对象。", path, flowId, edgeId:edgeId)); i++; continue; }
+            if (item.TryGetProperty("logic", out _)) ValidatePredicate(item, manifest, variables, bindings, diagnostics, flowId, edgeId, $"{path}.items[{i}]", requireNonEmpty, depth+1);
             else
             {
                 var source = GetString(item, "source"); var reference = GetString(item, "ref");
+                if ((source is not ("binding" or "variable" or "material" or "runtime")) || (GetString(item, "operator") is not ("eq" or "ne" or "gt" or "gte" or "lt" or "lte" or "in" or "changed" or "risingEdge" or "truthy" or "falsy"))) diagnostics.Add(Error("AF1409", "条件数据来源或比较方式无效。", path, flowId, edgeId:edgeId));
                 if (string.IsNullOrWhiteSpace(reference)) diagnostics.Add(Error("AF1005", "条件谓词必须引用 binding/variable/material/runtime 字段。", $"{path}.items[{i}].ref", flowId, edgeId: edgeId));
                 else if (source == "binding" && !bindings.Contains(reference)) diagnostics.Add(Error("AF1104", $"条件引用的 Binding {reference} 不存在。", path, flowId, edgeId: edgeId));
                 else if (source == "variable" && !variables.Contains(reference)) diagnostics.Add(Error("AF1005", $"条件引用的变量 {reference} 未声明。", path, flowId, edgeId: edgeId));
+                else if (requireNonEmpty && (source is "runtime" or "material") && !ValidMaterialStateRef(reference, manifest)) diagnostics.Add(Error("AF1410", "物料条件引用的槽位、TCP、夹具或状态字段不存在。", path, flowId, edgeId:edgeId));
             }
             i++;
         }
+    }
+
+    /// <summary>只读物料状态引用，与前端相同：不存在的状态不能保存成永远等不到的条件。</summary>
+    private static bool ValidMaterialStateRef(string reference, JsonElement manifest)
+    {
+        if (!reference.StartsWith("material/", StringComparison.Ordinal)) return true;
+        string[] parts;
+        try { parts = reference.Split('/').Skip(1).Select(Uri.UnescapeDataString).ToArray(); } catch (UriFormatException) { return false; }
+        if (parts.Length < 3) return false;
+        bool Has(string collection, string key, string id) => Array(manifest,collection).Any(v=>GetString(v,key)==id);
+        return parts[0] switch
+        {
+            "slot" => parts.Length==3 && Has("materialSlots","slotId",parts[1]) && (parts[2] is "present" or "availableCount" or "freeCapacity" or "occupied"),
+            "tool" => parts.Length==3 && Has("toolFrames","toolFrameId",parts[1]) && (parts[2] is "empty" or "heldCount"),
+            "gripper" => parts.Length==3 && parts[2]=="closed" && Array(manifest,"actuators").Any(a=>GetString(a,"actuatorId")==parts[1] && GetString(a,"kind")=="gripper"),
+            "contact" => parts.Length==4 && parts[3]=="ready" && Has("toolFrames","toolFrameId",parts[1]) && Has("materialSlots","slotId",parts[2]),
+            _ => false
+        };
     }
 
     private static void ScanUnsafe(JsonElement value, string path, string? flowId, string? nodeId, List<TwinValidationDiagnosticDto> diagnostics)
@@ -359,11 +472,11 @@ internal static class TwinActionFlowServerCompiler
     private static string? GetString(JsonElement element, string name) => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     private static string ConfigString(JsonElement? config, string name) => config.HasValue ? GetString(config.Value, name)?.Trim() ?? string.Empty : string.Empty;
     private static List<string> ConfigStringArray(JsonElement? config, string name) => config.HasValue && config.Value.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()).Where(item => !string.IsNullOrWhiteSpace(item)).Select(item => item!).ToList() : [];
-    private static double? ConfigNumber(JsonElement? config, string name) => config.HasValue && config.Value.TryGetProperty(name, out var value) && value.TryGetDouble(out var number) && double.IsFinite(number) ? number : null;
-    private static double? PositiveNumber(JsonElement? element, string name) => element.HasValue && element.Value.TryGetProperty(name, out var value) && value.TryGetDouble(out var number) && double.IsFinite(number) && number > 0 ? number : null;
+    private static double? ConfigNumber(JsonElement? config, string name) => config.HasValue && config.Value.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number) ? number : null;
+    private static double? PositiveNumber(JsonElement? element, string name) => element.HasValue && element.Value.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number) && number > 0 ? number : null;
     private static int? PositiveInt(JsonElement? element, string name) => element.HasValue && TryInt(element.Value, name, out var value) && value > 0 ? value : null;
-    private static bool TryInt(JsonElement element, string name, out int value) { value = default; return element.TryGetProperty(name, out var item) && item.TryGetInt32(out value); }
-    private static bool TryLong(JsonElement element, string name, out long value) { value = default; return element.TryGetProperty(name, out var item) && item.TryGetInt64(out value); }
+    private static bool TryInt(JsonElement element, string name, out int value) { value = default; return element.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out value); }
+    private static bool TryLong(JsonElement element, string name, out long value) { value = default; return element.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out value); }
 
     private static TwinValidationDiagnosticDto Error(string code, string message, string? path = null, string? flowId = null, string? nodeId = null, string? edgeId = null) => new() { Severity = "error", Code = code, Message = message, Path = path, FlowId = flowId, NodeId = nodeId, EdgeId = edgeId };
     private static TwinValidationDiagnosticDto Warning(string code, string message, string? path = null, string? flowId = null, string? nodeId = null, string? edgeId = null) => new() { Severity = "warning", Code = code, Message = message, Path = path, FlowId = flowId, NodeId = nodeId, EdgeId = edgeId };

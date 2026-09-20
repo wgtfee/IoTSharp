@@ -30,9 +30,9 @@ export function isObjectValueEqual<T>(a: T, b: T): boolean {
 	if (aProps.length != bProps.length) return false;
 	for (let i = 0; i < aProps.length; i++) {
 		let propName = aProps[i];
-		let propA = a[propName];
-		let propB = b[propName];
-		if (!b.hasOwnProperty(propName)) return false;
+		let propA = (a as Record<string, unknown>)[propName];
+		let propB = (b as Record<string, unknown>)[propName];
+		if (!Object.prototype.hasOwnProperty.call(b, propName)) return false;
 		if (propA instanceof Object) {
 			if (!isObjectValueEqual(propA, propB)) return false;
 		} else if (propA !== propB) {
@@ -54,7 +54,7 @@ export function removeDuplicate(arr: EmptyArrayType, attr?: string) {
 	} else {
 		if (attr) {
 			const obj: EmptyObjectType = {};
-			return arr.reduce((cur: EmptyArrayType[], item: EmptyArrayType) => {
+			return arr.reduce((cur: Record<string, string>[], item: Record<string, string>) => {
 				obj[item[attr]] ? '' : (obj[item[attr]] = true && item[attr] && cur.push(item));
 				return cur;
 			}, []);

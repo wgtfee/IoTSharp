@@ -18,6 +18,31 @@ namespace IoTSharp.Contracts
         IoTDB,
         SonnetDB
     }
+    public enum TelemetryLatestStorageMode
+    {
+        SameAsHistory,
+        Relational
+    }
+    public enum TelemetryPersistenceMode
+    {
+        /// <summary>
+        /// Preserve legacy configuration semantics and infer the active topology.
+        /// </summary>
+        Auto,
+        /// <summary>
+        /// Business data, Latest telemetry and History telemetry all remain in relational storage.
+        /// </summary>
+        RelationalOnly,
+        /// <summary>
+        /// Business data and Latest telemetry remain relational while History uses an independent time-series provider.
+        /// </summary>
+        RelationalWithTimeSeries
+    }
+    public enum TelemetryHistoryShardIndexMode
+    {
+        ProviderDefault,
+        WriteOptimizedHotShard
+    }
     public enum EventBusStore
     {
         PostgreSql,
@@ -54,6 +79,14 @@ namespace IoTSharp.Contracts
         Shashlik,
         SonnetMQ,
     }
+    public sealed class TelemetryHistorySpoolSetting
+    {
+        public bool Enabled { get; set; } = false;
+        public string Directory { get; set; } = "runtime-data/telemetry-history-spool";
+        public int RetryDelayMilliseconds { get; set; } = 1000;
+        public int IdleDelayMilliseconds { get; set; } = 100;
+    }
+
     public class AppSettings
     {
         public string? JwtKey { get; set; }
@@ -76,6 +109,60 @@ namespace IoTSharp.Contracts
         public ModBusServerSetting ModBusServer { get; set; } = new ModBusServerSetting();
 
         public TelemetryStorage TelemetryStorage { get; set; } = TelemetryStorage.SingleTable;
+
+        /// <summary>
+        /// Optional history provider override. When omitted, the legacy TelemetryStorage setting is used.
+        /// </summary>
+        public TelemetryStorage? TelemetryHistoryStorage { get; set; }
+
+        /// <summary>
+        /// High-level telemetry persistence topology. Auto keeps existing deployments backward compatible.
+        /// New deployments should prefer RelationalOnly or RelationalWithTimeSeries explicitly.
+        /// </summary>
+        public TelemetryPersistenceMode TelemetryMode { get; set; } = TelemetryPersistenceMode.Auto;
+
+        /// <summary>
+        /// Controls where latest telemetry values are read/written.
+        /// SameAsHistory preserves legacy behavior; Relational keeps latest values in the business database.
+        /// </summary>
+        public TelemetryLatestStorageMode TelemetryLatestStorage { get; set; } = TelemetryLatestStorageMode.SameAsHistory;
+
+        /// <summary>
+        /// Maximum number of sharded SQL Server History rows committed in one transaction.
+        /// Smaller transactions reduce log/lock hold time while preserving ordered sequential writes.
+        /// </summary>
+        public int TelemetryHistoryTransactionRows { get; set; } = 50_000;
+        /// <summary>
+        /// Maximum number of PostgreSQL sharded History rows written by one binary COPY transaction.
+        /// </summary>
+        public int TelemetryPostgreSqlCopyRows { get; set; } = 50_000;
+        /// <summary>
+        /// Maximum number of InfluxDB telemetry field values written by one Write API batch.
+        /// 25,000 is the current verified InfluxDB 2.7.5 local baseline; the writer clamps
+        /// environment-specific overrides to 1,000..100,000.
+        /// </summary>
+        public int TelemetryInfluxBatchValues { get; set; } = 25_000;
+        public bool TelemetryInfluxGzipEnabled { get; set; } = true;
+        /// <summary>
+        /// Maximum rows placed in one IoTDB Tablet. Kept configurable so the provider can
+        /// be A/B benchmarked independently from relational and Influx batch sizes.
+        /// </summary>
+        public int TelemetryIoTDBTabletRows { get; set; } = 10_000;
+        /// <summary>
+        /// Maximum number of device/schema Tablets sent by one InsertTabletsAsync RPC.
+        /// SessionPool size remains controlled by the IoTDB connection-string PoolSize option.
+        /// </summary>
+        public int TelemetryIoTDBTabletsPerWrite { get; set; } = 64;
+        /// <summary>
+        /// Safety bound for the total number of dense Tablet field values carried by one
+        /// InsertTabletsAsync RPC. This prevents a wide schema multiplied by many Tablets
+        /// from creating multi-million-value request bodies and excessive temporary memory.
+        /// </summary>
+        public int TelemetryIoTDBMaxValuesPerWrite { get; set; } = 250_000;
+        public TelemetryHistorySpoolSetting TelemetryHistorySpool { get; set; } = new();
+        public TelemetryHistoryShardIndexMode TelemetryHistoryShardIndexMode { get; set; } = TelemetryHistoryShardIndexMode.ProviderDefault;
+
+        public TelemetryStorage EffectiveTelemetryHistoryStorage => TelemetryHistoryStorage ?? TelemetryStorage;
 
 
         public EventBusStore EventBusStore { get; set; } = EventBusStore.InMemory;

@@ -56,7 +56,7 @@ const { crudExpose } = useExpose({ crudRef, crudBinding });
 const { crudOptions } = createTenantListCrudOptions({ expose: crudExpose }, overview);
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-useCrud({ expose: crudExpose, crudOptions });
+useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
 
 const badges = computed(() => [
 	'平台级视图',

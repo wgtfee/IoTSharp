@@ -31,7 +31,7 @@ const load = async () => {
 	try {
 		const manifest = createDefaultTwinSceneManifest();
 		manifest.name = '生成模型预览';
-		manifest.world.showGround = true;
+		manifest.runtime.showGrid = true;
 		manifest.objects = [{
 			objectId: 'preview-object', name: props.fileName || '生成模型', kind: 'model', resourceId: props.resourceId,
 			transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },

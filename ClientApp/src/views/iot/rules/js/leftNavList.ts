@@ -13,7 +13,7 @@ import pgsql from "~icons/logos/postgresql"
 import lua from "~icons/logos/lua"
 import csharp from "~icons/logos/c-sharp"
 
-export const customIcons = {
+export const customIcons: Record<string, typeof importIcon> = {
     importIcon,
     stopIcon,
     uploadIcon,

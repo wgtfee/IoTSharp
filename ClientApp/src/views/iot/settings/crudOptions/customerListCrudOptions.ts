@@ -1,9 +1,12 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { customerApi } from '/@/api/customer';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { TableDataRow } from '../model/tenantListModel';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
-export const createCustomerListCrudOptions = function ({ expose }, tenantId, overviewState?) {
+export const createCustomerListCrudOptions = function ({ expose }: { expose: CrudExpose }, tenantId: string, overviewState?: { total: number; pageCount: number; emailCount: number; phoneCount: number; lastRefresh: string }): { crudOptions: CrudOptions; deviceId?: string } {
 	const router = useRouter();
 	let records: any[] = [];
 	const FsButton = {
@@ -13,7 +16,7 @@ export const createCustomerListCrudOptions = function ({ expose }, tenantId, ove
 		activeColor: 'var(--el-color-primary)',
 		inactiveColor: 'var(el-switch-of-color)',
 	};
-	const pageRequest = async (query) => {
+	const pageRequest: PageRequest = async (query) => {
 		let {
 			form: { name },
 			page: { currentPage: currentPage, pageSize: limit },
@@ -35,7 +38,7 @@ export const createCustomerListCrudOptions = function ({ expose }, tenantId, ove
 			total: res.data.total,
 		};
 	};
-	const editRequest = async ({ form, row }) => {
+	const editRequest: EditRequest = async ({ form, row }) => {
 		form.id = row.id;
 		try {
 			await customerApi().putCustomer({
@@ -44,21 +47,23 @@ export const createCustomerListCrudOptions = function ({ expose }, tenantId, ove
 			});
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
-	const delRequest = async ({ row }) => {
+	const delRequest: DelRequest = async ({ row }) => {
 		try {
 			await customerApi().deleteCustomer(row.id);
 			_.remove(records, (item: TableDataRow) => {
 				return item.id === row.id;
 			});
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 
-	const addRequest = async ({ form }) => {
+	const addRequest: AddRequest = async ({ form }) => {
 		try {
 			await customerApi().postCustomer({
 				...form,
@@ -67,7 +72,8 @@ export const createCustomerListCrudOptions = function ({ expose }, tenantId, ove
 			records.push(form);
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 	return {

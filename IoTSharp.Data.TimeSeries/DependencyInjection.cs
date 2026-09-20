@@ -24,9 +24,49 @@ namespace IoTSharp.Data.TimeSeries
     {
         public static void AddTelemetryStorage(this IServiceCollection services, AppSettings settings, IHealthChecksBuilder healthChecks)
         {
-            string _hc_telemetryStorage = $"{nameof(TelemetryStorage)}-{Enum.GetName(settings.TelemetryStorage)}";
-            var _connectionString = settings.ConnectionStrings["TelemetryStorage"];
-            switch (settings.TelemetryStorage)
+            var runtimeConfiguration = TelemetryStorageConfigurationResolver.Resolve(settings);
+            services.AddSingleton(runtimeConfiguration);
+            healthChecks.AddCheck<TelemetryStorageConfigurationHealthCheck>(
+                "Telemetry Storage Configuration",
+                tags: new[] { "telemetry", "configuration", "readiness" });
+
+            var historyStorage = runtimeConfiguration.HistoryStorage;
+            string _hc_telemetryStorage = $"{nameof(TelemetryStorage)}-{Enum.GetName(historyStorage)}";
+            var _connectionString = runtimeConfiguration.HistoryConnectionString;
+            settings.ConnectionStrings ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            settings.ConnectionStrings["TelemetryStorage"] = _connectionString;
+            var useRelationalLatestFacade = settings.TelemetryLatestStorage == TelemetryLatestStorageMode.Relational
+                                            && runtimeConfiguration.UsesIndependentHistoryProvider;
+
+            var historyImplementation = RegisterHistoryStorage(
+                services,
+                settings,
+                healthChecks,
+                historyStorage,
+                _connectionString,
+                _hc_telemetryStorage,
+                registerAsDefaultStorage: !useRelationalLatestFacade);
+
+            if (useRelationalLatestFacade)
+            {
+                services.AddSingleton<IRelationalTelemetryLatestStore, RelationalTelemetryLatestStore>();
+                services.AddSingleton<CompositeTelemetryStorage>(sp => new CompositeTelemetryStorage(
+                    (IStorage)sp.GetRequiredService(historyImplementation),
+                    sp.GetRequiredService<IRelationalTelemetryLatestStore>()));
+                services.AddSingleton<IStorage>(sp => sp.GetRequiredService<CompositeTelemetryStorage>());
+            }
+        }
+
+        private static Type RegisterHistoryStorage(
+            IServiceCollection services,
+            AppSettings settings,
+            IHealthChecksBuilder healthChecks,
+            TelemetryStorage historyStorage,
+            string connectionString,
+            string healthCheckName,
+            bool registerAsDefaultStorage)
+        {
+            switch (historyStorage)
             {
                 case TelemetryStorage.Sharding:
                     ShardingByDateMode settingsShardingByDateMode = settings.ShardingByDateMode;
@@ -57,7 +97,7 @@ namespace IoTSharp.Data.TimeSeries
                     {
                         o.ThrowIfQueryRouteNotMatch = false;
                         o.UseShellDbContextConfigure(builder => builder.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
-                        o.AddDefaultDataSource("ds0", _connectionString);
+                        o.AddDefaultDataSource("ds0", connectionString);
                         switch (settings.DataBase)
                         {
                             case DataBaseType.MySql:
@@ -89,50 +129,75 @@ namespace IoTSharp.Data.TimeSeries
                     {
                         services.AddSingleton<ITableEnsureManager, SonnetDbTableEnsureManager>();
                     }
-                    services.AddSingleton<IStorage, ShardingStorage>();
-                    break;
+                    return RegisterStorage<ShardingStorage>(services, registerAsDefaultStorage);
 
                 case TelemetryStorage.Taos:
-                    services.AddSingleton<IStorage, TaosStorage>();
-                    healthChecks.AddTDengine(new TaosConnectionStringBuilder(_connectionString).UseRESTful().ConnectionString, name: _hc_telemetryStorage);
-                    break;
+                    var taosType = RegisterStorage<TaosStorage>(services, registerAsDefaultStorage);
+                    healthChecks.AddTDengine(new TaosConnectionStringBuilder(connectionString).UseRESTful().ConnectionString, name: healthCheckName);
+                    return taosType;
                 case TelemetryStorage.InfluxDB:
                     //https://github.com/julian-fh/influxdb-setup
-                    services.AddSingleton<IStorage, InfluxDBStorage>();
                     //"TelemetryStorage": "http://localhost:8086/?org=iotsharp&bucket=iotsharp-bucket&token=iotsharp-token"
-                    services.AddObjectPool(() => new InfluxDBClient(CreateInfluxDbClientOptions(_connectionString)));
-                    healthChecks.AddInfluxDB(_connectionString, name: _hc_telemetryStorage);
-                    break;
+                    services.AddObjectPool(() => new InfluxDBClient(CreateInfluxDbClientOptions(connectionString)));
+                    services.AddSingleton<InfluxTelemetryHistoryWriter>();
+                    var influxType = RegisterStorage<InfluxDBStorage>(services, registerAsDefaultStorage);
+                    healthChecks.AddInfluxDB(connectionString, name: healthCheckName);
+                    return influxType;
 
                 case TelemetryStorage.PinusDB:
                     throw new NotSupportedException("PinusDB is not supported yet");
                 case TelemetryStorage.TimescaleDB:
-                    services.AddSingleton<IStorage, TimescaleDBStorage>();
-                    break;
+                    return RegisterStorage<TimescaleDBStorage>(services, registerAsDefaultStorage);
                 case TelemetryStorage.IoTDB:
-                    var str = _connectionString;
-                    services.AddSingleton<IStorage, IoTDBStorage>();
+                    var str = connectionString;
+                    var ioTDbConnectionString = RemoveConnectionStringKey(str, "DefaultGroupName");
                     services.AddSingleton(s =>
                     {
-                        return new Apache.IoTDB.Data.IoTDBConnection(str);
+                        return new Apache.IoTDB.Data.IoTDBConnection(ioTDbConnectionString);
                     });
-                    healthChecks.AddIoTDB(str);
-                    break;
+                    services.AddSingleton<IoTDBTelemetryHistoryWriter>();
+                    var iotDbType = RegisterStorage<IoTDBStorage>(services, registerAsDefaultStorage);
+                    healthChecks.AddIoTDB(ioTDbConnectionString);
+                    return iotDbType;
                 case TelemetryStorage.SonnetDB:
-                    services.AddSingleton<IStorage, SonnetDBStorage>();
-                    break;
+                    return RegisterStorage<SonnetDBStorage>(services, registerAsDefaultStorage);
                 case TelemetryStorage.SingleTable:
                 default:
                     if (settings.DataBase == DataBaseType.SqlServer)
                     {
-                        services.AddSingleton<IStorage, SqlServerStorage>();
+                        return RegisterStorage<SqlServerStorage>(services, registerAsDefaultStorage);
                     }
                     else
                     {
-                        services.AddSingleton<IStorage, EFStorage>();
+                        return RegisterStorage<EFStorage>(services, registerAsDefaultStorage);
                     }
-                    break;
             }
+        }
+
+        private static string RemoveConnectionStringKey(string connectionString, string key)
+            => string.Join(
+                ';',
+                connectionString
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(item =>
+                    {
+                        var pair = item.Split('=', 2, StringSplitOptions.TrimEntries);
+                        return pair.Length != 2 || !pair[0].Equals(key, StringComparison.OrdinalIgnoreCase);
+                    }));
+
+        private static Type RegisterStorage<TStorage>(IServiceCollection services, bool registerAsDefaultStorage)
+            where TStorage : class, IStorage
+        {
+            if (registerAsDefaultStorage)
+            {
+                services.AddSingleton<IStorage, TStorage>();
+            }
+            else
+            {
+                services.AddSingleton<TStorage>();
+            }
+
+            return typeof(TStorage);
         }
 
         private static InfluxDBClientOptions CreateInfluxDbClientOptions(string connectionString)

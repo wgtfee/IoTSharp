@@ -70,7 +70,7 @@
 
 	</div>
 </template>
-  
+
 <script lang="ts" setup>
 import { reactive, ref } from "vue";
 import { v4 as uuidv4, NIL as NIL_UUID } from "uuid";
@@ -217,7 +217,7 @@ const onAddRow = () => {
 	})
 };
 const deleterow = (row: opcuamapping) => {
-	props.modelValue.node.bizdata.mappings = props.modelValue.node.bizdata.mappings.filter((c) => c._id !== row._id)
+	props.modelValue.node.bizdata.mappings = props.modelValue.node.bizdata.mappings.filter((c: opcuamapping) => c._id !== row._id)
 };
 const save = async () => {
 	emit("submit", {
@@ -230,4 +230,3 @@ defineExpose({
 	openDialog,
 });
 </script>
-  

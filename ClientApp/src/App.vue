@@ -14,6 +14,7 @@
 import { defineAsyncComponent, computed, ref, onBeforeMount, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import { elementLocales } from '/@/i18n';
 import { storeToRefs } from 'pinia';
 import { routeRequiresConsoleFeatures } from '/@/bootstrap/routeFeatures';
 import { useTagsViewRoutes } from '/@/stores/tagsViewRoutes';
@@ -61,7 +62,7 @@ const getGlobalComponentSize = computed(() => {
 });
 // 获取全局 i18n
 const getGlobalI18n = computed(() => {
-	return messages.value[locale.value];
+	return elementLocales[locale.value] || elementLocales['zh-cn'];
 });
 // 设置初始化，防止刷新时恢复默认
 onBeforeMount(async () => {

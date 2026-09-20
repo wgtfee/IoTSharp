@@ -2,7 +2,7 @@
   "schemaVersion": "iotsharp-twin-scene/v1",
   "sceneId": "drawing-0911-new-scene",
   "name": "参考图双套袋环形包装产线 · 图纸重建 V1",
-  "description": "按 2026-09-11 确认图等比例重建：外检上方双排载料向右，另有上方单排空回流向左；桁架下及抓丝区双排。图纸像素标定 0.08m/px，非现场测量尺寸。此版本仅确认实体和有向路线，未配置 PLC 或设备工艺动作。",
+  "description": "按 2026-09-11 确认图等比例重建：外检上方双排向右，最上方单排空回流向左；桁架下及抓丝区双排。50 个小托盘用于物理空跑，仿真分组覆盖两套袋支路和空回流；未接 PLC、机器人抓放和工艺控制。图纸标定 0.08m/px，仅用于比例复刻，非现场测量尺寸。",
   "rootAssetId": null,
   "world": {
     "unit": "meter",
@@ -58,6 +58,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "upper-return",
@@ -65,7 +66,7 @@
             "top-1"
           ]
         },
-        "sectionId": "upper-return"
+        "sectionId": "drawing-bed-top-1"
       }
     },
     {
@@ -108,6 +109,7 @@
           "capacity": 16,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "upper-return",
@@ -115,7 +117,7 @@
             "top-2"
           ]
         },
-        "sectionId": "upper-return"
+        "sectionId": "drawing-bed-top-2"
       }
     },
     {
@@ -158,6 +160,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "upper-return",
@@ -165,7 +168,7 @@
             "top-3"
           ]
         },
-        "sectionId": "upper-return"
+        "sectionId": "drawing-bed-top-3"
       }
     },
     {
@@ -176,7 +179,7 @@
         "position": [
           -21.44,
           0,
-          -20.84
+          -21.12
         ],
         "rotation": [
           0,
@@ -195,7 +198,7 @@
         "generator": "double-small-roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 22.16,
+          "length": 21.6,
           "laneWidth": 1.12,
           "laneSpacing": 1.76,
           "height": 0.9,
@@ -209,6 +212,7 @@
           "transportUnitType": "plastic-pallet",
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "width": 1.12,
@@ -221,7 +225,7 @@
           "laneAReverse": false,
           "laneBReverse": false
         },
-        "sectionId": "left-double"
+        "sectionId": "drawing-bed-left-a-1"
       }
     },
     {
@@ -251,7 +255,7 @@
         "generator": "double-small-roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 4.88,
+          "length": 3.76,
           "laneWidth": 1.12,
           "laneSpacing": 1.76,
           "height": 0.9,
@@ -265,6 +269,7 @@
           "transportUnitType": "plastic-pallet",
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "width": 1.12,
@@ -277,7 +282,7 @@
           "laneAReverse": false,
           "laneBReverse": false
         },
-        "sectionId": "left-double"
+        "sectionId": "drawing-bed-left-a-2"
       }
     },
     {
@@ -288,7 +293,7 @@
         "position": [
           -21.44,
           0,
-          2.88
+          3.16
         ],
         "rotation": [
           0,
@@ -307,7 +312,7 @@
         "generator": "double-small-roller-conveyor-v1",
         "generatorVersion": 1,
         "properties": {
-          "length": 15.52,
+          "length": 14.96,
           "laneWidth": 1.12,
           "laneSpacing": 1.76,
           "height": 0.9,
@@ -321,6 +326,7 @@
           "transportUnitType": "plastic-pallet",
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "width": 1.12,
@@ -333,7 +339,7 @@
           "laneAReverse": false,
           "laneBReverse": false
         },
-        "sectionId": "left-double"
+        "sectionId": "drawing-bed-left-a-3"
       }
     },
     {
@@ -376,6 +382,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "left-return",
@@ -383,7 +390,7 @@
             "left-merge-a-1"
           ]
         },
-        "sectionId": "left-return"
+        "sectionId": "drawing-bed-left-merge-a-1"
       }
     },
     {
@@ -426,6 +433,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "left-return",
@@ -433,7 +441,7 @@
             "left-merge-b-1"
           ]
         },
-        "sectionId": "left-return"
+        "sectionId": "drawing-bed-left-merge-b-1"
       }
     },
     {
@@ -476,6 +484,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "robot-double",
@@ -483,7 +492,7 @@
             "bottom-feed-1"
           ]
         },
-        "sectionId": "robot-double"
+        "sectionId": "drawing-bed-bottom-feed-1"
       }
     },
     {
@@ -526,6 +535,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "robot-double",
@@ -533,7 +543,7 @@
             "bottom-feed-2"
           ]
         },
-        "sectionId": "robot-double"
+        "sectionId": "drawing-bed-bottom-feed-2"
       }
     },
     {
@@ -577,6 +587,7 @@
           "transportUnitType": "plastic-pallet",
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "width": 1.12,
@@ -589,7 +600,7 @@
           "laneAReverse": false,
           "laneBReverse": false
         },
-        "sectionId": "robot-double"
+        "sectionId": "drawing-bed-robot-a-1"
       }
     },
     {
@@ -632,6 +643,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -639,7 +651,7 @@
             "inspection-entry-1"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-entry-1"
       }
     },
     {
@@ -682,6 +694,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -689,7 +702,7 @@
             "inspection-entry-2"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-entry-2"
       }
     },
     {
@@ -732,6 +745,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -739,7 +753,7 @@
             "inspection-entry-3"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-entry-3"
       }
     },
     {
@@ -782,6 +796,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -789,7 +804,7 @@
             "inspection-entry-6"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-entry-6"
       }
     },
     {
@@ -832,6 +847,7 @@
           "capacity": 4,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -839,7 +855,7 @@
             "inspection-exit-1"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-exit-1"
       }
     },
     {
@@ -882,6 +898,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inspection",
@@ -889,7 +906,7 @@
             "inspection-exit-2"
           ]
         },
-        "sectionId": "inspection"
+        "sectionId": "drawing-bed-inspection-exit-2"
       }
     },
     {
@@ -933,6 +950,7 @@
           "transportUnitType": "plastic-pallet",
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "width": 1.12,
@@ -945,7 +963,7 @@
           "laneAReverse": false,
           "laneBReverse": false
         },
-        "sectionId": "loaded-double"
+        "sectionId": "drawing-bed-loaded-a-1"
       }
     },
     {
@@ -988,6 +1006,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-feed",
@@ -995,7 +1014,7 @@
             "right-trunk-1"
           ]
         },
-        "sectionId": "bag-feed"
+        "sectionId": "drawing-bed-right-trunk-1"
       }
     },
     {
@@ -1038,6 +1057,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-feed",
@@ -1045,7 +1065,7 @@
             "right-trunk-2"
           ]
         },
-        "sectionId": "bag-feed"
+        "sectionId": "drawing-bed-right-trunk-2"
       }
     },
     {
@@ -1088,6 +1108,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-feed",
@@ -1095,7 +1116,7 @@
             "right-trunk-3"
           ]
         },
-        "sectionId": "bag-feed"
+        "sectionId": "drawing-bed-right-trunk-3"
       }
     },
     {
@@ -1138,6 +1159,7 @@
           "capacity": 8,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-feed",
@@ -1145,7 +1167,7 @@
             "right-trunk-4"
           ]
         },
-        "sectionId": "bag-feed"
+        "sectionId": "drawing-bed-right-trunk-4"
       }
     },
     {
@@ -1188,6 +1210,7 @@
           "capacity": 30,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "empty-return",
@@ -1195,7 +1218,7 @@
             "empty-1"
           ]
         },
-        "sectionId": "empty-return"
+        "sectionId": "drawing-bed-empty-1"
       }
     },
     {
@@ -1238,6 +1261,7 @@
           "capacity": 7,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "empty-return",
@@ -1245,7 +1269,7 @@
             "empty-2"
           ]
         },
-        "sectionId": "empty-return"
+        "sectionId": "drawing-bed-empty-2"
       }
     },
     {
@@ -1288,6 +1312,7 @@
           "capacity": 4,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "empty-return",
@@ -1295,7 +1320,7 @@
             "empty-3"
           ]
         },
-        "sectionId": "empty-return"
+        "sectionId": "drawing-bed-empty-3"
       }
     },
     {
@@ -1338,6 +1363,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-a",
@@ -1345,7 +1371,7 @@
             "bag-a-1"
           ]
         },
-        "sectionId": "bag-a"
+        "sectionId": "drawing-bed-bag-a-1"
       }
     },
     {
@@ -1388,6 +1414,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-a",
@@ -1395,7 +1422,7 @@
             "bag-a-2"
           ]
         },
-        "sectionId": "bag-a"
+        "sectionId": "drawing-bed-bag-a-2"
       }
     },
     {
@@ -1438,6 +1465,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-a",
@@ -1445,7 +1473,7 @@
             "bag-a-3"
           ]
         },
-        "sectionId": "bag-a"
+        "sectionId": "drawing-bed-bag-a-3"
       }
     },
     {
@@ -1488,6 +1516,7 @@
           "capacity": 5,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-a",
@@ -1495,7 +1524,7 @@
             "bag-a-6"
           ]
         },
-        "sectionId": "bag-a"
+        "sectionId": "drawing-bed-bag-a-6"
       }
     },
     {
@@ -1538,6 +1567,7 @@
           "capacity": 4,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-b",
@@ -1545,7 +1575,7 @@
             "bag-b-1"
           ]
         },
-        "sectionId": "bag-b"
+        "sectionId": "drawing-bed-bag-b-1"
       }
     },
     {
@@ -1588,6 +1618,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-b",
@@ -1595,7 +1626,7 @@
             "bag-b-2"
           ]
         },
-        "sectionId": "bag-b"
+        "sectionId": "drawing-bed-bag-b-2"
       }
     },
     {
@@ -1638,6 +1669,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-b",
@@ -1645,7 +1677,7 @@
             "bag-b-3"
           ]
         },
-        "sectionId": "bag-b"
+        "sectionId": "drawing-bed-bag-b-3"
       }
     },
     {
@@ -1688,6 +1720,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "bag-b",
@@ -1695,7 +1728,7 @@
             "bag-b-6"
           ]
         },
-        "sectionId": "bag-b"
+        "sectionId": "drawing-bed-bag-b-6"
       }
     },
     {
@@ -1738,6 +1771,7 @@
           "capacity": 7,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "upper-return",
@@ -1745,7 +1779,7 @@
             "bag-return-1"
           ]
         },
-        "sectionId": "upper-return"
+        "sectionId": "drawing-bed-bag-return-1"
       }
     },
     {
@@ -1788,6 +1822,7 @@
           "capacity": 4,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "upper-return",
@@ -1795,7 +1830,7 @@
             "bag-return-2"
           ]
         },
-        "sectionId": "upper-return"
+        "sectionId": "drawing-bed-bag-return-2"
       }
     },
     {
@@ -1838,6 +1873,7 @@
           "capacity": 12,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-return",
@@ -1845,7 +1881,7 @@
             "inner-1"
           ]
         },
-        "sectionId": "inner-return"
+        "sectionId": "drawing-bed-inner-1"
       }
     },
     {
@@ -1888,6 +1924,7 @@
           "capacity": 6,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-return",
@@ -1895,7 +1932,7 @@
             "inner-2"
           ]
         },
-        "sectionId": "inner-return"
+        "sectionId": "drawing-bed-inner-2"
       }
     },
     {
@@ -1938,6 +1975,7 @@
           "capacity": 7,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-return",
@@ -1945,7 +1983,7 @@
             "inner-3"
           ]
         },
-        "sectionId": "inner-return"
+        "sectionId": "drawing-bed-inner-3"
       }
     },
     {
@@ -1988,6 +2026,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-return",
@@ -1995,7 +2034,7 @@
             "inner-4"
           ]
         },
-        "sectionId": "inner-return"
+        "sectionId": "drawing-bed-inner-4"
       }
     },
     {
@@ -2038,6 +2077,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-buffer",
@@ -2045,7 +2085,7 @@
             "inner-buffer-1"
           ]
         },
-        "sectionId": "inner-buffer"
+        "sectionId": "drawing-bed-inner-buffer-1"
       }
     },
     {
@@ -2088,6 +2128,7 @@
           "capacity": 7,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-buffer",
@@ -2095,7 +2136,7 @@
             "inner-buffer-2"
           ]
         },
-        "sectionId": "inner-buffer"
+        "sectionId": "drawing-bed-inner-buffer-2"
       }
     },
     {
@@ -2138,6 +2179,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-buffer",
@@ -2145,7 +2187,7 @@
             "inner-buffer-3"
           ]
         },
-        "sectionId": "inner-buffer"
+        "sectionId": "drawing-bed-inner-buffer-3"
       }
     },
     {
@@ -2188,6 +2230,7 @@
           "capacity": 2,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "inner-buffer",
@@ -2195,7 +2238,7 @@
             "inner-link-1"
           ]
         },
-        "sectionId": "inner-buffer"
+        "sectionId": "drawing-bed-inner-link-1"
       }
     },
     {
@@ -2238,6 +2281,7 @@
           "capacity": 12,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "large-roller",
@@ -2245,7 +2289,7 @@
             "wood-1"
           ]
         },
-        "sectionId": "large-roller"
+        "sectionId": "drawing-bed-wood-1"
       }
     },
     {
@@ -2288,6 +2332,7 @@
           "capacity": 4,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "large-roller",
@@ -2295,7 +2340,7 @@
             "wood-2"
           ]
         },
-        "sectionId": "large-roller"
+        "sectionId": "drawing-bed-wood-2"
       }
     },
     {
@@ -2338,6 +2383,7 @@
           "capacity": 7,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "large-roller",
@@ -2345,7 +2391,7 @@
             "wood-3"
           ]
         },
-        "sectionId": "large-roller"
+        "sectionId": "drawing-bed-wood-3"
       }
     },
     {
@@ -2388,6 +2434,7 @@
           "capacity": 3,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "drawingZone": "large-roller",
@@ -2395,7 +2442,7 @@
             "wood-4"
           ]
         },
-        "sectionId": "large-roller"
+        "sectionId": "drawing-bed-wood-4"
       }
     },
     {
@@ -2438,6 +2485,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2447,7 +2495,7 @@
             164
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-978-164"
       }
     },
     {
@@ -2490,6 +2538,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2499,7 +2548,7 @@
             164
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-914-164"
       }
     },
     {
@@ -2542,6 +2591,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2551,7 +2601,7 @@
             164
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-543-164"
       }
     },
     {
@@ -2594,6 +2644,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2603,7 +2654,113 @@
             164
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-521-164"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-521-448",
+      "name": "接驳位 521,448",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -22.32,
+          0,
+          -9.76
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "routeManagedExternally": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            521,
+            448
+          ]
+        },
+        "sectionId": "drawing-transfer-drawing-p-521-448"
+      }
+    },
+    {
+      "objectId": "drawing-transfer-drawing-p-521-509",
+      "name": "接驳位 521,509",
+      "kind": "component",
+      "transform": {
+        "position": [
+          -22.32,
+          0,
+          -4.88
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "component": {
+        "resourceKey": "builtin-small-roller-conveyor",
+        "componentType": "roller-conveyor",
+        "generator": "roller-conveyor-v1",
+        "generatorVersion": 1,
+        "properties": {
+          "length": 1.12,
+          "width": 1.12,
+          "height": 0.9,
+          "rollerDiameter": 0.14,
+          "rollerPitch": 0.55,
+          "frameHeight": 0.16,
+          "frameThickness": 0.1,
+          "supportSpacing": 2,
+          "conveyorSizeClass": "small",
+          "transportUnitType": "plastic-pallet",
+          "capacity": 1,
+          "speedLimit": 1.2,
+          "occupancyMode": "simulation",
+          "routeManagedExternally": true,
+          "componentOwnedRoute": false,
+          "drawingCalibrationId": "user-confirmed-0911",
+          "openTransferSides": true,
+          "drawingZone": "transfer",
+          "drawingPixel": [
+            521,
+            509
+          ]
+        },
+        "sectionId": "drawing-transfer-drawing-p-521-509"
       }
     },
     {
@@ -2646,6 +2803,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2655,7 +2813,7 @@
             710
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-521-710"
       }
     },
     {
@@ -2698,6 +2856,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2707,7 +2866,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-543-448"
       }
     },
     {
@@ -2750,6 +2909,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2759,7 +2919,7 @@
             509
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-543-509"
       }
     },
     {
@@ -2802,6 +2962,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2811,7 +2972,7 @@
             710
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-543-710"
       }
     },
     {
@@ -2854,6 +3015,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2863,7 +3025,7 @@
             728
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-532-728"
       }
     },
     {
@@ -2906,6 +3068,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2915,7 +3078,7 @@
             861
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-532-861"
       }
     },
     {
@@ -2958,6 +3121,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -2967,7 +3131,7 @@
             885
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-532-885"
       }
     },
     {
@@ -3010,6 +3174,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3019,7 +3184,7 @@
             861
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1130-861"
       }
     },
     {
@@ -3062,6 +3227,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3071,7 +3237,7 @@
             885
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1130-885"
       }
     },
     {
@@ -3114,6 +3280,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3123,7 +3290,7 @@
             728
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1130-728"
       }
     },
     {
@@ -3166,6 +3333,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3175,7 +3343,7 @@
             728
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-722-728"
       }
     },
     {
@@ -3218,6 +3386,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3227,7 +3396,7 @@
             624
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-722-624"
       }
     },
     {
@@ -3270,6 +3439,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3279,7 +3449,7 @@
             605
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-722-605"
       }
     },
     {
@@ -3322,6 +3492,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3331,7 +3502,7 @@
             605
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1320-605"
       }
     },
     {
@@ -3374,6 +3545,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3383,7 +3555,7 @@
             624
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1320-624"
       }
     },
     {
@@ -3426,6 +3598,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3435,7 +3608,7 @@
             554
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1320-554"
       }
     },
     {
@@ -3478,6 +3651,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3487,7 +3661,7 @@
             432
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1320-432"
       }
     },
     {
@@ -3530,6 +3704,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3539,7 +3714,7 @@
             248
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1320-248"
       }
     },
     {
@@ -3582,6 +3757,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3591,7 +3767,7 @@
             554
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-623-554"
       }
     },
     {
@@ -3634,6 +3810,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3643,7 +3820,7 @@
             728
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-623-728"
       }
     },
     {
@@ -3686,6 +3863,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3695,7 +3873,7 @@
             248
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1268-248"
       }
     },
     {
@@ -3738,6 +3916,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3747,7 +3926,7 @@
             270
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1250-270"
       }
     },
     {
@@ -3790,6 +3969,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3799,7 +3979,7 @@
             270
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-978-270"
       }
     },
     {
@@ -3842,6 +4022,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3851,7 +4032,7 @@
             432
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1216-432"
       }
     },
     {
@@ -3894,6 +4075,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3903,7 +4085,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-1198-448"
       }
     },
     {
@@ -3946,6 +4128,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -3955,7 +4138,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-978-448"
       }
     },
     {
@@ -3998,6 +4181,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4007,7 +4191,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-914-448"
       }
     },
     {
@@ -4050,6 +4234,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4059,7 +4244,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-775-448"
       }
     },
     {
@@ -4102,6 +4287,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4111,7 +4297,7 @@
             448
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-596-448"
       }
     },
     {
@@ -4154,6 +4340,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4163,7 +4350,7 @@
             509
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-775-509"
       }
     },
     {
@@ -4206,6 +4393,7 @@
           "capacity": 1,
           "speedLimit": 1.2,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4215,7 +4403,7 @@
             509
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-596-509"
       }
     },
     {
@@ -4258,6 +4446,7 @@
           "capacity": 1,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4267,7 +4456,7 @@
             200
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-445-200"
       }
     },
     {
@@ -4310,6 +4499,7 @@
           "capacity": 1,
           "speedLimit": 0.8,
           "occupancyMode": "simulation",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "openTransferSides": true,
@@ -4319,7 +4509,7 @@
             200
           ]
         },
-        "sectionId": "transfer"
+        "sectionId": "drawing-transfer-drawing-p-277-200"
       }
     },
     {
@@ -4361,8 +4551,10 @@
           "capacity": 1,
           "transportUnitType": "plastic-pallet",
           "showBagFilm": true,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
-          "drawingCalibrationId": "user-confirmed-0911"
+          "drawingCalibrationId": "user-confirmed-0911",
+          "frameLength": 9
         },
         "sectionId": "drawing-bag-a"
       }
@@ -4406,8 +4598,10 @@
           "capacity": 1,
           "transportUnitType": "plastic-pallet",
           "showBagFilm": true,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
-          "drawingCalibrationId": "user-confirmed-0911"
+          "drawingCalibrationId": "user-confirmed-0911",
+          "frameLength": 9
         },
         "sectionId": "drawing-bag-b"
       }
@@ -4449,6 +4643,7 @@
           "cycleSeconds": 2,
           "capacity": 1,
           "transportUnitType": "plastic-pallet",
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911"
         },
@@ -4483,11 +4678,12 @@
         "generatorVersion": 1,
         "properties": {
           "pedestalRadius": 0.72,
-          "upperArmLength": 3.7,
-          "forearmLength": 3.7,
+          "upperArmLength": 3.5,
+          "forearmLength": 3.5,
           "toolType": "pallet-gripper",
           "gripperSpan": 6.2,
           "gripperRowSpacing": 1.15,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911"
         },
@@ -4522,11 +4718,12 @@
         "generatorVersion": 1,
         "properties": {
           "pedestalRadius": 0.72,
-          "upperArmLength": 3.8,
-          "forearmLength": 3.8,
+          "upperArmLength": 3.5,
+          "forearmLength": 3.5,
           "toolType": "silk-grid-2x6",
           "gripperSpan": 6.6,
           "gripperRowSpacing": 1.15,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "axis1HomeYaw": 0,
@@ -4572,6 +4769,7 @@
           "rotationDegrees": 180,
           "withSilkCart": true,
           "silkCartLoaded": true,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911"
         },
@@ -4614,6 +4812,7 @@
           "rotationDegrees": 180,
           "withSilkCart": true,
           "silkCartLoaded": true,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911"
         },
@@ -4650,6 +4849,7 @@
           "length": 9.2,
           "width": 25.6,
           "height": 7.2,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "firstStockZ": -3.04,
@@ -4733,6 +4933,7 @@
           "turnDirection": "left",
           "transportUnitType": "plastic-pallet",
           "capacity": 2,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "sweepDegrees": 80
@@ -4775,6 +4976,7 @@
           "turnDirection": "left",
           "transportUnitType": "plastic-pallet",
           "capacity": 2,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "sweepDegrees": 80
@@ -4817,6 +5019,7 @@
           "turnDirection": "left",
           "transportUnitType": "plastic-pallet",
           "capacity": 2,
+          "routeManagedExternally": true,
           "componentOwnedRoute": false,
           "drawingCalibrationId": "user-confirmed-0911",
           "sweepDegrees": 80
@@ -4838,7 +5041,272 @@
       "startPointId": "drawing-p-532-861",
       "routingMode": "automatic",
       "junctionDecisions": {},
-      "decisionRules": [],
+      "decisionRules": [
+        {
+          "ruleId": "drawing-rule-1",
+          "name": "物理空跑 physicalLane=A",
+          "junctionPointId": "drawing-p-532-861",
+          "edgeId": "drawing-edge-robot-a-1",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "A",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-2",
+          "name": "物理空跑 physicalLane=B",
+          "junctionPointId": "drawing-p-532-861",
+          "edgeId": "drawing-edge-bottom-feed-2",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "B",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-3",
+          "name": "物理空跑 physicalLane=A",
+          "junctionPointId": "drawing-p-722-624",
+          "edgeId": "drawing-edge-inspection-exit-2",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "A",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-4",
+          "name": "物理空跑 physicalLane=B",
+          "junctionPointId": "drawing-p-722-624",
+          "edgeId": "drawing-edge-loaded-b-1",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "B",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-5",
+          "name": "物理空跑 drawingProfile=empty",
+          "junctionPointId": "drawing-p-1320-554",
+          "edgeId": "drawing-edge-empty-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "empty",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-6",
+          "name": "物理空跑 drawingProfile=main",
+          "junctionPointId": "drawing-p-1320-554",
+          "edgeId": "drawing-edge-right-trunk-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "main",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-7",
+          "name": "物理空跑 drawingProfile=inner",
+          "junctionPointId": "drawing-p-1320-554",
+          "edgeId": "drawing-edge-right-trunk-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "inner",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-8",
+          "name": "物理空跑 drawingProfile=buffer",
+          "junctionPointId": "drawing-p-1320-554",
+          "edgeId": "drawing-edge-right-trunk-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "buffer",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-9",
+          "name": "物理空跑 drawingProfile=short",
+          "junctionPointId": "drawing-p-1320-554",
+          "edgeId": "drawing-edge-right-trunk-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "short",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-10",
+          "name": "物理空跑 routeCode=A",
+          "junctionPointId": "drawing-p-1320-432",
+          "edgeId": "drawing-edge-right-trunk-4",
+          "source": "payload",
+          "payloadKey": "routeCode",
+          "operator": "equals",
+          "matchValue": "A",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-11",
+          "name": "物理空跑 routeCode=B",
+          "junctionPointId": "drawing-p-1320-432",
+          "edgeId": "drawing-edge-bag-b-1",
+          "source": "payload",
+          "payloadKey": "routeCode",
+          "operator": "equals",
+          "matchValue": "B",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-12",
+          "name": "物理空跑 drawingProfile=inner",
+          "junctionPointId": "drawing-p-914-164",
+          "edgeId": "drawing-edge-inner-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "inner",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-13",
+          "name": "物理空跑 drawingProfile=buffer",
+          "junctionPointId": "drawing-p-914-164",
+          "edgeId": "drawing-edge-inner-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "buffer",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-14",
+          "name": "物理空跑 drawingProfile=short",
+          "junctionPointId": "drawing-p-914-164",
+          "edgeId": "drawing-edge-inner-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "short",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-15",
+          "name": "物理空跑 drawingProfile=main",
+          "junctionPointId": "drawing-p-914-164",
+          "edgeId": "drawing-edge-top-2",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "main",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-16",
+          "name": "物理空跑 physicalLane=A",
+          "junctionPointId": "drawing-p-543-164",
+          "edgeId": "drawing-edge-top-3",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "A",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-17",
+          "name": "物理空跑 physicalLane=B",
+          "junctionPointId": "drawing-p-543-164",
+          "edgeId": "drawing-edge-left-b-1",
+          "source": "payload",
+          "payloadKey": "physicalLane",
+          "operator": "equals",
+          "matchValue": "B",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-18",
+          "name": "物理空跑 drawingProfile=buffer",
+          "junctionPointId": "drawing-p-775-448",
+          "edgeId": "drawing-edge-inner-buffer-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "buffer",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-19",
+          "name": "物理空跑 drawingProfile=inner",
+          "junctionPointId": "drawing-p-775-448",
+          "edgeId": "drawing-edge-inner-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "inner",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-20",
+          "name": "物理空跑 drawingProfile=short",
+          "junctionPointId": "drawing-p-775-448",
+          "edgeId": "drawing-edge-inner-3",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "short",
+          "priority": 10,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-21",
+          "name": "物理空跑 drawingProfile=short",
+          "junctionPointId": "drawing-p-596-448",
+          "edgeId": "drawing-edge-inner-link-1",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "short",
+          "priority": 100,
+          "enabled": true
+        },
+        {
+          "ruleId": "drawing-rule-22",
+          "name": "物理空跑 drawingProfile=inner",
+          "junctionPointId": "drawing-p-596-448",
+          "edgeId": "drawing-edge-inner-4",
+          "source": "payload",
+          "payloadKey": "drawingProfile",
+          "operator": "equals",
+          "matchValue": "inner",
+          "priority": 10,
+          "enabled": true
+        }
+      ],
       "sections": [
         {
           "sectionId": "upper-return",
@@ -6815,8 +7283,30 @@
       {
         "routeId": "drawing-0911-small-loop",
         "telemetryKey": "drawing0911SmallPallets",
-        "simulationDefaultCount": 0,
-        "emptyValue": 0
+        "simulationDefaultCount": 50,
+        "emptyValue": 0,
+        "simulationPlacement": "non-overlapping",
+        "simulationTraffic": "reserved-junctions",
+        "simulationPayloadTemplates": [
+          {
+            "drawingProfile": "main"
+          },
+          {
+            "drawingProfile": "main"
+          },
+          {
+            "drawingProfile": "empty"
+          },
+          {
+            "drawingProfile": "inner"
+          },
+          {
+            "drawingProfile": "buffer"
+          },
+          {
+            "drawingProfile": "short"
+          }
+        ]
       }
     ]
   },
@@ -6824,5 +7314,2680 @@
     "source": "threejs-editor",
     "payloadVersion": 2
   },
-  "connections": []
+  "connections": [],
+  "routeGraph": {
+    "compilerVersion": 1,
+    "routes": [
+      {
+        "routeId": "drawing-0911-small-loop",
+        "name": "0911 图纸小辊道有向路网",
+        "type": "conveyor",
+        "curveKind": "line",
+        "defaultSpeed": 0.9,
+        "loop": true,
+        "orientToPath": true,
+        "startPointId": "drawing-p-532-861",
+        "routingMode": "automatic",
+        "junctionDecisions": {},
+        "decisionRules": [
+          {
+            "ruleId": "drawing-rule-1",
+            "name": "物理空跑 physicalLane=A",
+            "junctionPointId": "drawing-p-532-861",
+            "edgeId": "drawing-edge-robot-a-1",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "A",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-2",
+            "name": "物理空跑 physicalLane=B",
+            "junctionPointId": "drawing-p-532-861",
+            "edgeId": "drawing-edge-bottom-feed-2",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "B",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-3",
+            "name": "物理空跑 physicalLane=A",
+            "junctionPointId": "drawing-p-722-624",
+            "edgeId": "drawing-edge-inspection-exit-2",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "A",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-4",
+            "name": "物理空跑 physicalLane=B",
+            "junctionPointId": "drawing-p-722-624",
+            "edgeId": "drawing-edge-loaded-b-1",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "B",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-5",
+            "name": "物理空跑 drawingProfile=empty",
+            "junctionPointId": "drawing-p-1320-554",
+            "edgeId": "drawing-edge-empty-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "empty",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-6",
+            "name": "物理空跑 drawingProfile=main",
+            "junctionPointId": "drawing-p-1320-554",
+            "edgeId": "drawing-edge-right-trunk-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "main",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-7",
+            "name": "物理空跑 drawingProfile=inner",
+            "junctionPointId": "drawing-p-1320-554",
+            "edgeId": "drawing-edge-right-trunk-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "inner",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-8",
+            "name": "物理空跑 drawingProfile=buffer",
+            "junctionPointId": "drawing-p-1320-554",
+            "edgeId": "drawing-edge-right-trunk-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "buffer",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-9",
+            "name": "物理空跑 drawingProfile=short",
+            "junctionPointId": "drawing-p-1320-554",
+            "edgeId": "drawing-edge-right-trunk-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "short",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-10",
+            "name": "物理空跑 routeCode=A",
+            "junctionPointId": "drawing-p-1320-432",
+            "edgeId": "drawing-edge-right-trunk-4",
+            "source": "payload",
+            "payloadKey": "routeCode",
+            "operator": "equals",
+            "matchValue": "A",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-11",
+            "name": "物理空跑 routeCode=B",
+            "junctionPointId": "drawing-p-1320-432",
+            "edgeId": "drawing-edge-bag-b-1",
+            "source": "payload",
+            "payloadKey": "routeCode",
+            "operator": "equals",
+            "matchValue": "B",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-12",
+            "name": "物理空跑 drawingProfile=inner",
+            "junctionPointId": "drawing-p-914-164",
+            "edgeId": "drawing-edge-inner-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "inner",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-13",
+            "name": "物理空跑 drawingProfile=buffer",
+            "junctionPointId": "drawing-p-914-164",
+            "edgeId": "drawing-edge-inner-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "buffer",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-14",
+            "name": "物理空跑 drawingProfile=short",
+            "junctionPointId": "drawing-p-914-164",
+            "edgeId": "drawing-edge-inner-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "short",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-15",
+            "name": "物理空跑 drawingProfile=main",
+            "junctionPointId": "drawing-p-914-164",
+            "edgeId": "drawing-edge-top-2",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "main",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-16",
+            "name": "物理空跑 physicalLane=A",
+            "junctionPointId": "drawing-p-543-164",
+            "edgeId": "drawing-edge-top-3",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "A",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-17",
+            "name": "物理空跑 physicalLane=B",
+            "junctionPointId": "drawing-p-543-164",
+            "edgeId": "drawing-edge-left-b-1",
+            "source": "payload",
+            "payloadKey": "physicalLane",
+            "operator": "equals",
+            "matchValue": "B",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-18",
+            "name": "物理空跑 drawingProfile=buffer",
+            "junctionPointId": "drawing-p-775-448",
+            "edgeId": "drawing-edge-inner-buffer-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "buffer",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-19",
+            "name": "物理空跑 drawingProfile=inner",
+            "junctionPointId": "drawing-p-775-448",
+            "edgeId": "drawing-edge-inner-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "inner",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-20",
+            "name": "物理空跑 drawingProfile=short",
+            "junctionPointId": "drawing-p-775-448",
+            "edgeId": "drawing-edge-inner-3",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "short",
+            "priority": 10,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-21",
+            "name": "物理空跑 drawingProfile=short",
+            "junctionPointId": "drawing-p-596-448",
+            "edgeId": "drawing-edge-inner-link-1",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "short",
+            "priority": 100,
+            "enabled": true
+          },
+          {
+            "ruleId": "drawing-rule-22",
+            "name": "物理空跑 drawingProfile=inner",
+            "junctionPointId": "drawing-p-596-448",
+            "edgeId": "drawing-edge-inner-4",
+            "source": "payload",
+            "payloadKey": "drawingProfile",
+            "operator": "equals",
+            "matchValue": "inner",
+            "priority": 10,
+            "enabled": true
+          }
+        ],
+        "sections": [
+          {
+            "sectionId": "upper-return",
+            "name": "顶部回送：向左",
+            "enabled": true
+          },
+          {
+            "sectionId": "left-double",
+            "name": "桁架下双排 A：向抓丝机器人",
+            "enabled": true
+          },
+          {
+            "sectionId": "left-return",
+            "name": "回流 A 接底部",
+            "enabled": true
+          },
+          {
+            "sectionId": "robot-double",
+            "name": "空托盘进入抓丝区",
+            "enabled": true
+          },
+          {
+            "sectionId": "inspection",
+            "name": "右侧合流后只进入外检",
+            "enabled": true
+          },
+          {
+            "sectionId": "loaded-double",
+            "name": "外检上方载料 A：向套袋",
+            "enabled": true
+          },
+          {
+            "sectionId": "bag-feed",
+            "name": "套袋区公共上行干线",
+            "enabled": true
+          },
+          {
+            "sectionId": "empty-return",
+            "name": "最上方单排空回流：向左、再回抓丝机器人",
+            "enabled": true
+          },
+          {
+            "sectionId": "bag-a",
+            "name": "套袋 A：由右向左",
+            "enabled": true
+          },
+          {
+            "sectionId": "bag-b",
+            "name": "套袋 B：由右向左",
+            "enabled": true
+          },
+          {
+            "sectionId": "inner-return",
+            "name": "中央框右侧下行、底部左行",
+            "enabled": true
+          },
+          {
+            "sectionId": "inner-buffer",
+            "name": "中央下方矩形缓存回流",
+            "enabled": true
+          }
+        ],
+        "points": [
+          {
+            "pointId": "drawing-p-978-164",
+            "name": "图纸 978-164",
+            "position": [
+              14.24,
+              0.9,
+              -32.48
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-914-164",
+            "name": "图纸 914-164",
+            "position": [
+              9.12,
+              0.9,
+              -32.48
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-543-164",
+            "name": "图纸 543-164",
+            "position": [
+              -20.56,
+              0.9,
+              -32.48
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-521-164",
+            "name": "图纸 521-164",
+            "position": [
+              -22.32,
+              0.9,
+              -32.48
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-521-448",
+            "name": "图纸 521-448",
+            "position": [
+              -22.32,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-521-509",
+            "name": "图纸 521-509",
+            "position": [
+              -22.32,
+              0.9,
+              -4.88
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-521-710",
+            "name": "图纸 521-710",
+            "position": [
+              -22.32,
+              0.9,
+              11.2
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-543-448",
+            "name": "图纸 543-448",
+            "position": [
+              -20.56,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-543-509",
+            "name": "图纸 543-509",
+            "position": [
+              -20.56,
+              0.9,
+              -4.88
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-543-710",
+            "name": "图纸 543-710",
+            "position": [
+              -20.56,
+              0.9,
+              11.2
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-532-728",
+            "name": "图纸 532-728",
+            "position": [
+              -21.44,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-532-861",
+            "name": "图纸 532-861",
+            "position": [
+              -21.44,
+              0.9,
+              23.28
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-532-885",
+            "name": "图纸 532-885",
+            "position": [
+              -21.44,
+              0.9,
+              25.2
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1130-861",
+            "name": "图纸 1130-861",
+            "position": [
+              26.4,
+              0.9,
+              23.28
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1130-885",
+            "name": "图纸 1130-885",
+            "position": [
+              26.4,
+              0.9,
+              25.2
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1130-728",
+            "name": "图纸 1130-728",
+            "position": [
+              26.4,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1000-728",
+            "name": "图纸 1000-728",
+            "position": [
+              16,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-925-728",
+            "name": "图纸 925-728",
+            "position": [
+              10,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-850-728",
+            "name": "图纸 850-728",
+            "position": [
+              4,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-722-728",
+            "name": "图纸 722-728",
+            "position": [
+              -6.24,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-722-624",
+            "name": "图纸 722-624",
+            "position": [
+              -6.24,
+              0.9,
+              4.32
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-722-605",
+            "name": "图纸 722-605",
+            "position": [
+              -6.24,
+              0.9,
+              2.8
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1320-605",
+            "name": "图纸 1320-605",
+            "position": [
+              41.6,
+              0.9,
+              2.8
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1320-624",
+            "name": "图纸 1320-624",
+            "position": [
+              41.6,
+              0.9,
+              4.32
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1320-554",
+            "name": "图纸 1320-554",
+            "position": [
+              41.6,
+              0.9,
+              -1.28
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-1320-432",
+            "name": "图纸 1320-432",
+            "position": [
+              41.6,
+              0.9,
+              -11.04
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-1320-248",
+            "name": "图纸 1320-248",
+            "position": [
+              41.6,
+              0.9,
+              -25.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-623-554",
+            "name": "图纸 623-554",
+            "position": [
+              -14.16,
+              0.9,
+              -1.28
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-623-728",
+            "name": "图纸 623-728",
+            "position": [
+              -14.16,
+              0.9,
+              12.64
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1268-248",
+            "name": "图纸 1268-248",
+            "position": [
+              37.44,
+              0.9,
+              -25.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1250-270",
+            "name": "图纸 1250-270",
+            "position": [
+              36,
+              0.9,
+              -24
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1230-270",
+            "name": "图纸 1230-270",
+            "position": [
+              34.4,
+              0.9,
+              -24
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1170-270",
+            "name": "图纸 1170-270",
+            "position": [
+              29.6,
+              0.9,
+              -24
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1110-270",
+            "name": "图纸 1110-270",
+            "position": [
+              24.8,
+              0.9,
+              -24
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-978-270",
+            "name": "图纸 978-270",
+            "position": [
+              14.24,
+              0.9,
+              -24
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1216-432",
+            "name": "图纸 1216-432",
+            "position": [
+              33.28,
+              0.9,
+              -11.04
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1198-448",
+            "name": "图纸 1198-448",
+            "position": [
+              31.84,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1164-448",
+            "name": "图纸 1164-448",
+            "position": [
+              29.12,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1104-448",
+            "name": "图纸 1104-448",
+            "position": [
+              24.32,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-1044-448",
+            "name": "图纸 1044-448",
+            "position": [
+              19.52,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-978-448",
+            "name": "图纸 978-448",
+            "position": [
+              14.24,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-914-448",
+            "name": "图纸 914-448",
+            "position": [
+              9.12,
+              0.9,
+              -9.76
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-775-448",
+            "name": "图纸 775-448",
+            "position": [
+              -2,
+              0.9,
+              -9.76
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-596-448",
+            "name": "图纸 596-448",
+            "position": [
+              -16.32,
+              0.9,
+              -9.76
+            ],
+            "kind": "diverter",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "decisionMode": "simulation",
+            "decisionTimeoutSeconds": 10
+          },
+          {
+            "pointId": "drawing-p-775-509",
+            "name": "图纸 775-509",
+            "position": [
+              -2,
+              0.9,
+              -4.88
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-596-509",
+            "name": "图纸 596-509",
+            "position": [
+              -16.32,
+              0.9,
+              -4.88
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "drawing-edge-top-1",
+            "name": "顶部回送：向左",
+            "fromPointId": "drawing-p-978-164",
+            "toPointId": "drawing-p-914-164",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "upper-return",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-top-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-top-2",
+            "name": "顶部回送：向左",
+            "fromPointId": "drawing-p-914-164",
+            "toPointId": "drawing-p-543-164",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "upper-return",
+            "capacity": 16,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-top-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-top-3",
+            "name": "顶部回送：向左",
+            "fromPointId": "drawing-p-543-164",
+            "toPointId": "drawing-p-521-164",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "upper-return",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-top-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-a-1",
+            "name": "桁架下双排 A：向抓丝机器人",
+            "fromPointId": "drawing-p-521-164",
+            "toPointId": "drawing-p-521-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 12,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-a-2",
+            "name": "桁架下双排 A：向抓丝机器人",
+            "fromPointId": "drawing-p-521-448",
+            "toPointId": "drawing-p-521-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-a-3",
+            "name": "桁架下双排 A：向抓丝机器人",
+            "fromPointId": "drawing-p-521-509",
+            "toPointId": "drawing-p-521-710",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 8,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-b-1",
+            "name": "桁架下双排 B：向抓丝机器人",
+            "fromPointId": "drawing-p-543-164",
+            "toPointId": "drawing-p-543-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 12,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-b-2",
+            "name": "桁架下双排 B：向抓丝机器人",
+            "fromPointId": "drawing-p-543-448",
+            "toPointId": "drawing-p-543-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-b-3",
+            "name": "桁架下双排 B：向抓丝机器人",
+            "fromPointId": "drawing-p-543-509",
+            "toPointId": "drawing-p-543-710",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-double",
+            "capacity": 8,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-a-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-merge-a-1",
+            "name": "回流 A 接底部",
+            "fromPointId": "drawing-p-521-710",
+            "toPointId": "drawing-p-532-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-return",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-merge-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-left-merge-b-1",
+            "name": "回流 B 接底部",
+            "fromPointId": "drawing-p-543-710",
+            "toPointId": "drawing-p-532-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "left-return",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-left-merge-b-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bottom-feed-1",
+            "name": "空托盘进入抓丝区",
+            "fromPointId": "drawing-p-532-728",
+            "toPointId": "drawing-p-532-861",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "robot-double",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bottom-feed-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bottom-feed-2",
+            "name": "空托盘进入抓丝区",
+            "fromPointId": "drawing-p-532-861",
+            "toPointId": "drawing-p-532-885",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "robot-double",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bottom-feed-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-robot-a-1",
+            "name": "抓丝区双排 A：向外检",
+            "fromPointId": "drawing-p-532-861",
+            "toPointId": "drawing-p-1130-861",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "robot-double",
+            "capacity": 26,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-robot-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-robot-b-1",
+            "name": "抓丝区双排 B：向外检",
+            "fromPointId": "drawing-p-532-885",
+            "toPointId": "drawing-p-1130-885",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "robot-double",
+            "capacity": 26,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-robot-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-1",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-1130-885",
+            "toPointId": "drawing-p-1130-861",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-entry-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-2",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-1130-861",
+            "toPointId": "drawing-p-1130-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-entry-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-3",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-1130-728",
+            "toPointId": "drawing-p-1000-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-entry-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-4",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-1000-728",
+            "toPointId": "drawing-p-925-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 3,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-inspection",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-5",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-925-728",
+            "toPointId": "drawing-p-850-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 3,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-inspection",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-entry-6",
+            "name": "右侧合流后只进入外检",
+            "fromPointId": "drawing-p-850-728",
+            "toPointId": "drawing-p-722-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-entry-6",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-exit-1",
+            "name": "外检后左转向上分双排",
+            "fromPointId": "drawing-p-722-728",
+            "toPointId": "drawing-p-722-624",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 4,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-exit-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inspection-exit-2",
+            "name": "外检后左转向上分双排",
+            "fromPointId": "drawing-p-722-624",
+            "toPointId": "drawing-p-722-605",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inspection",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inspection-exit-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-loaded-a-1",
+            "name": "外检上方载料 A：向套袋",
+            "fromPointId": "drawing-p-722-605",
+            "toPointId": "drawing-p-1320-605",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "loaded-double",
+            "capacity": 26,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-loaded-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-loaded-b-1",
+            "name": "外检上方载料 B：向套袋",
+            "fromPointId": "drawing-p-722-624",
+            "toPointId": "drawing-p-1320-624",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "loaded-double",
+            "capacity": 26,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-loaded-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-right-trunk-1",
+            "name": "套袋区公共上行干线",
+            "fromPointId": "drawing-p-1320-624",
+            "toPointId": "drawing-p-1320-605",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-feed",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-right-trunk-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-right-trunk-2",
+            "name": "套袋区公共上行干线",
+            "fromPointId": "drawing-p-1320-605",
+            "toPointId": "drawing-p-1320-554",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-feed",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-right-trunk-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-right-trunk-3",
+            "name": "套袋区公共上行干线",
+            "fromPointId": "drawing-p-1320-554",
+            "toPointId": "drawing-p-1320-432",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-feed",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-right-trunk-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-right-trunk-4",
+            "name": "套袋区公共上行干线",
+            "fromPointId": "drawing-p-1320-432",
+            "toPointId": "drawing-p-1320-248",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-feed",
+            "capacity": 8,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-right-trunk-4",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-empty-1",
+            "name": "最上方单排空回流：向左、再回抓丝机器人",
+            "fromPointId": "drawing-p-1320-554",
+            "toPointId": "drawing-p-623-554",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "empty-return",
+            "capacity": 30,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-empty-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-empty-2",
+            "name": "最上方单排空回流：向左、再回抓丝机器人",
+            "fromPointId": "drawing-p-623-554",
+            "toPointId": "drawing-p-623-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "empty-return",
+            "capacity": 7,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-empty-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-empty-3",
+            "name": "最上方单排空回流：向左、再回抓丝机器人",
+            "fromPointId": "drawing-p-623-728",
+            "toPointId": "drawing-p-532-728",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "empty-return",
+            "capacity": 4,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-empty-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-1",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1320-248",
+            "toPointId": "drawing-p-1268-248",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-a-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-2",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1268-248",
+            "toPointId": "drawing-p-1250-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-a-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-3",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1250-270",
+            "toPointId": "drawing-p-1230-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-a-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-4",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1230-270",
+            "toPointId": "drawing-p-1170-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bag-a",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-5",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1170-270",
+            "toPointId": "drawing-p-1110-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bag-a",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-a-6",
+            "name": "套袋 A：由右向左",
+            "fromPointId": "drawing-p-1110-270",
+            "toPointId": "drawing-p-978-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-a",
+            "capacity": 5,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-a-6",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-1",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1320-432",
+            "toPointId": "drawing-p-1216-432",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 4,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-b-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-2",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1216-432",
+            "toPointId": "drawing-p-1198-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-b-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-3",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1198-448",
+            "toPointId": "drawing-p-1164-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 1,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-b-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-4",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1164-448",
+            "toPointId": "drawing-p-1104-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bag-b",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-5",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1104-448",
+            "toPointId": "drawing-p-1044-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bag-b",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-b-6",
+            "name": "套袋 B：由右向左",
+            "fromPointId": "drawing-p-1044-448",
+            "toPointId": "drawing-p-978-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "bag-b",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-b-6",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-return-1",
+            "name": "套袋后汇合向上回送",
+            "fromPointId": "drawing-p-978-448",
+            "toPointId": "drawing-p-978-270",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "upper-return",
+            "capacity": 7,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-return-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-bag-return-2",
+            "name": "套袋后汇合向上回送",
+            "fromPointId": "drawing-p-978-270",
+            "toPointId": "drawing-p-978-164",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "upper-return",
+            "capacity": 4,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-bag-return-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-1",
+            "name": "中央框右侧下行、底部左行",
+            "fromPointId": "drawing-p-914-164",
+            "toPointId": "drawing-p-914-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-return",
+            "capacity": 12,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-2",
+            "name": "中央框右侧下行、底部左行",
+            "fromPointId": "drawing-p-914-448",
+            "toPointId": "drawing-p-775-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-return",
+            "capacity": 6,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-3",
+            "name": "中央框右侧下行、底部左行",
+            "fromPointId": "drawing-p-775-448",
+            "toPointId": "drawing-p-596-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-return",
+            "capacity": 7,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-4",
+            "name": "中央框右侧下行、底部左行",
+            "fromPointId": "drawing-p-596-448",
+            "toPointId": "drawing-p-543-448",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-return",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-4",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-buffer-1",
+            "name": "中央下方矩形缓存回流",
+            "fromPointId": "drawing-p-775-448",
+            "toPointId": "drawing-p-775-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-buffer",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-buffer-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-buffer-2",
+            "name": "中央下方矩形缓存回流",
+            "fromPointId": "drawing-p-775-509",
+            "toPointId": "drawing-p-596-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-buffer",
+            "capacity": 7,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-buffer-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-buffer-3",
+            "name": "中央下方矩形缓存回流",
+            "fromPointId": "drawing-p-596-509",
+            "toPointId": "drawing-p-543-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-buffer",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-buffer-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-inner-link-1",
+            "name": "缓存短接回左侧",
+            "fromPointId": "drawing-p-596-448",
+            "toPointId": "drawing-p-596-509",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "inner-buffer",
+            "capacity": 2,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "small",
+            "transportUnitType": "plastic-pallet",
+            "transportUnitResourceKey": "builtin-small-pallet",
+            "conveyorObjectId": "drawing-bed-inner-link-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          }
+        ]
+      },
+      {
+        "routeId": "drawing-0911-wood-line",
+        "name": "左侧大辊道独立路线",
+        "type": "conveyor",
+        "curveKind": "line",
+        "defaultSpeed": 0.9,
+        "loop": false,
+        "orientToPath": true,
+        "startPointId": "drawing-p-445-591",
+        "routingMode": "automatic",
+        "junctionDecisions": {},
+        "decisionRules": [],
+        "sections": [
+          {
+            "sectionId": "large-roller",
+            "name": "左侧大辊道 L 形独立线",
+            "enabled": true
+          }
+        ],
+        "points": [
+          {
+            "pointId": "drawing-p-445-591",
+            "name": "图纸 445-591",
+            "position": [
+              -28.4,
+              0.82,
+              1.68
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-445-309",
+            "name": "图纸 445-309",
+            "position": [
+              -28.4,
+              0.82,
+              -20.88
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-445-200",
+            "name": "图纸 445-200",
+            "position": [
+              -28.4,
+              0.82,
+              -29.6
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-277-200",
+            "name": "图纸 277-200",
+            "position": [
+              -41.84,
+              0.82,
+              -29.6
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          },
+          {
+            "pointId": "drawing-p-277-125",
+            "name": "图纸 277-125",
+            "position": [
+              -41.84,
+              0.82,
+              -35.6
+            ],
+            "kind": "waypoint",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "drawing-edge-wood-1",
+            "name": "左侧大辊道 L 形独立线",
+            "fromPointId": "drawing-p-445-591",
+            "toPointId": "drawing-p-445-309",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "large-roller",
+            "capacity": 12,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "large",
+            "transportUnitType": "wooden-pallet",
+            "transportUnitResourceKey": "builtin-wooden-pallet",
+            "conveyorObjectId": "drawing-bed-wood-1",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-wood-2",
+            "name": "左侧大辊道 L 形独立线",
+            "fromPointId": "drawing-p-445-309",
+            "toPointId": "drawing-p-445-200",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "large-roller",
+            "capacity": 4,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "large",
+            "transportUnitType": "wooden-pallet",
+            "transportUnitResourceKey": "builtin-wooden-pallet",
+            "conveyorObjectId": "drawing-bed-wood-2",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-wood-3",
+            "name": "左侧大辊道 L 形独立线",
+            "fromPointId": "drawing-p-445-200",
+            "toPointId": "drawing-p-277-200",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "large-roller",
+            "capacity": 7,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "large",
+            "transportUnitType": "wooden-pallet",
+            "transportUnitResourceKey": "builtin-wooden-pallet",
+            "conveyorObjectId": "drawing-bed-wood-3",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          },
+          {
+            "edgeId": "drawing-edge-wood-4",
+            "name": "左侧大辊道 L 形独立线",
+            "fromPointId": "drawing-p-277-200",
+            "toPointId": "drawing-p-277-125",
+            "bidirectional": false,
+            "enabled": true,
+            "sectionId": "large-roller",
+            "capacity": 3,
+            "occupancyMode": "simulation",
+            "conveyorSizeClass": "large",
+            "transportUnitType": "wooden-pallet",
+            "transportUnitResourceKey": "builtin-wooden-pallet",
+            "conveyorObjectId": "drawing-bed-wood-4",
+            "authoring": {
+              "mode": "manual",
+              "locked": false
+            },
+            "reservationTimeoutSeconds": 30,
+            "priority": 0
+          }
+        ]
+      }
+    ],
+    "sourceMap": [
+      {
+        "runtimeEdgeId": "drawing-edge-top-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-top-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-top-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-top-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-top-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-top-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-a-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-a-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-a-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-a-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-a-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-a-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-b-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-b-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-b-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-b-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-b-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-b-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-merge-a-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-merge-a-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-left-merge-b-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-left-merge-b-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bottom-feed-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bottom-feed-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bottom-feed-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bottom-feed-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-robot-a-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-robot-a-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-robot-b-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-robot-b-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-4"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-5",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-5"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-entry-6",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-entry-6"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-exit-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-exit-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inspection-exit-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inspection-exit-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-loaded-a-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-loaded-a-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-loaded-b-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-loaded-b-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-right-trunk-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-right-trunk-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-right-trunk-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-right-trunk-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-right-trunk-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-right-trunk-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-right-trunk-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-right-trunk-4"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-empty-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-empty-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-empty-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-empty-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-empty-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-empty-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-4"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-5",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-5"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-a-6",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-a-6"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-4"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-5",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-5"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-b-6",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-b-6"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-return-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-return-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-bag-return-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-bag-return-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-4"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-buffer-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-buffer-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-buffer-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-buffer-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-buffer-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-buffer-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-inner-link-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-small-loop",
+        "manualEdgeId": "drawing-edge-inner-link-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-wood-1",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-wood-line",
+        "manualEdgeId": "drawing-edge-wood-1"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-wood-2",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-wood-line",
+        "manualEdgeId": "drawing-edge-wood-2"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-wood-3",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-wood-line",
+        "manualEdgeId": "drawing-edge-wood-3"
+      },
+      {
+        "runtimeEdgeId": "drawing-edge-wood-4",
+        "authoringMode": "manual",
+        "sourceRouteId": "drawing-0911-wood-line",
+        "manualEdgeId": "drawing-edge-wood-4"
+      }
+    ],
+    "routeAliases": {
+      "drawing-0911-small-loop": "drawing-0911-small-loop",
+      "drawing-0911-wood-line": "drawing-0911-wood-line"
+    }
+  }
 }

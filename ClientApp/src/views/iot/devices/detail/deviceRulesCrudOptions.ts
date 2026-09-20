@@ -1,19 +1,22 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { deviceApi } from '/@/api/devices';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { dict } from '@fast-crud/fast-crud';
 import { TableDataRow } from '/@/views/iot/devices/model';
 import { ElMessage } from 'element-plus';
 import { ruleApi } from '/@/api/flows';
 // eslint-disable-next-line no-unused-vars
-export const createDeviceRulesCrudOptions = function ({ expose }, deviceId) {
+export const createDeviceRulesCrudOptions = function ({ expose }: { expose: CrudExpose }, deviceId: string): { crudOptions: CrudOptions; deviceId?: string } {
 	let records: any[] = [];
-	let rulesDict = [];
+	let rulesDict: { ruleId: string; name: string }[] = [];
 
 	const FsButton = {
 		link: true,
 	};
 
-	const pageRequest = async () => {
+	const pageRequest: PageRequest = async () => {
 		const res = await deviceApi().getDeviceRules(deviceId);
 		records = res.data;
 		return {
@@ -23,24 +26,26 @@ export const createDeviceRulesCrudOptions = function ({ expose }, deviceId) {
 			total: res.data.length,
 		};
 	};
-	const delRequest = async ({ row }) => {
+	const delRequest: DelRequest = async ({ row }) => {
 		try {
 			await deviceApi().deleteDeviceRules(deviceId, row.ruleId);
 			_.remove(records, (item: TableDataRow) => {
 				return item.id === row.id;
 			});
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 
-	const addRequest = async ({ form }) => {
+	const addRequest: AddRequest = async ({ form }) => {
 		try {
 			await deviceApi().setDeviceRules(deviceId, form.ruleId);
 			records.push(form);
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 	const getRulesDict = async () => {
@@ -49,7 +54,8 @@ export const createDeviceRulesCrudOptions = function ({ expose }, deviceId) {
 			rulesDict = res.data.rows;
 			return res.data.rows;
 		} catch (e) {
-			ElMessage.error(e.response);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 

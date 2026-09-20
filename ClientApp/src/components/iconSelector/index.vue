@@ -82,7 +82,7 @@ export default defineComponent({
 		},
 		// 输入框占位文本
 		size: {
-			type: String,
+			type: String as import('vue').PropType<'large' | 'small' | 'default'>,
 			default: () => 'default',
 		},
 		// 弹窗标题

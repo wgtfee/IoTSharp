@@ -35,6 +35,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="IoTSharp.Test" />
     <InternalsVisibleTo Include="IoTSharp.Benchmarks" />
+    <InternalsVisibleTo Include="IoTSharp.InfluxStage3E2E" />
   </ItemGroup>
 
 </Project>

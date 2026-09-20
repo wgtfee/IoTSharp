@@ -1,11 +1,14 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { deviceApi } from '/@/api/devices';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { compute, dict } from '@fast-crud/fast-crud';
 import { TableDataRow } from '/@/views/iot/devices/model';
 import dayjs from 'dayjs';
 
 // eslint-disable-next-line no-unused-vars
-export const createDeviceCrudOptions = function ({ expose }, customerId, deviceDetailRef?, addRulesRef?, selectedItems?, overviewState?) {
+export const createDeviceCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string, deviceDetailRef?: Ref<{ openDialog: (row: TableDataRow) => void } | undefined>, addRulesRef?: Ref<unknown>, selectedItems?: Ref<TableDataRow[]>, overviewState?: { pageCount: number; onlineCount: number; offlineCount: number; lastRefresh: string; total: number }): { crudOptions: CrudOptions; deviceId?: string } {
 
 
 
@@ -18,8 +21,8 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 		inactiveColor: 'var(el-switch-of-color)',
 	};
 
-	const onSelectionChange = (changed) => {
-		selectedItems.value = changed.map((item) => item);
+	const onSelectionChange = (changed: TableDataRow[]) => {
+		if (selectedItems) selectedItems.value = [...changed];
 	};
 	const updateCurrentPageOverview = () => {
 		if (!overviewState) return;
@@ -29,7 +32,7 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 		overviewState.offlineCount = records.length - onlineCount;
 		overviewState.lastRefresh = dayjs().format('HH:mm:ss');
 	};
-	const pageRequest = async (query) => {
+	const pageRequest: PageRequest = async (query) => {
 		const params = reactive({
 			offset: query.page.currentPage - 1,
 			limit: query.page.pageSize,
@@ -51,7 +54,7 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 			total: res.data.total,
 		};
 	};
-	const editRequest = async ({ form, row }) => {
+	const editRequest: EditRequest = async ({ form, row }) => {
 		const newItem = _.clone(form);
 		newItem.id = row.id;
 		const target = _.find(records, (item: TableDataRow) => {
@@ -64,21 +67,23 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 			updateCurrentPageOverview();
 			return target;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
-	const delRequest = async ({ row }) => {
+	const delRequest: DelRequest = async ({ row }) => {
 		try {
 			await deviceApi().deletedevcie(row.id);
 			_.remove(records, (item: TableDataRow) => {
 				return item.id === row.id;
 			});
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 
-	const addRequest = async ({ form }) => {
+	const addRequest: AddRequest = async ({ form }) => {
 		await deviceApi().postdevcie(form);
 		records.push(form);
 		return form;
@@ -147,7 +152,7 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 						align: 'center',
 						width: '55px',
 						columnSetDisabled: false, //禁止在列设置中选择
-						selectable(row, index) {
+						selectable() {
 							return true;
 						},
 					},
@@ -162,7 +167,7 @@ export const createDeviceCrudOptions = function ({ expose }, customerId, deviceD
 							type: 'primary',
 							on: {
 								onClick({ row }) {
-									deviceDetailRef.value.openDialog(row);
+									deviceDetailRef?.value?.openDialog(row);
 								},
 							},
 						},

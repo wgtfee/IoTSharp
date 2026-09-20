@@ -546,7 +546,7 @@ const acquireAlarm = (row: TableDataRow) => {
 };
 
 const getData = async () => {
-	const params: Record<string, any> = {
+	const params: Parameters<typeof getAlarmList>[0] = {
 		offset: tableData.param.pageNum - 1,
 		limit: tableData.param.pageSize,
 		alarmStatus: query.alarmStatus,

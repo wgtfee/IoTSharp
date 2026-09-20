@@ -52,7 +52,7 @@
 
 							<el-table-column label="数据类别" min-width="180">
 								<template #default="{ row }">
-									<el-select v-model="row.dataCatalog" placeholder="选择数据类别" @change="onCatalogChange(row)">
+									<el-select v-model="row.dataCatalog" placeholder="选择数据类别" @change="onCatalogChange(row as MappingRow)">
 										<el-option
 											v-for="item in catalogOptions"
 											:key="item.value"
@@ -70,7 +70,7 @@
 										placeholder="选择设备"
 										clearable
 										filterable
-										@change="onDeviceChange(row)"
+										@change="onDeviceChange(row as MappingRow)"
 									>
 										<el-option
 											v-for="device in state.devices"

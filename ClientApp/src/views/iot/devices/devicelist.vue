@@ -85,7 +85,7 @@ const { crudOptions } = createDeviceCrudOptions(
 );
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-const { resetCrudOptions } = useCrud({ expose: crudExpose, crudOptions });
+const { resetCrudOptions } = useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
 
 const shortCustomerId = computed(() => {
 	const value = String(customerId || '--');

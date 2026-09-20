@@ -18,7 +18,7 @@
 const props = defineProps({
 	// 图标列表数据
 	list: {
-		type: Array,
+		type: Array as import('vue').PropType<string[]>,
 		default: () => [],
 	},
 	// 自定义空状态描述文字

@@ -60,7 +60,7 @@ const { crudExpose } = useExpose({ crudRef, crudBinding });
 const { crudOptions } = createAssetListCrudOptions({ expose: crudExpose }, assetDetailRef, overview);
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-useCrud({ expose: crudExpose, crudOptions });
+useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
 
 const badges = computed(() => [
 	'全局资产视图',

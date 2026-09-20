@@ -3,7 +3,7 @@ import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-c
 import { getBuiltInComponentTemplate } from './BuiltInComponentCatalog';
 import type { TwinComponentBindingSlot } from './types';
 
-const processBindingProperty: Partial<Record<TwinComponentBindingSlot['semantic'], keyof TwinProcessDefinition>> = {
+const processBindingProperty: Partial<Record<TwinComponentBindingSlot['semantic'], 'readyBindingId' | 'busyBindingId' | 'completeBindingId' | 'resultBindingId' | 'faultBindingId'>> = {
 	ready: 'readyBindingId',
 	busy: 'busyBindingId',
 	complete: 'completeBindingId',
@@ -21,10 +21,11 @@ export const resolveComponentBindingSlots = (
 	object: TwinV7SceneObjectDefinition,
 ): TwinResolvedComponentBindingSlot[] => {
 	if (object.kind !== 'component' || !object.component?.componentType) return [];
+	const component = object.component;
 	const template = getBuiltInComponentTemplate(object.component.resourceKey);
 	const bindingIds = new Set(manifest.bindings.map((binding) => binding.bindingId));
 	return (template?.bindingSlots || []).map((slot) => {
-		const bindingId = object.component.bindings?.[slot.slotId];
+		const bindingId = component.bindings?.[slot.slotId];
 		return { ...slot, bindingId, bindingExists: Boolean(bindingId && bindingIds.has(bindingId)) };
 	});
 };
@@ -39,7 +40,7 @@ export const buildComponentProcessDefinition = (
 	const process: TwinProcessDefinition = { type, cycleSeconds };
 	for (const slot of resolveComponentBindingSlots(manifest, object)) {
 		const property = processBindingProperty[slot.semantic];
-		if (property && slot.bindingExists && slot.bindingId) (process as Record<string, unknown>)[property] = slot.bindingId;
+		if (property && slot.bindingExists && slot.bindingId) process[property] = slot.bindingId;
 	}
 	const timeoutSeconds = Number(object.component?.properties?.processTimeoutSeconds);
 	if (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0) process.timeoutSeconds = timeoutSeconds;

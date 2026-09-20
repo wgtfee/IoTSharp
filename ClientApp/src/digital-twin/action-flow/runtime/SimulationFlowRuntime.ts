@@ -1,4 +1,5 @@
 import {
+	sceneSafetyNodeTypes,
 	type TwinActionFlowNode,
 	type TwinActionFlowRuntimeEvent,
 	type TwinActionFlowRunState,
@@ -10,6 +11,7 @@ import {
 	type TwinSimulationMaterialState,
 	type TwinSimulationReservationState,
 } from '../contracts/action-flow-v2';
+import { isKnownSignal, signalBoolean } from '../contracts/signal-state';
 
 interface TokenState {
 	tokenId: string;
@@ -21,7 +23,17 @@ interface TokenState {
 	parallelStack: string[];
 	loopCounts: Record<string, number>;
 	started: boolean;
+	visits: Record<string, number>;
+	waitMarker?: string;
 }
+
+export interface FlowNodeExecutionContext {
+	tokenId: string;
+	executionId: string;
+	elapsed: number;
+	variables: Record<string, unknown>;
+}
+export type FlowNodeExecutionResult = 'success' | 'running' | 'waiting-signal' | 'waiting-resource' | { error: string };
 
 export interface SimulationFlowRuntimeOptions {
 	runId?: string;
@@ -29,6 +41,11 @@ export interface SimulationFlowRuntimeOptions {
 	runtimeValues?: Record<string, unknown>;
 	materials?: TwinSimulationMaterialState[];
 	onEvent?: (event: TwinActionFlowRuntimeEvent) => void;
+	/** 返回 undefined 交给图控制节点；真实设备动作必须返回完成/等待，不能以计时假完成。 */
+	executeNode?: (node: TwinActionFlowNode, delta: number, context: FlowNodeExecutionContext) => FlowNodeExecutionResult | undefined;
+	resolveValue?: (source: TwinPredicateDefinition['source'], ref: string) => unknown;
+	/** 失败/超时/取消先撤销真实运动，再允许解释器处理控制流。 */
+	onNodeInterrupted?: (node: TwinActionFlowNode) => void;
 }
 
 export interface SimulationFlowRuntimeSnapshot {
@@ -78,6 +95,9 @@ export class SimulationFlowRuntime {
 	private tokenSequence = 0;
 	private fault?: string;
 	private breakpointBypassNodeId?: string;
+	private readonly edgeInputs = new Map<string, TwinPredicateDefinition>();
+	private readonly previousSignals = new Map<string, unknown>();
+	private readonly edgeEvents = new Map<string, { changed: boolean; risingEdge: boolean }>();
 
 	constructor(private readonly plan: TwinCompiledActionFlowPlan, private readonly options: SimulationFlowRuntimeOptions = {}) {
 		this.runId = options.runId || createRunId();
@@ -85,22 +105,33 @@ export class SimulationFlowRuntime {
 		this.runtimeValues = { ...(options.runtimeValues || {}) };
 		for (const node of plan.nodes) { this.nodeMap.set(node.nodeId, node); this.nodeStates.set(node.nodeId, 'Pending'); }
 		for (const material of options.materials || []) this.materials.set(material.materialInstanceId, structuredClone(material));
+		const collect = (group?: TwinPredicateGroup) => { for (const item of Array.isArray(group?.items) ? group.items : []) {
+			if (!item || typeof item !== 'object') continue;
+			if ('logic' in item) collect(item);
+			else if (item.operator === 'changed' || item.operator === 'risingEdge') this.edgeInputs.set(JSON.stringify([item.source,item.ref]),item);
+		} };
+		for (const node of plan.nodes) collect(node.config.predicate as TwinPredicateGroup | undefined);
+		for (const edge of plan.edges) collect(edge.predicate);
 	}
 
 	start(input: Record<string, unknown> = {}) {
 		if (!['Created', 'Ready'].includes(this.state)) return;
+		if (this.plan.policies.executionTarget === 'scene' && !this.options.executeNode) throw new Error('此流程必须在三维运行预览中执行，不能用计时器代替设备动作。');
 		this.state = 'Running';
+		for (const variable of this.plan.variables || []) this.variables[variable.name] = structuredClone(variable.initialValue);
 		for (const [key, value] of Object.entries(input)) this.variables[key] = value;
+		this.sampleEdges(true);
 		this.emit('RunStarted', undefined, { graphHash: this.plan.graphHash, compiledPlanHash: this.plan.compiledPlanHash });
 		this.spawnToken(this.plan.entryNodeId, []);
 	}
 
 	pause() { if (this.state === 'Running' || this.state === 'WaitingSignal' || this.state === 'WaitingResource') { this.state = 'Paused'; this.emit('RunPaused'); } }
 	resume() { if (this.state === 'Paused' || this.state === 'Recovering') { this.state = 'Running'; this.emit('RunResumed'); } }
-	cancel(reason = 'simulation-cancelled') { if (!['Completed', 'Faulted', 'Cancelled'].includes(this.state)) { this.state = 'Cancelled'; this.emit('RunCancelled', undefined, { reason }); this.tokens.clear(); this.releaseAllReservations(); } }
+	cancel(reason = 'simulation-cancelled') { if (!['Completed', 'Faulted', 'Cancelled'].includes(this.state)) { for (const token of this.tokens.values()) { const node=this.nodeMap.get(token.nodeId); if(node) this.options.onNodeInterrupted?.(node); } this.state = 'Cancelled'; this.emit('RunCancelled', undefined, { reason }); this.tokens.clear(); this.releaseAllReservations(); } }
 	reset() {
 		this.tokens.clear(); this.events.splice(0); this.reservations.clear(); this.commands.clear(); this.manualConfirmations.clear(); this.joinArrivals.clear();
 		this.sequence = 0; this.clockSeconds = 0; this.tokenSequence = 0; this.fault = undefined; this.state = 'Created';
+		this.previousSignals.clear(); this.edgeEvents.clear();
 		for (const key of Object.keys(this.variables)) delete this.variables[key];
 		for (const key of this.nodeStates.keys()) this.nodeStates.set(key, 'Pending');
 	}
@@ -108,6 +139,8 @@ export class SimulationFlowRuntime {
 	setSignal(bindingId: string, value: unknown) { this.signals[bindingId] = value; this.emit('SignalInjected', undefined, { bindingId, value }); }
 	setSignals(values: Record<string, unknown>) { Object.assign(this.signals, values); }
 	setRuntimeValue(key: string, value: unknown) { this.runtimeValues[key] = value; }
+	/** 高频场景调度只读取摘要，避免每帧复制事件和物料日志。 */
+	getExecutionState() { return { state: this.state, fault: this.fault, activeNodeIds: [...this.tokens.values()].map(t => t.nodeId) }; }
 	setBreakpoint(nodeId: string, enabled = true) { if (enabled) this.breakpoints.add(nodeId); else this.breakpoints.delete(nodeId); }
 	clearBreakpoints() { this.breakpoints.clear(); }
 	confirmManual(nodeId: string, reason: string) { this.manualConfirmations.set(nodeId, reason || 'confirmed'); this.emit('ManualConfirmed', nodeId, { reason: reason || 'confirmed' }); }
@@ -132,6 +165,7 @@ export class SimulationFlowRuntime {
 		if (!this.tokens.size) { this.finishIfPossible(); return; }
 		const delta = Math.max(0, Math.min(1, deltaSeconds || 0)) * this.speed;
 		this.clockSeconds += delta;
+		this.sampleEdges();
 		this.expireReservations();
 		let waitingSignal = false;
 		let waitingResource = false;
@@ -155,18 +189,20 @@ export class SimulationFlowRuntime {
 		else this.state = 'Running';
 	}
 
-	getSnapshot(): SimulationFlowRuntimeSnapshot {
+	getSnapshot(eventLimit = 512): SimulationFlowRuntimeSnapshot {
 		return {
 			runId: this.runId, flowId: this.plan.flowId, state: this.state, sequence: this.sequence, clockSeconds: this.clockSeconds, speed: this.speed,
 			activeNodeIds: [...new Set([...this.tokens.values()].map((item) => item.nodeId))],
 			nodeStates: Object.fromEntries(this.nodeStates), variables: structuredClone(this.variables), signals: structuredClone(this.signals),
 			reservations: [...this.reservations.values()].map((item) => structuredClone(item)), materials: [...this.materials.values()].map((item) => structuredClone(item)),
-			commands: [...this.commands.values()].map((item) => structuredClone(item)), events: this.events.map((item) => structuredClone(item)), fault: this.fault,
+			commands: [...this.commands.values()].map((item) => structuredClone(item)), events: (eventLimit > 0 ? this.events.slice(-eventLimit) : []).map((item) => structuredClone(item)), fault: this.fault,
 		};
 	}
 
 	private executeToken(token: TokenState, node: TwinActionFlowNode, delta: number): 'progress' | 'waiting-signal' | 'waiting-resource' {
 		if (!token.started) {
+			token.visits[node.nodeId] = (token.visits[node.nodeId] || 0) + 1;
+			if (token.visits[node.nodeId] > this.plan.policies.maxLoopIterations + 1) return this.failToken(token, 'MAX_LOOP_ITERATIONS');
 			token.started = true; token.stepState = 'Running'; token.elapsed = 0; this.nodeStates.set(node.nodeId, 'Running');
 			this.emit('StepStarted', node.nodeId, { tokenId: token.tokenId, attempt: token.attempt }, token);
 		}
@@ -178,6 +214,13 @@ export class SimulationFlowRuntime {
 		if (actorLockNodes.has(node.type) && node.actorObjectId && !this.reserve(token, 'actor', node.actorObjectId, timeout)) {
 			this.markWaiting(token, node, 'RESOURCE_ACTOR_BUSY'); return 'waiting-resource';
 		}
+		try {
+			const result = this.options.executeNode?.(node, delta, { tokenId: token.tokenId, executionId: `${token.tokenId}:${node.nodeId}:${token.visits[node.nodeId]}:${token.attempt}`, elapsed: token.elapsed, variables: this.variables });
+			if (result === 'success') return this.succeedToken(token, node);
+			if (result === 'running') return 'progress';
+			if (result === 'waiting-signal' || result === 'waiting-resource') { this.markWaiting(token, node, result); return result; }
+			if (result && typeof result === 'object') return this.failToken(token, result.error);
+		} catch (error) { return this.failToken(token, error instanceof Error ? error.message : String(error)); }
 		switch (node.type) {
 			case 'Start': case 'Merge': return this.succeedToken(token, node);
 			case 'End': this.succeedToken(token, node, false); this.tokens.delete(token.tokenId); this.finishIfPossible(); return 'progress';
@@ -194,6 +237,12 @@ export class SimulationFlowRuntime {
 				}
 				const edge = this.chooseSwitchEdge(node.nodeId);
 				return this.succeedToken(token, node, true, edge?.sourcePort || 'success', edge?.edgeId);
+			}
+			case 'Loop': {
+				const count = (token.loopCounts[node.nodeId] || 0) + 1;
+				token.loopCounts[node.nodeId] = count;
+				const maximum = Math.min(this.plan.policies.maxLoopIterations, Math.max(1, asNumber(node.config.maxIterations, this.plan.policies.maxLoopIterations)));
+				return this.succeedToken(token, node, true, count < maximum ? 'repeat' : 'done');
 			}
 			case 'ParallelFork': this.completeStep(token, node); this.forkToken(token, node); return 'progress';
 			case 'ParallelJoin': return this.joinToken(token, node);
@@ -245,6 +294,7 @@ export class SimulationFlowRuntime {
 			}
 			case 'RaiseAlarm': this.emit('AlarmRaised', node.nodeId, { code: node.config.code, message: String(node.config.message || node.name) }, token); return node.config.failFlow === true ? this.failToken(token, String(node.config.message || 'Alarm')) : this.succeedToken(token, node);
 			default: {
+				if (this.plan.policies.executionTarget === 'scene') return this.failToken(token, `节点 ${node.type} 没有三维执行适配器`);
 				const duration = Math.max(0, asNumber(node.config.durationSeconds, actionNodes.has(node.type) ? 0.1 : 0));
 				if (token.elapsed < duration) return 'progress';
 				return this.succeedToken(token, node);
@@ -262,7 +312,9 @@ export class SimulationFlowRuntime {
 	private failToken(token: TokenState, message: string): 'progress' {
 		const node = this.nodeMap.get(token.nodeId);
 		if (!node) { this.faultFlow(message); return 'progress'; }
+		this.options.onNodeInterrupted?.(node);
 		this.nodeStates.set(node.nodeId, 'Failed'); token.stepState = 'Failed'; this.emit('StepFailed', node.nodeId, { message, attempt: token.attempt }, token);
+		if (this.plan.policies.executionTarget === 'scene' && sceneSafetyNodeTypes.has(node.type)) { this.faultFlow(message); return 'progress'; }
 		if (node.actorObjectId) this.releaseResource('actor', node.actorObjectId, token.tokenId);
 		const maxAttempts = Math.max(1, Math.floor(asNumber(node.retryPolicy?.maxAttempts, 1)));
 		if (token.attempt < maxAttempts) {
@@ -277,7 +329,9 @@ export class SimulationFlowRuntime {
 	}
 
 	private handleTimeout(token: TokenState, node: TwinActionFlowNode) {
+		this.options.onNodeInterrupted?.(node);
 		this.emit('StepTimedOut', node.nodeId, { elapsed: token.elapsed }, token);
+		if (this.plan.policies.executionTarget === 'scene' && sceneSafetyNodeTypes.has(node.type)) { this.nodeStates.set(node.nodeId,'Failed'); this.faultFlow(`安全动作 ${node.name} 超时，禁止跳过或自动重试`); return; }
 		const policy = node.timeoutPolicy || { seconds: this.plan.policies.defaultTimeoutSeconds, onTimeout: 'fault' as const };
 		switch (policy.onTimeout) {
 			case 'retry': this.failToken(token, 'TIMEOUT'); break;
@@ -292,14 +346,15 @@ export class SimulationFlowRuntime {
 		token.stepState = state; this.nodeStates.set(node.nodeId, state); this.emit(state === 'Skipped' ? 'StepSkipped' : 'StepSucceeded', node.nodeId, { tokenId: token.tokenId, attempt: token.attempt }, token);
 	}
 	private markWaiting(token: TokenState, node: TwinActionFlowNode, reason: string) { token.stepState = 'Waiting'; this.nodeStates.set(node.nodeId, 'Waiting'); this.emitOncePerWait(token, node, reason); }
-	private emitOncePerWait(token: TokenState, node: TwinActionFlowNode, reason: string) { const marker = `${node.nodeId}:${reason}:${Math.floor(token.elapsed * 10)}`; if (this.runtimeValues.__lastWaitMarker !== marker) { this.runtimeValues.__lastWaitMarker = marker; this.emit('StepWaiting', node.nodeId, { reason }, token); } }
+	private emitOncePerWait(token: TokenState, node: TwinActionFlowNode, reason: string) { const marker = `${node.nodeId}:${reason}`; if (token.waitMarker !== marker) { token.waitMarker = marker; this.emit('StepWaiting', node.nodeId, { reason }, token); } }
 
 	private transition(token: TokenState, sourceNodeId: string, port: string, preferredEdgeId?: string) {
 		const candidates = this.outgoing(sourceNodeId).filter((edge) => edge.sourcePort === port || (port === 'success' && edge.sourcePort === 'success'));
 		let edge = preferredEdgeId ? candidates.find((item) => item.edgeId === preferredEdgeId) : undefined;
 		if (!edge) edge = candidates.filter((item) => !item.predicate || this.evaluatePredicateGroup(item.predicate)).sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.edgeId.localeCompare(b.edgeId))[0];
 		if (!edge && port !== 'success') edge = this.outgoing(sourceNodeId).find((item) => item.isDefault);
-		if (!edge) { this.tokens.delete(token.tokenId); this.finishIfPossible(); return; }
+		if (!edge) { this.faultFlow(`节点 ${sourceNodeId} 的 ${port} 没有可执行连线；只允许 End 结束流程。`); return; }
+		token.waitMarker = undefined;
 		token.nodeId = edge.targetNodeId; token.started = false; token.elapsed = 0; token.attempt = 1; token.readyAt = 0; token.stepState = 'Ready'; this.nodeStates.set(token.nodeId, 'Ready');
 	}
 
@@ -338,23 +393,33 @@ export class SimulationFlowRuntime {
 	private releaseAllReservations() { for (const item of [...this.reservations.values()]) this.releaseResource(item.resourceType, item.resourceId); }
 	private expireReservations() { for (const [key, item] of [...this.reservations.entries()]) if (item.leaseUntil <= this.clockSeconds) { this.reservations.delete(key); this.emit('ResourceLeaseExpired', undefined, { reservationId: item.reservationId, resourceType: item.resourceType, resourceId: item.resourceId }); } }
 
-	private signalSatisfied(bindingId: string, operator: unknown, expected: unknown) { const value = this.signals[bindingId]; switch (String(operator || 'truthy')) { case 'equals': case 'eq': return value === expected || String(value) === String(expected); case 'notEquals': case 'ne': return !(value === expected || String(value) === String(expected)); case 'falsy': return !boolValue(value); default: return boolValue(value); } }
-	private resolveSource(source: TwinPredicateDefinition['source'], ref: string) { if (source === 'binding') return this.signals[ref]; if (source === 'variable') return this.variables[ref]; if (source === 'runtime') return this.runtimeValues[ref]; if (source === 'material') { const [materialId, ...path] = ref.split('.'); let value: unknown = this.materials.get(materialId); for (const segment of path) value = value && typeof value === 'object' ? (value as Record<string, unknown>)[segment] : undefined; return value; } return undefined; }
+	private signalSatisfied(bindingId: string, operator: unknown, expected: unknown) { const value = this.signals[bindingId]; if (!isKnownSignal(value)) return false; switch (String(operator || 'truthy')) { case 'equals': case 'eq': return value === expected || String(value) === String(expected); case 'notEquals': case 'ne': return !(value === expected || String(value) === String(expected)); case 'falsy': return signalBoolean(value) === false; default: return signalBoolean(value) === true; } }
+	private resolveSource(source: TwinPredicateDefinition['source'], ref: string) { if (source === 'variable') return this.variables[ref]; if (this.options.resolveValue) return this.options.resolveValue(source, ref); if (source === 'binding') return this.signals[ref]; if (source === 'runtime') return this.runtimeValues[ref]; if (source === 'material') { const [materialId, ...path] = ref.split('.'); let value: unknown = this.materials.get(materialId); for (const segment of path) value = value && typeof value === 'object' ? (value as Record<string, unknown>)[segment] : undefined; return value; } return undefined; }
 	private evaluatePredicate(predicate: TwinPredicateDefinition) {
 		const left = this.resolveSource(predicate.source, predicate.ref); const right = predicate.value;
+		if (!isKnownSignal(left)) return false;
 		switch (predicate.operator) {
 			case 'eq': return left === right || String(left) === String(right); case 'ne': return !(left === right || String(left) === String(right));
 			case 'gt': return Number(left) > Number(right); case 'gte': return Number(left) >= Number(right); case 'lt': return Number(left) < Number(right); case 'lte': return Number(left) <= Number(right);
-			case 'in': return Array.isArray(right) && right.some((item) => item === left || String(item) === String(left)); case 'truthy': return boolValue(left); case 'falsy': return !boolValue(left);
-			case 'changed': return left !== this.runtimeValues[`prev:${predicate.source}:${predicate.ref}`]; case 'risingEdge': return boolValue(left) && !boolValue(this.runtimeValues[`prev:${predicate.source}:${predicate.ref}`]); default: return false;
+			case 'in': return Array.isArray(right) && right.some((item) => item === left || String(item) === String(left)); case 'truthy': return signalBoolean(left) === true; case 'falsy': return signalBoolean(left) === false;
+			case 'changed': case 'risingEdge': return this.edgeEvents.get(JSON.stringify([predicate.source,predicate.ref]))?.[predicate.operator] === true; default: return false;
+		}
+	}
+	/** 每个仿真 tick 统一采样，多个条件读取同一帧；首次值/失效恢复不伪造边沿。 */
+	private sampleEdges(initial = false) {
+		for (const [key, predicate] of this.edgeInputs) {
+			const value = this.resolveSource(predicate.source,predicate.ref), previous = this.previousSignals.get(key);
+			const known = !initial && isKnownSignal(value) && isKnownSignal(previous);
+			this.edgeEvents.set(key,{changed:known && JSON.stringify(value)!==JSON.stringify(previous),risingEdge:known && signalBoolean(previous)===false && signalBoolean(value)===true});
+			this.previousSignals.set(key,structuredClone(value));
 		}
 	}
 	private evaluatePredicateGroup(group?: TwinPredicateGroup): boolean { if (!group || !group.items?.length) return true; const values = group.items.map((item) => 'logic' in item ? this.evaluatePredicateGroup(item) : this.evaluatePredicate(item)); return group.logic === 'or' ? values.some(Boolean) : values.every(Boolean); }
 	private chooseSwitchEdge(nodeId: string) { const edges = this.outgoing(nodeId).sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.edgeId.localeCompare(b.edgeId)); return edges.find((edge) => edge.predicate && this.evaluatePredicateGroup(edge.predicate)) || edges.find((edge) => edge.isDefault) || edges[0]; }
 	private resolveString(value: unknown) { const text = String(value ?? ''); if (text.startsWith('$')) return String(this.variables[text.slice(1)] ?? ''); return text; }
 	private outgoing(nodeId: string) { return this.plan.edges.filter((edge) => edge.sourceNodeId === nodeId); }
-	private spawnToken(nodeId: string, parallelStack: string[], loopCounts: Record<string, number> = {}) { const token: TokenState = { tokenId: `token-${++this.tokenSequence}`, nodeId, stepState: 'Ready', elapsed: 0, attempt: 1, readyAt: 0, parallelStack, loopCounts: { ...loopCounts }, started: false }; this.tokens.set(token.tokenId, token); this.nodeStates.set(nodeId, 'Ready'); return token; }
+	private spawnToken(nodeId: string, parallelStack: string[], loopCounts: Record<string, number> = {}) { const token: TokenState = { tokenId: `token-${++this.tokenSequence}`, nodeId, stepState: 'Ready', elapsed: 0, attempt: 1, readyAt: 0, parallelStack, loopCounts: { ...loopCounts }, visits: {}, started: false }; this.tokens.set(token.tokenId, token); this.nodeStates.set(nodeId, 'Ready'); return token; }
 	private finishIfPossible() { if (this.tokens.size || ['Faulted', 'Cancelled'].includes(this.state)) return; this.state = 'Completed'; this.releaseAllReservations(); this.emit('RunCompleted'); }
 	private faultFlow(message: string) { this.fault = message; this.state = 'Faulted'; this.releaseAllReservations(); this.emit('RunFaulted', undefined, { message }); this.tokens.clear(); }
-	private emit(type: string, nodeId?: string, payload?: Record<string, unknown>, token?: TokenState) { const event: TwinActionFlowRuntimeEvent = { runId: this.runId, flowId: this.plan.flowId, sequence: ++this.sequence, type, occurredAt: Math.round(this.clockSeconds * 1000), correlationId: `${this.runId}:${nodeId || 'run'}:${this.sequence}`, nodeId, stepInstanceId: token ? `${this.runId}:${token.tokenId}:${nodeId}:${token.attempt}` : undefined, payload }; this.events.push(event); this.options.onEvent?.(event); }
+	private emit(type: string, nodeId?: string, payload?: Record<string, unknown>, token?: TokenState) { const event: TwinActionFlowRuntimeEvent = { runId: this.runId, flowId: this.plan.flowId, sequence: ++this.sequence, type, occurredAt: Math.round(this.clockSeconds * 1000), correlationId: `${this.runId}:${nodeId || 'run'}:${this.sequence}`, nodeId, stepInstanceId: token ? `${this.runId}:${token.tokenId}:${nodeId}:${token.visits[nodeId || ''] || 0}:${token.attempt}` : undefined, payload }; this.events.push(event); if (this.events.length > 512) this.events.shift(); this.options.onEvent?.(event); }
 }

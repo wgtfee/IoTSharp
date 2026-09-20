@@ -38,7 +38,7 @@
 						/>
 						<el-select
 							v-else-if="field.type === 'select'"
-							:model-value="propertyValue(field.key, field.defaultValue)"
+							:model-value="selectValue(field.key, field.defaultValue)"
 							@change="updateProperty(field.key, $event)"
 						>
 							<el-option v-for="option in field.options || []" :key="String(option.value)" :label="option.label" :value="option.value" />
@@ -225,6 +225,10 @@ const updateRotation = (axis: TwinRotationAxis, degrees: number) => {
 };
 
 const propertyValue = (key: string, fallback: unknown) => object.value?.component.properties?.[key] ?? fallback;
+const selectValue = (key: string, fallback: unknown) => {
+	const value = propertyValue(key, fallback);
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
+};
 const numberValue = (key: string, fallback: unknown) => {
 	const value = Number(propertyValue(key, fallback));
 	return Number.isFinite(value) ? value : Number(fallback) || 0;

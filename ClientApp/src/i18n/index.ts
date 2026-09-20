@@ -20,7 +20,7 @@ import zhtwLocale from 'element-plus/dist/locale/zh-tw';
 
 // 定义变量内容
 const messages: any = {};
-const element: any = { en: enLocale, 'zh-cn': zhcnLocale, 'zh-tw': zhtwLocale };
+export const elementLocales: Record<string, typeof zhcnLocale> = { en: enLocale, 'zh-cn': zhcnLocale, 'zh-tw': zhtwLocale };
 const itemize: any = { en: [], 'zh-cn': [], 'zh-tw': [] };
 const modules: Record<string, any> = import.meta.glob('./**/*.ts', { eager: true });
 
@@ -45,7 +45,7 @@ function mergeArrObj(list: any, key: string) {
 for (const key in itemize) {
 	messages[key] = {
 		name: key,
-		el: element[key].el,
+		el: elementLocales[key].el,
 		message: mergeArrObj(itemize, key),
 	};
 }

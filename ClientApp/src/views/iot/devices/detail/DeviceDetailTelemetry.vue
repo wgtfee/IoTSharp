@@ -30,7 +30,7 @@ const {crudExpose} = useExpose({crudRef, crudBinding});
 let {crudOptions} = createDeviceTelemetryRealtimeCrudOptions({expose: crudExpose}, props.deviceId, state);
 // 初始化crud配置
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-const {resetCrudOptions} = useCrud({expose: crudExpose, crudOptions});
+const {resetCrudOptions} = useCrud<Record<string, unknown>>({ crudExpose, crudOptions});
 // 你可以调用此方法，重新初始化crud配置
 // resetCrudOptions(options)
 watch(() => props.deviceId, () => {
@@ -43,7 +43,7 @@ watch(() => props.deviceId, () => {
 // 页面打开后获取列表数据
 onMounted( () => {
   crudExpose.doRefresh();
-  proxy.mittBus.on('updateTelemetryPageSate', (pageSateName) => {
+  proxy.mittBus.on('updateTelemetryPageSate', (pageSateName: string) => {
     state.currentPageState = pageSateName
   });
 });

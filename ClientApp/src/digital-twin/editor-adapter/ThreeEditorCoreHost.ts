@@ -1227,9 +1227,10 @@ export class ThreeEditorCoreHost {
 	private beginInteractiveResolution() {
 		const renderer = this.editor?.viewer?.renderer;
 		if (!renderer || this.interactionPixelRatio !== undefined) return;
-		this.interactionPixelRatio = renderer.getPixelRatio?.() || 1;
-		const target = Math.min(this.interactionPixelRatio, 0.65);
-		if (target < this.interactionPixelRatio) renderer.setPixelRatio(target);
+		const pixelRatio = Number(renderer.getPixelRatio?.()) || 1;
+		this.interactionPixelRatio = pixelRatio;
+		const target = Math.min(pixelRatio, 0.65);
+		if (target < pixelRatio) renderer.setPixelRatio(target);
 		this.editor.viewer.renderScene?.();
 	}
 

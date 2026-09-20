@@ -55,7 +55,7 @@ export default defineComponent({
 		const { themeConfig } = storeToRefs(storesThemeConfig);
 		const route = useRoute();
 		const state = reactive({
-			defaultActive: null,
+			defaultActive: '',
 		});
 		// 获取父级菜单数据
 		const menuLists = computed(() => {

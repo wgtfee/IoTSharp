@@ -4,6 +4,10 @@ import { parseRouteSlotArray, routeSlotProgress } from '/@/digital-twin/bindings
 import { createComponentDefinitionFromTemplate, defaultComponentRegistry } from '/@/digital-twin/components';
 import { RouteEngine, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
+import { JunctionReservationRuntime } from './JunctionReservationRuntime';
+import { RouteAlignedBatchRuntime } from './RouteAlignedBatchRuntime';
+import { DistancePolylineCurve } from '../routes/DistancePolylineCurve';
+import { isComponentSceneObject } from '../components/ComponentConnectionEngine';
 
 interface ManualStationReleaseState {
 	pointId: string;
@@ -58,6 +62,8 @@ export class RouteSlotArrayRuntime {
 	private readonly simulationAutoFeedSequences = new Map<string, number>();
 	private readonly linearQueueDistanceCache = new Map<string, number>();
 	private running = false;
+	private readonly junctionTraffic = new Map<string, JunctionReservationRuntime>();
+	private alignedBatches?: RouteAlignedBatchRuntime;
 
 	constructor(
 		private readonly scene: THREE.Scene,
@@ -83,6 +89,14 @@ export class RouteSlotArrayRuntime {
 		this.linearQueueDistanceCache.clear();
 		this.curves.clear();
 		this.bindingRouteIds.clear();
+		this.junctionTraffic.clear();
+		this.alignedBatches?.reset();
+		this.alignedBatches = manifest.runtime.dataMode === 'simulation'
+			? new RouteAlignedBatchRuntime(manifest.routes, id => this.getComponentRoot?.(id)) : undefined;
+		if (manifest.runtime.dataMode === 'simulation') for (const initializer of manifest.runtime.routePalletInitializers || []) {
+			const route = manifest.routes.find(r => r.routeId === initializer.routeId);
+			if (route && initializer.simulationTraffic === 'reserved-junctions') this.junctionTraffic.set(route.routeId, new JunctionReservationRuntime(route));
+		}
 		for (const route of this.manifest.routes || []) {
 			const info = this.createCurve(route);
 			if (info) this.curves.set(route.routeId, info);
@@ -224,7 +238,10 @@ export class RouteSlotArrayRuntime {
 						&& point.process?.simulationEntry === true
 						&& (!point.process.physicalLane || point.process.physicalLane === physicalLane));
 					if (laneStart) simulationRoute.startPointId = laneStart.pointId;
-					const routingContext: TwinRouteRoutingContext = { dataMode: 'simulation', payload: { routeCode, physicalLane, palletId: slot.palletId, weightSequence: slot.slotIndex }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
+					const initializer = this.manifest.runtime.routePalletInitializers?.find((item) => item.routeId === routeId);
+					const templates = initializer?.simulationPayloadTemplates;
+					const testPayload = templates?.length ? templates[slot.slotIndex % templates.length] : {};
+					const routingContext: TwinRouteRoutingContext = { dataMode: 'simulation', payload: { ...testPayload, routeCode, physicalLane, palletId: slot.palletId, weightSequence: slot.slotIndex }, bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [] };
 					const engine = new RouteEngine(simulationRoute, entity.root);
 					engine.setRoutingContext(routingContext);
 					const routeSnapshot = engine.getSnapshot();
@@ -268,6 +285,7 @@ export class RouteSlotArrayRuntime {
 					engine.render(1);
 					this.applyTransportUnitYawOffset(entity);
 					this.applyInitialPhysicalStationLayout(entity);
+					if (initializer?.simulationPlacement === 'non-overlapping' && !laneStart) this.placeSimulationEntitySafely(entity);
 				}
 			} else {
 				entity.routeId = routeId;
@@ -288,9 +306,33 @@ export class RouteSlotArrayRuntime {
 		}
 	}
 
+	/** 多支路初始投放使用同一空间排他检查；找不到空位就明确报错，不创建重叠托盘。 */
+	private placeSimulationEntitySafely(entity: RouteSlotEntity) {
+		const engine = entity.simulationEngine!;
+		const snapshot = engine.getSnapshot();
+		const spacing = this.palletDiameter(entity) + 0.08;
+		const tries = Math.max(1, Math.ceil(snapshot.lengthMeters / spacing));
+		for (let attempt = 0; attempt <= tries; attempt++) {
+			if (this.isPlasticPalletPositionClear(entity, entity.root.position) && (this.junctionTraffic.get(entity.routeId)?.canSeed(entity.root.position) ?? true) && (this.alignedBatches?.canSeed(entity) ?? true)) {
+				const progress = engine.getSnapshot().progress;
+				entity.initialProgress = progress;
+				entity.currentProgress = progress;
+				entity.targetProgress = progress;
+				entity.root.userData.initialRouteProgress = progress;
+				return;
+			}
+			engine.correctDistance((snapshot.distanceMeters + (attempt + 1) * spacing) % Math.max(0.001, snapshot.lengthMeters));
+			engine.render(1);
+			this.applyTransportUnitYawOffset(entity);
+		}
+		throw new Error(`路线 ${entity.routeId} 没有足够空间安全投放 ${entity.palletId}，请降低初始数量或增加缓存。`);
+	}
+
 	tick(deltaSeconds: number) {
 		if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
 		if (this.running) this.ensureSimulationAutoFeed();
+		if (this.running) this.alignedBatches?.update([...this.entities.values()], deltaSeconds);
+		for (const [routeId, traffic] of this.junctionTraffic) traffic.update([...this.entities.values()].filter(e => e.routeId === routeId && e.simulationEngine && e.root.visible));
 		this.cleanupStalePhysicalReleaseFlags();
 		const blend = 1 - Math.exp(-Math.min(deltaSeconds, 0.25) * 10);
 		for (const entity of this.orderedEntitiesForMovement()) {
@@ -300,6 +342,7 @@ export class RouteSlotArrayRuntime {
 				const beforeSnapshot = entity.simulationEngine.getSnapshot();
 				const beforeDistance = beforeSnapshot.distanceMeters;
 				const beforePosition = entity.root.position.clone();
+				const beforeOrientation = entity.root.quaternion.clone();
 				const allowRouteStep = entity.simulationProcess?.updateFixed(deltaSeconds) ?? true;
 				this.captureManualStationRelease(entity);
 				const mergeYieldRemaining = Math.max(0, Number(entity.root.userData.mergeYieldSeconds || 0) - deltaSeconds);
@@ -311,10 +354,22 @@ export class RouteSlotArrayRuntime {
 					// 下一帧立即前进又把优先托盘顶回去。
 					entity.root.userData.collisionHeld = true;
 				} else {
-					if (allowRouteStep) entity.simulationEngine.updateFixed(deltaSeconds);
+					if (allowRouteStep) {
+						const speed = beforeSnapshot.speed;
+						const travel = this.alignedBatches?.limitTravel(entity, speed * deltaSeconds) ?? speed * deltaSeconds;
+						if (travel > 0 && speed > 0) entity.simulationEngine.updateFixed(travel / speed);
+					}
 					entity.simulationEngine.render(1);
 					this.applyTransportUnitYawOffset(entity);
 					const movingSnapshot = entity.simulationEngine.getSnapshot();
+					const traffic = this.junctionTraffic.get(entity.routeId);
+					if (traffic && !traffic.canMove(entity, entity.root.position)) {
+						entity.simulationEngine.correctDistance(beforeDistance);
+						entity.root.position.copy(beforePosition);
+						entity.root.quaternion.copy(beforeOrientation);
+						entity.root.userData.collisionHeld = true;
+						continue;
+					}
 					this.applyStationQueueVisual(entity, movingSnapshot.distanceMeters, movingSnapshot.lengthMeters);
 					const stationVisual = Boolean(entity.root.userData.stationBatchVisual || entity.root.userData.stationQueueVisual || entity.root.userData.stationReleaseVisual);
 					const gantryStationVisual = stationVisual && (entity.root.userData.stationProcessType === 'gantry-stacking'
@@ -323,7 +378,7 @@ export class RouteSlotArrayRuntime {
 						// 两条入边在同一合流点附近可能形成“双方下一步都碰撞”的几何死锁。
 						// 先让稳定优先级更高的实体通行，并把另一实体退回一个很小的上游安全间距；
 						// 只对共同目标点的不同入边启用，普通同道跟车仍按碰撞保持不后退。
-						if (this.tryResolveMergeConflict(entity, movingSnapshot, beforeSnapshot.currentEdgeId)) continue;
+						if (!traffic && this.tryResolveMergeConflict(entity, movingSnapshot, beforeSnapshot.currentEdgeId)) continue;
 						entity.simulationEngine.correctDistance(beforeDistance);
 						entity.root.position.copy(beforePosition);
 						entity.root.userData.collisionHeld = true;
@@ -331,12 +386,14 @@ export class RouteSlotArrayRuntime {
 						delete entity.root.userData.collisionHeld;
 					}
 				}
+				this.smoothWoodenPalletOrientation(entity, beforeOrientation, deltaSeconds);
 				const snapshot = entity.simulationEngine.getSnapshot();
 				entity.currentProgress = snapshot.progress;
 				entity.targetProgress = snapshot.progress;
 				entity.root.userData.routeProgress = snapshot.progress;
 				entity.root.userData.routeState = snapshot.state;
 				entity.root.userData.routeCompleted = this.curves.get(entity.routeId)?.loop === false && snapshot.progress >= 0.999;
+				if (entity.root.userData.routeCompleted && this.manifest.runtime.routePalletInitializers?.find(i => i.routeId === entity.routeId)?.simulationHideAtExit) entity.root.visible = false;
 				if (entity.root.userData.routeCompleted === true) this.cleanupCompletedEntityStationMembership(entity);
 				entity.root.userData.activeProcessComponentObjectId = entity.simulationProcess?.getSnapshot().activeComponentObjectId;
 				continue;
@@ -570,6 +627,20 @@ export class RouteSlotArrayRuntime {
 		entity.simulationEngine.setRoutingContext(entity.routingContext);
 	}
 
+	/** 动作图只覆盖指定批次尚未经过的岔口；物理位置、碰撞和已通过路段保持路线引擎权威。 */
+	selectSimulationRoute(routeId: string, palletIds: string[], junctionId: string, edgeId: string) {
+		if (this.manifest.runtime.dataMode !== 'simulation') throw new Error('Live 模式禁止仿真路线命令');
+		const route = this.manifest.routes.find(r => r.routeId === routeId);
+		if (!route?.edges.some(e => e.edgeId === edgeId && e.fromPointId === junctionId && e.enabled !== false)) throw new Error('路线选择必须是岔口真实可用出边');
+		for (const id of palletIds) {
+			const entity = [...this.entities.values()].find(e => e.routeId === routeId && e.palletId === id);
+			if (!entity?.routingContext || !entity.simulationEngine) throw new Error(`托盘 ${id} 不在目标路线中`);
+			const payload = entity.routingContext.payload || {};
+			entity.routingContext.payload = { ...payload, actionFlowRoutes: { ...(payload.actionFlowRoutes as Record<string, string> || {}), [junctionId]: edgeId } };
+			entity.simulationEngine.setRoutingContext(entity.routingContext);
+		}
+	}
+
 	private applyInitialPhysicalStationLayout(entity: RouteSlotEntity) {
 		if (!entity.simulationRoute || !entity.physicalLane) return;
 		const point = entity.simulationRoute.points.find((item) => item.kind === 'processStation'
@@ -629,8 +700,10 @@ export class RouteSlotArrayRuntime {
 	}
 
 	private captureManualStationRelease(entity: RouteSlotEntity) {
-		if (entity.manualStationRelease || !entity.simulationRoute || !entity.physicalLane) return;
+		const engine = entity.simulationEngine;
+		if (entity.manualStationRelease || !entity.simulationRoute || !entity.physicalLane || !engine) return;
 		for (const point of entity.simulationRoute.points) {
+			if (point.process?.batchArrivalMode === 'route-aligned') continue;
 			const isPhysicalLaneMatch = !point.process?.physicalLane || point.process.physicalLane === entity.physicalLane;
 			const hasBatchHandoff = Boolean(point.process?.behaviorCompletionGroups?.length || point.process?.simulationEntry);
 			if (point.kind !== 'processStation' || !isPhysicalLaneMatch || !hasBatchHandoff || !point.componentObjectId) continue;
@@ -691,7 +764,7 @@ export class RouteSlotArrayRuntime {
 				station,
 				direction,
 				handoffProjection: straightThroughHandoff?.projection ?? ((columns - 1) / 2 + 1) * spacing,
-				routeDistanceAtRelease: entity.simulationEngine.getSnapshot().distanceMeters,
+				routeDistanceAtRelease: engine.getSnapshot().distanceMeters,
 				routeDistanceAtHandoff: straightThroughHandoff?.routeDistance,
 			};
 			entity.root.userData.stationReleaseVisual = true;
@@ -849,7 +922,7 @@ export class RouteSlotArrayRuntime {
 			'stationLastCompletedPalletIds',
 		] as const;
 		for (const object of this.manifest.objects || []) {
-			if (object.kind !== 'component') continue;
+			if (!isComponentSceneObject(object)) continue;
 			const root = this.getComponentRoot(object.objectId);
 			if (!root) continue;
 			for (const key of arrayKeys) {
@@ -1256,6 +1329,7 @@ export class RouteSlotArrayRuntime {
 		let queueIndex = -1;
 		for (const point of route.points || []) {
 			if (point.kind !== 'processStation' || !point.componentObjectId) continue;
+			if (point.process?.batchArrivalMode === 'route-aligned') continue;
 			if (point.process?.physicalLane && entity.physicalLane && point.process.physicalLane !== entity.physicalLane) continue;
 			const root = this.getComponentRoot?.(point.componentObjectId);
 			if (!root) continue;
@@ -1365,13 +1439,19 @@ export class RouteSlotArrayRuntime {
 
 	reset() {
 		this.running = false;
+		if (this.manifest.runtime.dataMode === 'simulation' && this.manifest.routes.some(route => route.points.some(point => point.process?.batchArrivalMode === 'route-aligned'))) {
+			this.setManifest(this.manifest); // 重建空托盘、成品出料计数和初始载料，不保留上轮工艺状态。
+			return;
+		}
+		this.alignedBatches?.reset();
+		for (const traffic of this.junctionTraffic.values()) traffic.reset();
 		for (const entity of this.entities.values()) {
 			if (!entity.simulationEngine) continue;
 			entity.simulationProcess?.reset();
 			entity.simulationEngine.reset();
 			entity.simulationEngine.setRoutingContext({
 				dataMode: 'simulation',
-				payload: { routeCode: entity.routeCode || 'A', physicalLane: entity.physicalLane, palletId: entity.palletId, weightSequence: entity.slotIndex },
+				payload: { ...(entity.routingContext?.payload || {}), routeCode: entity.routeCode || 'A', physicalLane: entity.physicalLane, palletId: entity.palletId, weightSequence: entity.slotIndex },
 				bindingValues: {}, edgeOccupancy: {}, staleBindingIds: [],
 			});
 			const snapshot = entity.simulationEngine.getSnapshot();
@@ -1391,7 +1471,7 @@ export class RouteSlotArrayRuntime {
 		const simulationEntities = [...this.entities.values()].filter((entity) => Boolean(entity.simulationEngine));
 		const plastic = simulationEntities.filter((entity) => entity.transportUnitType === 'plastic-pallet');
 		const wooden = simulationEntities.filter((entity) => entity.transportUnitType === 'wooden-pallet');
-		const uniquePositions = (items) => new Set(items.map((entity) => [entity.root.position.x, entity.root.position.y, entity.root.position.z].map((value) => value.toFixed(3)).join(','))).size;
+		const uniquePositions = (items: RouteSlotEntity[]) => new Set(items.map((entity) => [entity.root.position.x, entity.root.position.y, entity.root.position.z].map((value) => value.toFixed(3)).join(','))).size;
 		return {
 			total: simulationEntities.length,
 			visible: simulationEntities.filter((entity) => entity.root.visible).length,
@@ -1474,7 +1554,7 @@ export class RouteSlotArrayRuntime {
 		const loop = route.loop === true;
 		let curve: THREE.Curve<THREE.Vector3>;
 		if (route.curveKind === 'line' || vectors.length === 2) {
-			const path = new THREE.CurvePath<THREE.Vector3>();
+			const path = new DistancePolylineCurve();
 			for (let index = 1; index < vectors.length; index += 1) path.add(new THREE.LineCurve3(vectors[index - 1], vectors[index]));
 			if (loop && vectors.length > 2) path.add(new THREE.LineCurve3(vectors[vectors.length - 1], vectors[0]));
 			curve = path;
@@ -1509,6 +1589,7 @@ export class RouteSlotArrayRuntime {
 		const definition = createComponentDefinitionFromTemplate(resourceKey, {
 			objectId: `route-slot:${bindingId}:${palletId}`,
 			name: displayName,
+			properties: this.manifest.runtime.routePalletInitializers?.find(i => this.bindingRouteIds.get(bindingId) === i.routeId)?.transportUnitProperties,
 		});
 		const built = defaultComponentRegistry.create(definition);
 		const root = built.root;
@@ -1567,6 +1648,15 @@ export class RouteSlotArrayRuntime {
 		this.applyTransportUnitYawOffset(entity);
 	}
 
+	/** 木托中心仍严格沿原路线移动，整托和堆叠物料在折线拐角连续转向；暂停保持姿态。 */
+	private smoothWoodenPalletOrientation(entity: RouteSlotEntity, previous: THREE.Quaternion, deltaSeconds: number) {
+		if (entity.transportUnitType !== 'wooden-pallet') return;
+		const target = entity.root.quaternion.clone();
+		const configured = Number(entity.root.userData.properties?.turnSpeedRadiansPerSecond);
+		const speed = Number.isFinite(configured) && configured > 0 ? configured : Math.PI / 2;
+		entity.root.quaternion.copy(previous).rotateTowards(target, this.running ? speed * deltaSeconds : 0);
+	}
+
 	private applyTransportUnitYawOffset(entity: RouteSlotEntity) {
 		if (entity.transportUnitType !== 'wooden-pallet') return;
 		// 木托长边相对默认路线切线横转 90°；每次都在 RouteEngine/lookAt 重建基础姿态后调用，因此不会累计。
@@ -1581,6 +1671,11 @@ export class RouteSlotArrayRuntime {
 		entity.simulationProcess?.dispose();
 		entity.root.parent?.remove(entity.root);
 		entity.root.traverse((object: any) => {
+			let ancestor: THREE.Object3D | null = object;
+			while (ancestor && ancestor !== entity.root) {
+				if (ancestor.userData.behaviorSourceSlotId) return; // 源组件物料的几何仍被库存模板引用。
+				ancestor = ancestor.parent;
+			}
 			object.geometry?.dispose?.();
 			const materials = Array.isArray(object.material) ? object.material : object.material ? [object.material] : [];
 			for (const material of materials) {

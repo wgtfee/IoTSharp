@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "generatedAt": "2026-09-20T07:08:10.691Z",
+  "engine": "action-flow-v2-scene",
+  "flows": 7,
+  "nodes": 90,
+  "legacyBehaviors": 0,
+  "realAxisExecution": true,
+  "graphParameterChangesExecution": true,
+  "graphEdgeChangesExecution": true,
+  "pauseReset": true,
+  "interlockTimeoutStops": true,
+  "liveGeneratedCommands": 0,
+  "rejectedInvalidGraphs": 14,
+  "upgradePreservesLayoutAndBindings": true,
+  "upgradePreservesProcessTiming": true,
+  "fullLineVerification": "separate verify:drawing-process",
+  "databaseWritten": false
+}

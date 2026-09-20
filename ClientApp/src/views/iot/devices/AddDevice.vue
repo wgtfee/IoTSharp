@@ -72,7 +72,7 @@ import { appmessage } from "/@/api/iapiresult";
 interface deviceform {
   drawer: boolean;
   dialogtitle: string;
-  dataForm: deviceaddoreditdto;
+  dataForm: { id: string; name: string; timeout: number; identityType: string; deviceType: string };
   identityTypes: Array<string>;
   deviceTypes: Array<string>;
 }

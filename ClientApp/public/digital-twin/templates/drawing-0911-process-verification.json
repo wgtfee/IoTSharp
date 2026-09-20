@@ -1,0 +1,72 @@
+{
+  "passed": true,
+  "generatedAt": "2026-09-17T01:11:10.410Z",
+  "kind": "real-components-action-flow-v2-route-actuator-runtime",
+  "actionFlows": [
+    {
+      "id": "drawing-flow-load",
+      "state": "WaitingSignal",
+      "cycles": 8
+    },
+    {
+      "id": "drawing-flow-stack",
+      "state": "WaitingSignal",
+      "cycles": 8
+    },
+    {
+      "id": "drawing-flow-dispatch",
+      "state": "WaitingSignal",
+      "cycles": 1
+    },
+    {
+      "id": "drawing-inspection-flow",
+      "state": "WaitingSignal",
+      "cycles": 107
+    },
+    {
+      "id": "drawing-bag-a-flow",
+      "state": "WaitingSignal",
+      "cycles": 30
+    },
+    {
+      "id": "drawing-bag-b-flow",
+      "state": "WaitingSignal",
+      "cycles": 30
+    },
+    {
+      "id": "drawing-flow-routing",
+      "state": "WaitingSignal",
+      "cycles": 104
+    }
+  ],
+  "legacyBehaviors": 0,
+  "simulationSeconds": 2359.75,
+  "routeSpeedMetersPerSecond": 0.9,
+  "usesTemplateDefaultSpeed": true,
+  "smallPallets": 50,
+  "finishedWoodPallets": [
+    "SIM-AUTO-drawing-0911-wood-line-0001",
+    "SIM-AUTO-drawing-0911-wood-line-0002",
+    "SIM-AUTO-drawing-0911-wood-line-0003"
+  ],
+  "baggingCycles": {
+    "drawing-bag-a": 75,
+    "drawing-bag-b": 75
+  },
+  "emptyReturnVisited": true,
+  "loadedPalletsInEmptyReturn": 0,
+  "gantryClearanceBeforeWoodRelease": true,
+  "pauseWhileHolding": true,
+  "resetInventoryAndPallets": true,
+  "finishedAfterReset": [
+    "SIM-AUTO-drawing-0911-wood-line-0001"
+  ],
+  "resetRunSeconds": 1063.95,
+  "minSpacing": 1.4999999999980815,
+  "minHeldSpacing": 1.0999999999999863,
+  "maxPalletStep": 0.04500000000007365,
+  "maxHandoffStep": 2.5156781614776497e-14,
+  "maxMaterialStep": 2.551827776319941,
+  "databasePublication": "requires-authenticated-ui-verification",
+  "realPlc": "not-connected"
+}

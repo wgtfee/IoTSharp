@@ -1,9 +1,12 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { tenantApi } from '/@/api/tenants';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { useRouter } from 'vue-router';
 import { TableDataRow } from '../model/tenantListModel';
 import { ElMessage } from 'element-plus';
-export const createTenantListCrudOptions = function ({ expose }, overviewState?) {
+export const createTenantListCrudOptions = function ({ expose }: { expose: CrudExpose }, overviewState?: { total: number; pageCount: number; emailCount: number; phoneCount: number; lastRefresh: string }): { crudOptions: CrudOptions; deviceId?: string } {
 	let records: any[] = [];
 	const router = useRouter();
 	const FsButton = {
@@ -13,7 +16,7 @@ export const createTenantListCrudOptions = function ({ expose }, overviewState?)
 		activeColor: 'var(--el-color-primary)',
 		inactiveColor: 'var(el-switch-of-color)',
 	};
-	const pageRequest = async (query) => {
+	const pageRequest: PageRequest = async (query) => {
 		let {
 			form: { name },
 			page: { currentPage: currentPage, pageSize: limit },
@@ -35,33 +38,36 @@ export const createTenantListCrudOptions = function ({ expose }, overviewState?)
 			total: res.data.total,
 		};
 	};
-	const editRequest = async ({ form, row }) => {
+	const editRequest: EditRequest = async ({ form, row }) => {
 		form.id = row.id;
 		try {
 			await tenantApi().puttenant(form);
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
-	const delRequest = async ({ row }) => {
+	const delRequest: DelRequest = async ({ row }) => {
 		try {
 			await tenantApi().deletetenant(row.id);
 			_.remove(records, (item: TableDataRow) => {
 				return item.id === row.id;
 			});
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 
-	const addRequest = async ({ form }) => {
+	const addRequest: AddRequest = async ({ form }) => {
 		try {
 			await tenantApi().posttenant(form);
 			records.push(form);
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 	return {

@@ -8,10 +8,8 @@ const actionKindMap: Record<TwinBehaviorActionDefinition['kind'], TwinActionFlow
 };
 
 const actionConfig = (action: TwinBehaviorActionDefinition) => {
-	const copy = structuredClone(action) as TwinBehaviorActionDefinition & Record<string, unknown>;
-	delete copy.actionId;
-	delete copy.kind;
-	delete copy.timeoutSeconds;
+	const { actionId, kind, timeoutSeconds, ...parameters } = structuredClone(action);
+	const copy: Record<string, unknown> = parameters;
 	if (action.kind === 'wait') copy.durationSeconds = Number(action.waitSeconds || action.durationSeconds || 0);
 	if (action.waitForInterlockId) copy.interlockIds = [action.waitForInterlockId];
 	return copy as Record<string, unknown>;
@@ -67,7 +65,7 @@ export const migrateBehaviorV1 = (behavior: TwinBehaviorDefinition, options: Beh
 		variables: loopGateId ? [{ name: '__loopCount', type: 'number', initialValue: 0 }] : [],
 		nodes,
 		edges,
-		policies: { defaultTimeoutSeconds: 300, maxLoopIterations: options.maxLoopIterations || 1000, requireInterlockForCommands: true, selectionWeight: Number(behavior.selectionWeight || 1) },
+		policies: { executionTarget: 'standalone', allowedRuntimeModes: ['simulation'], defaultTimeoutSeconds: 300, maxLoopIterations: options.maxLoopIterations || 1000, requireInterlockForCommands: true, selectionWeight: Number(behavior.selectionWeight || 1) },
 		enabled: behavior.enabled !== false,
 		revision: 1,
 		status: 'Draft',

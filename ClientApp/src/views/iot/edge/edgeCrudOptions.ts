@@ -1,14 +1,16 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
 import { edgeApi } from '/@/api/edge';
 import dayjs from 'dayjs';
 import { dict } from '@fast-crud/fast-crud';
 
-export const createEdgeCrudOptions = function ({ expose, openOnboarding }, edgeDetailRef, overviewState?) {
+export const createEdgeCrudOptions = function ({ expose, openOnboarding }: { expose: CrudExpose; openOnboarding?: (row: Record<string, unknown>) => void }, edgeDetailRef: Ref<{ openDialog: (row: Record<string, unknown>) => void } | undefined>, overviewState?: { total: number; pageCount: number; healthyCount: number; activeCount: number; lastRefresh: string }): { crudOptions: CrudOptions; deviceId?: string } {
 	let records: any[] = [];
 	const FsButton = {
 		link: true,
 	};
 
-	const pageRequest = async (query) => {
+	const pageRequest: PageRequest = async (query) => {
 		const params = {
 			offset: query.page.currentPage - 1,
 			limit: query.page.pageSize,
@@ -64,7 +66,7 @@ export const createEdgeCrudOptions = function ({ expose, openOnboarding }, edgeD
 						...FsButton,
 						text: '接入',
 						order: 0,
-						onClick({ row }) {
+						onClick({ row }: { row: Record<string, unknown> }) {
 							openOnboarding?.(row);
 						},
 					},
@@ -73,8 +75,8 @@ export const createEdgeCrudOptions = function ({ expose, openOnboarding }, edgeD
 						...FsButton,
 						text: '详情',
 						order: 1,
-						onClick({ row }) {
-							edgeDetailRef.value.openDialog(row);
+						onClick({ row }: { row: Record<string, unknown> }) {
+							edgeDetailRef?.value?.openDialog(row);
 						},
 					},
 					edit: { show: false },
@@ -92,8 +94,8 @@ export const createEdgeCrudOptions = function ({ expose, openOnboarding }, edgeD
 							...FsButton,
 							type: 'primary',
 							on: {
-								onClick({ row }) {
-									edgeDetailRef.value.openDialog(row);
+								onClick({ row }: { row: Record<string, unknown> }) {
+									edgeDetailRef?.value?.openDialog(row);
 								},
 							},
 						},

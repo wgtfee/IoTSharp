@@ -384,14 +384,14 @@ namespace IoTSharp
             {
                 var options = app.ApplicationServices.GetRequiredService<IOptions<AppSettings>>();
                 var settings = options.Value;
-                if (settings.TelemetryStorage == TelemetryStorage.Sharding)
+                if (settings.EffectiveTelemetryHistoryStorage == TelemetryStorage.Sharding)
                 {
                     app.ApplicationServices.UseAutoTryCompensateTable();
                 }
                 using (var scope = app.ApplicationServices.CreateScope())
                 {
-                    var _ts_storage = scope.ServiceProvider.GetService<IStorage>();
-                    _ts_storage.CheckTelemetryStorage();
+                    var _ts_storage = scope.ServiceProvider.GetRequiredService<IStorage>();
+                    _ts_storage.CheckTelemetryStorage().GetAwaiter().GetResult();
                 }
             }
             catch (Exception)

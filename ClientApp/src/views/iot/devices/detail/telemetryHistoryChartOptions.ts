@@ -1,3 +1,4 @@
+import type { LineSeriesOption } from 'echarts';
 export const telemetryHistoryChartOptions = {
 	tooltip: {
 		trigger: 'axis',
@@ -14,7 +15,7 @@ export const telemetryHistoryChartOptions = {
 	xAxis: {
 		type: 'category',
 		boundaryGap: false,
-		data: [],
+		data: [] as string[],
 	},
 	yAxis: {
 		type: 'value',
@@ -33,5 +34,5 @@ export const telemetryHistoryChartOptions = {
 			bottom: 0,
 		},
 	],
-	series: [],
+	series: [] as LineSeriesOption[],
 };

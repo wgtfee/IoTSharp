@@ -6,7 +6,7 @@
 				<el-radio-button value="live">Live</el-radio-button>
 			</el-radio-group>
 			<el-button size="small" type="success" @click="$emit('start')">{{ mode === 'live' ? '启动 Live Run' : '开始模拟' }}</el-button>
-			<el-button size="small" :disabled="!snapshot" @click="$emit(snapshot?.state === 'Paused' ? 'resume' : 'pause')">{{ snapshot?.state === 'Paused' ? '继续' : '暂停' }}</el-button>
+			<el-button size="small" :disabled="!snapshot" @click="snapshot?.state === 'Paused' ? $emit('resume') : $emit('pause')">{{ snapshot?.state === 'Paused' ? '继续' : '暂停' }}</el-button>
 			<el-button v-if="mode === 'simulation'" size="small" @click="$emit('step')">单步</el-button>
 			<el-button size="small" type="danger" plain :disabled="!snapshot" @click="$emit('stop')">{{ mode === 'live' ? '取消 Run' : '停止' }}</el-button>
 			<el-select v-if="mode === 'simulation'" :model-value="snapshot?.speed || 1" size="small" style="width:90px" @change="$emit('speed', Number($event))"><el-option v-for="x in [.25,.5,1,2,5]" :key="x" :label="`${x}x`" :value="x" /></el-select>

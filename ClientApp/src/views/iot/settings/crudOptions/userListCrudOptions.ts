@@ -1,9 +1,12 @@
+import type { CrudExpose, DynamicallyCrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { accountApi } from '/@/api/user';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { TableDataRow } from '../model/userListModel';
 import { ElMessage } from 'element-plus';
 import { compute, dict } from '@fast-crud/fast-crud';
-export const createUserListCrudOptions = function ({ expose }, customerId, overviewState?) {
+export const createUserListCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string, overviewState?: { total: number; pageCount: number; lockedCount: number; failedCount: number; contactCount: number; lastRefresh: string }): { crudOptions: DynamicallyCrudOptions; deviceId?: string } {
     let records: any[] = [];
     const FsButton = {
         link: true,
@@ -17,7 +20,7 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
         activeColor: 'var(--el-color-primary)',
         inactiveColor: 'var(el-switch-of-color)',
     };
-    const pageRequest = async (query) => {
+    const pageRequest: PageRequest = async (query) => {
         let {
             form: { userName: name },
             page: { currentPage: currentPage, pageSize: limit },
@@ -40,26 +43,28 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
             total: res.data.total,
         };
     };
-    const editRequest = async ({ form, row }) => {
+    const editRequest: EditRequest = async ({ form, row }) => {
         form.id = row.id;
         try {
             await accountApi().putAccount(form);
             return form;
         } catch (e) {
-            ElMessage.error(e.response.msg);
+            ElMessage.error(errorMessage(e));
+            throw e;
         }
     };
-    const delRequest = async ({ row }) => {
+    const delRequest: DelRequest = async ({ row }) => {
         try {
             await accountApi().deleteAccount(row.id);
             _.remove(records, (item: TableDataRow) => {
                 return item.id === row.id;
             });
         } catch (e) {
-            ElMessage.error(e.response.msg);
+            ElMessage.error(errorMessage(e));
+            throw e;
         }
     };
-    const addRequest = async ({ form }) => {
+    const addRequest: AddRequest = async ({ form }) => {
         try {
             //验证
             var userName = form.userName;
@@ -84,7 +89,8 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                 ElMessage.error('请填写用户名');
             }
         } catch (e) {
-            ElMessage.error(e.response.msg);
+            ElMessage.error(errorMessage(e));
+            throw e;
         }
     };
     return {
@@ -107,7 +113,7 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
             },
             form: {
                 labelWidth: '80px', //
-                beforeSubmit: function (subParam) {
+                beforeSubmit: async function (subParam) {
                     var form = subParam.form;
                     if (subParam.mode == 'add') {
                         //验证
@@ -132,6 +138,7 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                             throw new Error('请填写用户名');
                         }
                     }
+                    return true;
                 }
             },
             search: {
@@ -160,6 +167,11 @@ export const createUserListCrudOptions = function ({ expose }, customerId, overv
                 },
             },
             columns: {
+                password: {
+                    title: '初始密码', type: 'text', column: { show: false },
+                    addForm: { show: true, component: { type: 'password', showPassword: true, autocomplete: 'new-password' }, rules: [{ required: true, message: '请输入初始密码' }, { min: 6, message: '密码至少 6 位，并符合平台密码策略' }] },
+                    editForm: { show: false }, viewForm: { show: false },
+                },
                 tenantName: {
                     title: '所属租户',
                     type: 'text',

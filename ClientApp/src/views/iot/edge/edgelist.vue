@@ -128,7 +128,7 @@ const { crudOptions } = createEdgeCrudOptions(
 );
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-useCrud({ crudExpose, crudOptions });
+useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
 
 const roleBag = computed(() => String(userInfos.value?.roles?.[0] ?? '').toLowerCase());
 const canCreateEdge = computed(() => roleBag.value.includes('customeradmin'));

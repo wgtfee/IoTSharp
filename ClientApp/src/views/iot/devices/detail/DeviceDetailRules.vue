@@ -26,7 +26,7 @@ const {crudExpose} = useExpose({crudRef, crudBinding});
 let {crudOptions} = createDeviceRulesCrudOptions({expose: crudExpose}, props.deviceId);
 // 初始化crud配置
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
-const {resetCrudOptions} = useCrud({expose: crudExpose, crudOptions});
+const {resetCrudOptions} = useCrud<Record<string, unknown>>({ crudExpose, crudOptions});
 // 你可以调用此方法，重新初始化crud配置
 // resetCrudOptions(options)
 watch(() => props.deviceId, () => {

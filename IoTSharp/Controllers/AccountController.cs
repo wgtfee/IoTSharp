@@ -522,77 +522,59 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="model">前端传参</param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," + nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
         [HttpPost]
-        public async Task<ApiResult<LoginResult>> PostAccount(CreateUserInput model)
+        public async Task<ApiResult<LoginResult>> PostAccount([FromBody] CreateUserInput model)
         {
+            // 先验证目标客户范围，禁止先创建账号再检查归属。
+            var customerId = model.CustomerId == Guid.Empty ? User.GetCustomerId() : model.CustomerId;
+            var customer = await _context.Customer.Include(c => c.Tenant).SingleOrDefaultAsync(c => c.Id == customerId);
+            if (customer?.Tenant == null)
+                return new ApiResult<LoginResult>(ApiCode.NotFoundCustomer, "请选择有效客户", null);
+            var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var tenantAdmin = User.IsInRole(nameof(UserRole.TenantAdmin));
+            if (!IoTSharp.Services.Accounts.AccountCreationScope.IsAllowed(systemAdmin, tenantAdmin,
+                User.IsInRole(nameof(UserRole.CustomerAdmin)), User.GetTenantId(), User.GetCustomerId(), customer.Tenant.Id, customer.Id))
+                return new ApiResult<LoginResult>(ApiCode.DoNotAllow, "不允许为其他客户或租户创建用户", null);
+
+            await using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 var user = new IdentityUser
                 {
                     Email = model.Email,
-                    UserName = model.Email,
+                    UserName = string.IsNullOrWhiteSpace(model.UserName) ? model.Email : model.UserName.Trim(),
                     PhoneNumber = model.PhoneNumber
                 };
                 var result = await _userManager.CreateAsync(user, model.Password);
+                if (!result.Succeeded)
+                    return new ApiResult<LoginResult>(ApiCode.InValidData, string.Join("; ", result.Errors.Select(e => e.Description)), null);
 
-                if (result.Succeeded)
+                var claimsResult = await _userManager.AddClaimsAsync(user, new[]
                 {
-                    await _signInManager.SignInAsync(user, false);
-                    await _signInManager.UserManager.AddClaimAsync(user, new Claim(ClaimTypes.Email, model.Email));
-                    if (model.CustomerId != Guid.Empty)
-                    {
-                        var customer = await _context.Customer.Include(c => c.Tenant).FirstOrDefaultAsync(c => c.Id == model.CustomerId);
-                        if (customer != null)
-                        {
-                            await _signInManager.UserManager.AddClaimAsync(user, new Claim(ClaimTypes.Email, model.Email));
-                            await _signInManager.UserManager.AddClaimAsync(user, new Claim(IoTSharpClaimTypes.Customer, customer.Id.ToString()));
-                            await _signInManager.UserManager.AddClaimAsync(user, new Claim(IoTSharpClaimTypes.Tenant, customer.Tenant.Id.ToString()));
-                            await _signInManager.UserManager.AddToRolesAsync(user, new[] { nameof(UserRole.NormalUser) });
-
-                            await _signInManager.UserManager.AddToRoleAsync(user, nameof(UserRole.Anonymous));
-                            await _signInManager.UserManager.AddToRoleAsync(user, nameof(UserRole.NormalUser));
-                            await _signInManager.UserManager.AddToRoleAsync(user, nameof(UserRole.CustomerAdmin));
-                            await _signInManager.UserManager.AddToRoleAsync(user, nameof(UserRole.TenantAdmin));
-                            await _signInManager.UserManager.AddToRoleAsync(user, nameof(UserRole.SystemAdmin));
-                            var rship = new Relationship
-                            {
-                                IdentityUser = _context.Users.Find(user.Id),
-                                Customer = customer,
-                                Tenant = customer.Tenant
-                            };
-                            _context.Add(rship);
-                            await _context.SaveChangesAsync();
-
-                            return new ApiResult<LoginResult>(ApiCode.Success, "Ok", new LoginResult()
-                            {
-                                Code = ApiCode.Success,
-                                Succeeded = result.Succeeded,
-                                UserName = model.Email,
-                            });
-                        }
-                    }
-                    else
-                    {
-                        return new ApiResult<LoginResult>(ApiCode.Success, "Ok", new LoginResult()
-                        {
-                            Code = ApiCode.Success,
-                            Succeeded = result.Succeeded,
-                            UserName = model.Email,
-                        });
-                    }
-                }
-                else
+                    new Claim(ClaimTypes.Email, model.Email),
+                    new Claim(IoTSharpClaimTypes.Customer, customer.Id.ToString()),
+                    new Claim(IoTSharpClaimTypes.Tenant, customer.Tenant.Id.ToString())
+                });
+                if (!claimsResult.Succeeded)
+                    throw new InvalidOperationException("写入用户归属失败");
+                // 管理员创建普通用户，不切换当前登录账号，也不授予任何管理员角色。
+                var roleResult = await _userManager.AddToRoleAsync(user, nameof(UserRole.NormalUser));
+                if (!roleResult.Succeeded)
+                    throw new InvalidOperationException("写入普通用户角色失败");
+                _context.Add(new Relationship { IdentityUser = user, Customer = customer, Tenant = customer.Tenant });
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return new ApiResult<LoginResult>(ApiCode.Success, "Ok", new LoginResult
                 {
-                    var msg = from e in result.Errors select $"{e.Code}:{e.Description}\r\n";
-                    return new ApiResult<LoginResult>(ApiCode.InValidData, string.Join(';', msg.ToArray()), null);
-                }
+                    Code = ApiCode.Success, Succeeded = true, UserName = user.UserName
+                });
             }
             catch (Exception ex)
             {
-                return new ApiResult<LoginResult>(ApiCode.InValidData, ex.Message, null);
+                _logger.LogError(ex, "为客户 {CustomerId} 创建普通用户失败", customerId);
+                return new ApiResult<LoginResult>(ApiCode.InValidData, "创建用户失败，请联系管理员查看日志", null);
             }
-            return new ApiResult<LoginResult>(ApiCode.InValidData, "", null);
         }
 
         /// <summary>

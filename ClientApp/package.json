@@ -7,10 +7,20 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
+		"typecheck": "vue-tsc --noEmit --pretty false",
+		"verify:frontend-errors": "node scripts/verify-frontend-errors.mjs",
 		"verify:2d-designer": "node scripts/run-2d-designer-smoke.mjs",
 		"verify:v7-components": "node scripts/run-v7-components-smoke.mjs",
 		"verify:twin-snapshot-perf": "node scripts/verify-twin-runtime-snapshot-performance.mjs",
 		"verify:packaging-line": "node scripts/run-packaging-line-smoke.mjs",
+		"verify:drawing-physical": "node scripts/run-generate-drawing-packaging-line.mjs --verify",
+		"verify:drawing-core": "node scripts/run-generate-drawing-packaging-line.mjs --process-core",
+		"verify:scene-action-flows": "node scripts/run-generate-drawing-packaging-line.mjs --action-flows",
+		"verify:material-interactions": "node scripts/run-generate-drawing-packaging-line.mjs --material-interactions",
+		"verify:motion-limits": "node scripts/run-generate-drawing-packaging-line.mjs --motion-limits",
+		"verify:flow-safety": "node scripts/run-generate-drawing-packaging-line.mjs --flow-safety",
+		"verify:drawing-process": "node scripts/run-generate-drawing-packaging-line.mjs --full-process",
+		"generate:drawing-process": "node scripts/run-generate-drawing-packaging-line.mjs --generate-process",
 		"generate:reference-packaging-line": "node scripts/run-generate-reference-packaging-line-scene.mjs",
 		"export:reference-packaging-line": "node scripts/run-export-reference-packaging-line.mjs",
 		"lint-fix": "eslint --fix --ext .js --ext .jsx --ext .vue src/"
@@ -70,6 +80,8 @@
 		"@types/node": "^20.11.28",
 		"@types/nprogress": "^0.2.3",
 		"@types/sortablejs": "^1.15.8",
+		"@types/three": "0.165.0",
+		"@types/uuid": "9.0.8",
 		"@typescript-eslint/eslint-plugin": "^7.2.0",
 		"@typescript-eslint/parser": "^7.2.0",
 		"@vitejs/plugin-vue": "^5.0.4",
@@ -86,7 +98,8 @@
 		"vite-plugin-cdn-import": "^0.3.5",
 		"vite-plugin-compression": "^0.5.1",
 		"vite-plugin-vue-setup-extend-plus": "^0.1.0",
-		"vue-eslint-parser": "^9.4.2"
+		"vue-eslint-parser": "^9.4.2",
+		"vue-tsc": "2.2.12"
 	},
 	"browserslist": [
 		"> 1%",

@@ -10,11 +10,23 @@ export type TwinActionFlowNodeType =
 	| 'ReserveSection' | 'EnterSection' | 'LeaveSection' | 'SelectRoute'
 	| 'WaitSignal' | 'WriteCommand' | 'WaitAck'
 	| 'Delay' | 'Deadline'
+	| 'WaitStation' | 'CompleteStation' | 'WaitInterlock' | 'SetState' | 'MarkMaterial' | 'Loop' | 'Pick' | 'Place'
 	| 'Subflow'
 	| 'ManualConfirm' | 'RaiseAlarm' | 'Compensate';
 
 export type TwinActionFlowPort = 'success' | 'failure' | 'timeout' | 'true' | 'false' | string;
+/** 已接入真实场景执行器的节点；未适配的能力不能在三维中用计时模拟成功。 */
+export const sceneActionFlowNodeTypes = new Set<TwinActionFlowNodeType>([
+	'Start','End','Merge','Condition','Loop','Delay',
+	'WaitStation','CompleteStation','WaitInterlock','SetState','MarkMaterial','SelectRoute',
+	'MoveTo','MovePose','JointMove','AxisMove','Home','GripOpen','GripClose','Attach','Detach','Pick','Place','PrepareSlot','RaiseAlarm',
+]);
 export type TwinPredicateOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'changed' | 'risingEdge' | 'truthy' | 'falsy';
+/** 这些节点的中断可能遗留真实运动/物料，不允许跳过、自动重试或转成功绕行。 */
+export const sceneSafetyNodeTypes = new Set<TwinActionFlowNodeType>([
+	'MoveTo','MovePose','JointMove','AxisMove','Home','GripOpen','GripClose','Attach','Detach','Pick','Place','PrepareSlot',
+	'WaitInterlock','WaitStation','CompleteStation','MarkMaterial','SelectRoute',
+]);
 export type TwinPredicateSource = 'binding' | 'variable' | 'material' | 'runtime';
 
 export interface TwinPredicateDefinition {
@@ -50,6 +62,8 @@ export interface TwinTimeoutPolicy {
 }
 
 export interface TwinActionFlowPolicies {
+	/** 三维联动流程只由场景运行器执行；禁止作为计时演示或直接启动 Live。 */
+	executionTarget?: 'scene' | 'standalone';
 	defaultTimeoutSeconds?: number;
 	maxLoopIterations?: number;
 	allowedRuntimeModes?: Array<'simulation' | 'live'>;
@@ -114,6 +128,7 @@ export interface TwinCompiledActionFlowPlan {
 	name: string;
 	contractVersion: typeof twinActionFlowContractVersion;
 	revision: number;
+	variables?: TwinFlowVariableDefinition[];
 	entryNodeId: string;
 	nodes: TwinActionFlowNode[];
 	edges: TwinActionFlowEdge[];
@@ -182,8 +197,10 @@ export const actionFlowNodeTypes: TwinActionFlowNodeType[] = [
 	'MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home', 'GripOpen', 'GripClose', 'Attach', 'Detach',
 	'PrepareSlot', 'ReserveSlot', 'TransferMaterial', 'ReleaseSlot', 'ReserveSection', 'EnterSection', 'LeaveSection', 'SelectRoute',
 	'WaitSignal', 'WriteCommand', 'WaitAck', 'Delay', 'Deadline', 'Subflow', 'ManualConfirm', 'RaiseAlarm', 'Compensate',
+	'WaitStation', 'CompleteStation', 'WaitInterlock', 'SetState', 'MarkMaterial', 'Loop', 'Pick', 'Place',
 ];
 
 export const blockingActionFlowNodeTypes = new Set<TwinActionFlowNodeType>([
 	'ReserveSlot', 'ReserveSection', 'WaitSignal', 'WaitAck', 'ManualConfirm', 'Deadline', 'WriteCommand',
+	'WaitStation', 'WaitInterlock',
 ]);

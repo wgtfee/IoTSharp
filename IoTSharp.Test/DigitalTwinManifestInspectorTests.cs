@@ -2,7 +2,9 @@ using IoTSharp.Contracts;
 using IoTSharp.Services.DigitalTwin;
 using System;
 using System.Linq;
+using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace IoTSharp.Test;
@@ -12,6 +14,35 @@ namespace IoTSharp.Test;
 /// </summary>
 public sealed class DigitalTwinManifestInspectorTests
 {
+    /// <summary>使用真实工艺模板验证服务端发布合同及资源绑定提取；不冒充数据库发布测试。</summary>
+    [Fact]
+    public void Inspect_DrawingProcessTemplate_PreservesProcessAndResourceBindings()
+    {
+        var sceneId = Guid.NewGuid();
+        var assetId = Guid.NewGuid();
+        var root = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "drawing-0911-process.scene.json")))!.AsObject();
+        var objects = root["objects"]!.AsArray();
+        var resourceIds = objects.Select(o => o!["component"]!["resourceKey"]!.GetValue<string>()).Distinct().ToDictionary(key => key, _ => Guid.NewGuid());
+        root["resources"] = new JsonArray(resourceIds.Select(pair => (JsonNode)new JsonObject { ["resourceId"] = pair.Value.ToString(), ["name"] = pair.Key, ["status"] = "ready" }).ToArray());
+        foreach (var item in objects)
+        {
+            item!["resourceId"] = resourceIds[item["component"]!["resourceKey"]!.GetValue<string>()].ToString();
+            item["assetId"] = assetId.ToString();
+        }
+        using var document = JsonDocument.Parse(root.ToJsonString());
+        var result = TwinManifestInspector.Inspect(document.RootElement, sceneId, assetId);
+        Assert.True(result.Valid, string.Join("; ", result.Diagnostics.Select(d => $"{d.Code}: {d.Message} ({d.Path})")));
+        Assert.Equal(objects.Count, result.Bindings.Count(b => b.SourceKind == TwinBindingSourceKind.Resource));
+        Assert.Equal(2, result.Routes.Count);
+        using var normalized = JsonDocument.Parse(result.NormalizedPayload);
+        Assert.Equal(0, normalized.RootElement.GetProperty("behaviors").GetArrayLength());
+        Assert.Equal(7, result.ActionFlows.Count);
+        Assert.Equal(90, normalized.RootElement.GetProperty("actionFlows").EnumerateArray().Sum(flow => flow.GetProperty("nodes").GetArrayLength()));
+        Assert.Equal(9, normalized.RootElement.GetProperty("materialSlots").GetArrayLength());
+        Assert.True(normalized.RootElement.GetProperty("routes")[0].GetProperty("replanUpcomingJunctions").GetBoolean());
+        Assert.Contains(normalized.RootElement.GetProperty("toolFrames").EnumerateArray(), frame => frame.TryGetProperty("cartesianActuatorIds", out var axes) && axes.GetArrayLength() == 2);
+    }
+
     [Fact]
     public void Inspect_NormalizesIdentityAndExtractsResourceDeviceAndRouteBindings()
     {

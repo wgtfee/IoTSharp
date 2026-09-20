@@ -39,7 +39,8 @@ export function setTagsViewNameI18n(item: any) {
 			tagsViewName = query?.tagsViewName || params?.tagsViewName;
 		}
 	} else {
-		tagsViewName = i18n.global.t(meta.title);
+		// 动态语言包使用单字符串翻译接口，避免消息树泛型无限展开。
+		tagsViewName = (i18n.global as unknown as { t: (key: string) => string }).t(String(meta.title || ''));
 	}
 
 	return tagsViewName;
@@ -64,10 +65,11 @@ export const lazyImg = (el: string, arr: EmptyArrayType) => {
 	});
 };
 
-export const globalComponentSize = (): string => {
+export const globalComponentSize = (): 'large' | 'small' | 'default' => {
 	const stores = useThemeConfig(pinia);
 	const { themeConfig } = storeToRefs(stores);
-	return Local.get('themeConfig')?.globalComponentSize || themeConfig.value?.globalComponentSize;
+	const size = Local.get('themeConfig')?.globalComponentSize || themeConfig.value?.globalComponentSize;
+	return size === 'large' || size === 'small' ? size : 'default';
 };
 
 export function deepClone(obj: EmptyObjectType) {

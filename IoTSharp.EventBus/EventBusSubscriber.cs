@@ -24,6 +24,7 @@ namespace IoTSharp.EventBus
         private readonly IStorage _storage;
         private readonly IEasyCachingProvider _caching;
         private readonly EventBusOption _eventBusOption;
+        private readonly IDurableTelemetryHistoryQueue? _historyQueue;
 
         public EventBusSubscriber(ILogger logger, IServiceScopeFactory scopeFactor
            , IStorage storage, IEasyCachingProviderFactory factory, EventBusOption eventBusOption
@@ -35,6 +36,8 @@ namespace IoTSharp.EventBus
             _storage = storage;
             _caching = factory.GetCachingProvider(_hc_Caching);
             _eventBusOption = eventBusOption;
+            using var spoolScope = scopeFactor.CreateScope();
+            _historyQueue = spoolScope.ServiceProvider.GetService<IDurableTelemetryHistoryQueue>();
         }
         public async Task StoreAttributeData(PlayloadData msg)
         {
@@ -159,10 +162,31 @@ namespace IoTSharp.EventBus
                 return;
             }
 
-            var storeResult = await _storage.StoreTelemetryBatchAsync(messages);
-            if (!storeResult.Result)
+            var persistence = _eventBusOption.TelemetryPersistence.BeginBatch(messages);
+            try
             {
-                throw new InvalidOperationException($"Telemetry batch storage failed. MessageCount={storeResult.MessageCount}");
+                TelemetryBatchStoreResult storeResult;
+                if (_historyQueue is not null
+                    && _storage is ISplitTelemetryBatchStorage splitStorage
+                    && splitStorage.SupportsTelemetryHistoryRowReplay)
+                {
+                    await _historyQueue.EnqueueAsync(messages);
+                    storeResult = await splitStorage.StoreTelemetryLatestBatchAsync(messages);
+                }
+                else
+                {
+                    storeResult = await _storage.StoreTelemetryBatchAsync(messages);
+                }
+                if (!storeResult.Result)
+                {
+                    throw new InvalidOperationException($"Telemetry batch storage failed. MessageCount={storeResult.MessageCount}");
+                }
+                persistence.Complete();
+            }
+            catch
+            {
+                persistence.Fail();
+                throw;
             }
 
             var deviceModes = new Dictionary<Guid, TelemetryRuleDispatchMode>();

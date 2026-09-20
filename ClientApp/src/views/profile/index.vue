@@ -28,9 +28,9 @@
 </template>
 <script lang="ts" setup>
 
-import {rule} from './profile_form_rules.ts'
-import {passwordFormRules} from './password_form_rules.ts'
-import {option} from './profile_form_option.ts'
+import {rule} from './profile_form_rules'
+import {passwordFormRules} from './password_form_rules'
+import {option} from './profile_form_option'
 import formCreate, {Api} from "/@/utils/formCreate";
 import {useLoginApi} from "/@/api/login";
 import {ElMessage} from "element-plus";
@@ -65,6 +65,7 @@ const validatePassCheck = (rule:any, value:any, callback:any) => {
 passwordFormRules[2].validate.push({
   required: true,
   trigger: "change",
+  message: '两次输入的密码必须一致',
   validator: validatePassCheck
 })
 // debugger

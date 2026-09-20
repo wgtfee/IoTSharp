@@ -1,15 +1,15 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
 import { assetApi } from '/@/api/asset';
 import { formatToDateTime } from '/@/utils/dateUtil';
 // eslint-disable-next-line no-unused-vars
-export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }, assetId, state) {
+export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }: { expose: CrudExpose }, assetId: string, state: { telemetryKeys: string[] }): { crudOptions: CrudOptions; deviceId?: string } {
 	let records: any[] = [];
 	const FsButton = {
 		link: true,
 	};
-	const formatColumnDataTime = (row, column, cellValue) => {
-		return formatToDateTime(cellValue);
-	};
-	const pageRequest = async () => {
+
+	const pageRequest: PageRequest = async () => {
 		const res = await assetApi().relations({assetId});
 		records = res.data.rows;
 		return {
@@ -92,7 +92,7 @@ export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }, as
 					title: '时间',
 					type: 'text',
 					column: {
-						formatter: formatColumnDataTime,
+						formatter: (context) => formatToDateTime(context.value),
 					},
 					addForm: {
 						show: false,

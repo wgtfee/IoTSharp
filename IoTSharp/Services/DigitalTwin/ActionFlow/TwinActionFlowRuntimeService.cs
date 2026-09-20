@@ -104,6 +104,12 @@ public sealed class TwinActionFlowRuntimeService
             throw new TwinOperationException(ApiCode.InValidData, "该流程不是场景当前发布版本，禁止创建新 Run。");
 
         using var plan = JsonDocument.Parse(flow.CompiledPayload);
+        if (plan.RootElement.TryGetProperty("policies", out var runtimePolicies))
+        {
+            if ((runtimePolicies.TryGetProperty("executionTarget", out var target) && target.GetString() == "scene")
+                || (runtimePolicies.TryGetProperty("allowedRuntimeModes", out var modes) && modes.ValueKind == JsonValueKind.Array && !modes.EnumerateArray().Any(m => m.ValueKind == JsonValueKind.String && m.GetString() == "live")))
+                throw new TwinOperationException(ApiCode.InValidData, "此发布流程仅供三维仿真，不允许作为 Live 设备命令执行。");
+        }
         var entryNodeId = String(plan.RootElement, "entryNodeId");
         if (string.IsNullOrWhiteSpace(entryNodeId)) throw new TwinOperationException(ApiCode.InValidData, "发布流程缺少编译入口。");
 

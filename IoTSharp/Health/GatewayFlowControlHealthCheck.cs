@@ -18,12 +18,14 @@ public sealed class GatewayFlowControlHealthCheck : IHealthCheck
         {
             ["flow.mode"] = snapshot.Mode,
             ["flow.queueUtilization"] = snapshot.QueueUtilization,
+            ["flow.persistenceLagSeconds"] = snapshot.PersistenceLagSeconds,
+            ["flow.persistenceInFlightBatches"] = snapshot.PersistenceInFlightBatches,
             ["flow.eligibleGateways"] = snapshot.EligibleGateways,
             ["flow.publishedHints"] = snapshot.PublishedHints,
             ["flow.publishFailures"] = snapshot.PublishFailures
         };
         return Task.FromResult(HealthCheckResult.Healthy(
-            $"Gateway flow control mode={snapshot.Mode}, utilization={snapshot.QueueUtilization:P1}.",
+            $"Gateway flow control mode={snapshot.Mode}, utilization={snapshot.QueueUtilization:P1}, persistenceLag={snapshot.PersistenceLagSeconds:F1}s.",
             data));
     }
 }

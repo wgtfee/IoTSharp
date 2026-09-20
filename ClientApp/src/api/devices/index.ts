@@ -164,7 +164,7 @@ export function deviceApi() {
 			});
 		},
 		downloadCertificates: (deviceId: string) => {
-			return request({
+			return request<Blob, Blob>({
 				url: '/api/devices/' + deviceId + '/downloadCertificates',
 				method: 'get',
 				responseType: 'blob',

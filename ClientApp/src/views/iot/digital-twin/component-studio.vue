@@ -133,7 +133,7 @@
 									<span>{{ schema.label }}<small v-if="schema.unit">{{ schema.unit }}</small></span>
 									<el-input-number v-if="schema.type === 'number'" :model-value="componentNumberValue(schema.key)" :min="schema.min" :max="schema.max" :step="schema.step || 0.1" controls-position="right" @update:model-value="setComponentProperty(schema.key,$event)" />
 									<el-switch v-else-if="schema.type === 'boolean'" :model-value="Boolean(componentPropertyValue(schema.key))" @update:model-value="setComponentProperty(schema.key,$event)" />
-									<el-select v-else-if="schema.type === 'select'" :model-value="componentPropertyValue(schema.key)" @update:model-value="setComponentProperty(schema.key,$event)"><el-option v-for="option in schema.options || []" :key="String(option.value)" :label="option.label" :value="option.value" /></el-select>
+									<el-select v-else-if="schema.type === 'select'" :model-value="componentSelectValue(schema.key)" @update:model-value="setComponentProperty(schema.key,$event)"><el-option v-for="option in schema.options || []" :key="String(option.value)" :label="option.label" :value="option.value" /></el-select>
 									<el-input v-else :model-value="String(componentPropertyValue(schema.key) ?? '')" @update:model-value="setComponentProperty(schema.key,$event)" />
 									<small v-if="schema.description">{{ schema.description }}</small>
 								</label>
@@ -431,6 +431,10 @@ const animationNodeOptions = (partId: string) => (viewport.value?.getGeneratedSt
 	.filter((node) => node.type !== 'Instance')
 	.map((node) => ({ value: node.name, label: `${'　'.repeat(Math.min(4, node.depth))}${node.name}` }));
 const componentPropertyValue = (key: string) => selectedPart.value?.source?.component?.properties[key];
+const componentSelectValue = (key: string) => {
+	const value = componentPropertyValue(key);
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
+};
 const componentNumberValue = (key: string) => {
 	const value = Number(componentPropertyValue(key));
 	return Number.isFinite(value) ? value : 0;

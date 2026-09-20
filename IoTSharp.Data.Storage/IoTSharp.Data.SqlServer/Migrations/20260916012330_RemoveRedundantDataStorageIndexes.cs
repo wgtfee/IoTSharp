@@ -8,26 +8,24 @@ namespace IoTSharp.Data.SqlServer.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_DataStorage_Catalog",
-                table: "DataStorage");
+            migrationBuilder.Sql(@"
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_DataStorage_Catalog' AND object_id = OBJECT_ID(N'[dbo].[DataStorage]'))
+    DROP INDEX [IX_DataStorage_Catalog] ON [dbo].[DataStorage];");
 
-            migrationBuilder.DropIndex(
-                name: "IX_DataStorage_Catalog_DeviceId",
-                table: "DataStorage");
+            migrationBuilder.Sql(@"
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_DataStorage_Catalog_DeviceId' AND object_id = OBJECT_ID(N'[dbo].[DataStorage]'))
+    DROP INDEX [IX_DataStorage_Catalog_DeviceId] ON [dbo].[DataStorage];");
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateIndex(
-                name: "IX_DataStorage_Catalog",
-                table: "DataStorage",
-                column: "Catalog");
+            migrationBuilder.Sql(@"
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_DataStorage_Catalog' AND object_id = OBJECT_ID(N'[dbo].[DataStorage]'))
+    CREATE INDEX [IX_DataStorage_Catalog] ON [dbo].[DataStorage] ([Catalog]);");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_DataStorage_Catalog_DeviceId",
-                table: "DataStorage",
-                columns: new[] { "Catalog", "DeviceId" });
+            migrationBuilder.Sql(@"
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_DataStorage_Catalog_DeviceId' AND object_id = OBJECT_ID(N'[dbo].[DataStorage]'))
+    CREATE INDEX [IX_DataStorage_Catalog_DeviceId] ON [dbo].[DataStorage] ([Catalog], [DeviceId]);");
         }
     }
 }

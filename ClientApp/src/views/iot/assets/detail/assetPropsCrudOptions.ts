@@ -1,7 +1,9 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
 import { assetApi } from '/@/api/asset';
 import { dict } from '@fast-crud/fast-crud';
 // eslint-disable-next-line no-unused-vars
-export const createAssetPropsCrudOptions = function ({ expose }, assetId) {
+export const createAssetPropsCrudOptions = function ({ expose }: { expose: CrudExpose }, assetId: string): { crudOptions: CrudOptions; deviceId?: string } {
 	const FsButton = {
 		link: true,
 	};
@@ -9,7 +11,7 @@ export const createAssetPropsCrudOptions = function ({ expose }, assetId) {
 		activeColor: 'var(--el-color-primary)',
 		inactiveColor: 'var(el-switch-of-color)',
 	};
-	const pageRequest = async () => {
+	const pageRequest: PageRequest = async () => {
 		const res = await assetApi().assetRelations({assetId});
 		return {
 			records: res.data.rows,

@@ -29,13 +29,13 @@
 					<el-table-column prop="taskId" label="任务ID" min-width="260" show-overflow-tooltip />
 					<el-table-column label="操作" width="180">
 						<template #default="scope">
-							<el-button link type="primary" @click="openTimeline(scope.row)">详情</el-button>
+							<el-button link type="primary" @click="openTimeline(scope.row as EdgeTaskTimeline)">详情</el-button>
 							<el-button
-								v-if="canRetry(scope.row)"
+								v-if="canRetry(scope.row as EdgeTaskTimeline)"
 								link
 								type="warning"
 								:loading="retryingTaskId === scope.row.taskId"
-								@click="retryTask(scope.row)"
+								@click="retryTask(scope.row as EdgeTaskTimeline)"
 							>
 								重试
 							</el-button>

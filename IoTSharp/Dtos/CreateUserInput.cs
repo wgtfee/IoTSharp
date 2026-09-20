@@ -15,6 +15,9 @@ namespace IoTSharp.Dtos
         /// 电话号码
         /// </summary>
         public string PhoneNumber { get; set; }
+
+        /// <summary>登录用户名；未指定时使用邮箱。</summary>
+        public string UserName { get; set; }
         /// <summary>
         /// 
         /// </summary>
@@ -25,6 +28,6 @@ namespace IoTSharp.Dtos
         /// </summary>
         [Required]
         [StringLength(100, MinimumLength = 6)]
-        public string Password { get; set; } = "1q2w3E*";
+        public string Password { get; set; }
     }
 }

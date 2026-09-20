@@ -45,8 +45,9 @@ const findExistingActuator = (
 	localId: string,
 	nodePath: string,
 	kind: TwinActuatorDefinition['kind'],
+	motionAxis?: unknown,
 ) => (manifest.actuators || []).find((item) => item.actuatorId === candidateId)
-	|| (manifest.actuators || []).find((item) => item.objectId === objectId && item.nodePath === nodePath && item.kind === kind)
+	|| (manifest.actuators || []).find((item) => item.objectId === objectId && item.nodePath === nodePath && item.kind === kind && (!motionAxis || item.motionAxis === motionAxis))
 	|| (manifest.actuators || []).find((item) => item.objectId === objectId
 		&& item.kind === kind
 		&& (item.actuatorId === localId || item.actuatorId.endsWith(`:${localId}`) || item.actuatorId.endsWith(`-${localId}`)));
@@ -135,7 +136,7 @@ export const ensureComponentActuators = (
 				const kind = String(definition.kind || '').trim() as TwinActuatorDefinition['kind'];
 				if (!localId || !nodePath || !actuatorKinds.has(kind)) continue;
 				const candidateId = `${objectId}:${localId}`;
-				let actuator = findExistingActuator(manifest, objectId, candidateId, localId, nodePath, kind);
+				let actuator = findExistingActuator(manifest, objectId, candidateId, localId, nodePath, kind, definition.motionAxis);
 				if (!actuator) {
 					actuator = {
 						actuatorId: candidateId,

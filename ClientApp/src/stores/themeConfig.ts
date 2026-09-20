@@ -87,7 +87,7 @@ export const useThemeConfig = defineStore('themeConfig', {
 	}),
 	actions: {
 		setThemeConfig(data: Partial<ThemeConfigState> | Partial<ThemeConfigState['themeConfig']>) {
-			const nextConfig = data && 'themeConfig' in data ? data.themeConfig : data;
+			const nextConfig = 'themeConfig' in data ? data.themeConfig : data as Partial<ThemeConfigState['themeConfig']>;
 			this.themeConfig = normalizeThemeConfig(nextConfig);
 		},
 	},

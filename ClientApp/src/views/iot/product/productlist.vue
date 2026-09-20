@@ -318,7 +318,7 @@ const dropdownCommand = (row: any, command: string) => {
 			creatdevice(row);
 			break;
 		case 'managedev':
-			navtodevice(row);
+			navtodevice();
 			break;
 		case 'prop':
 			editprop(row);

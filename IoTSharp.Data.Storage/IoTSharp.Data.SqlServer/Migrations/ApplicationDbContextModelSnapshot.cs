@@ -3295,9 +3295,6 @@ namespace IoTSharp.Data.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("DeviceId", "KeyName", "DateTime");
-
-                    b.HasIndex("KeyName");
-
                     b.HasIndex("DeviceId", "DateTime");
                     b.ToTable("TelemetryData");
                 });

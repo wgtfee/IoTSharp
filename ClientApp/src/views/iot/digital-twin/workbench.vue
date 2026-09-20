@@ -31,6 +31,8 @@
 						<el-dropdown-item v-if="currentScene?.publishedVersion" @click="router.push({ path:'/iot/digital-twin/viewer', query:{ sceneId: currentScene.id, version: currentScene.publishedVersion } })">查看线上版本</el-dropdown-item>
 						<el-dropdown-item divided @click="applySilkCakeLineTemplate">完整工艺 V6</el-dropdown-item>
 						<el-dropdown-item @click="openCreateSceneDialog('reference-packaging-v1')">参考图双套袋产线</el-dropdown-item>
+						<el-dropdown-item @click="openCreateSceneDialog('drawing-process-v2')">按确认图新建 · 全动作流 V3</el-dropdown-item>
+						<el-dropdown-item v-if="!drawingActionFlowUpgradeIssue(manifest)" @click="upgradeCurrentDrawingFlows">当前图纸工艺升级动作流（保留布局）</el-dropdown-item>
 						<el-dropdown-item @click="validateScene">场景校验</el-dropdown-item>
 						<el-dropdown-item @click="openVersions">版本与回滚</el-dropdown-item>
 						<el-dropdown-item @click="exportManifest">导出 Manifest</el-dropdown-item>
@@ -181,6 +183,13 @@
 							<el-select v-model="point.process.type" size="small" placeholder="工位类型" @change="syncRouteGraph"><el-option v-for="option in processTypeOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
 							<el-input-number v-model="point.process.cycleSeconds" :min="0.2" :max="300" :step="0.5" size="small" controls-position="right" @change="syncRouteGraph" />
 							<el-input-number v-model="point.process.batchSize" :min="1" :max="99" :step="1" size="small" controls-position="right" placeholder="工位批次托盘数" @change="syncRouteGraph" />
+							<label :for="`arrival-${point.pointId}`">批次到位方式</label>
+							<el-select :id="`arrival-${point.pointId}`" v-model="point.process.batchArrivalMode" size="small" aria-label="批次到位方式" @change="syncRouteGraph"><el-option label="兼容排队" value="legacy" /><el-option label="沿真实路线逐托停车" value="route-aligned" /></el-select>
+							<template v-if="point.process.batchArrivalMode === 'route-aligned'">
+								<label :for="`lane-size-${point.pointId}`">此通道停车数量</label><el-input-number :id="`lane-size-${point.pointId}`" v-model="point.process.batchLaneSize" :min="1" :max="99" size="small" aria-label="此通道停车数量" @change="syncRouteGraph" />
+								<label :for="`admission-${point.pointId}`">允许进站托盘</label><el-select :id="`admission-${point.pointId}`" v-model="point.process.materialAdmission" size="small" aria-label="允许进站托盘" @change="syncRouteGraph"><el-option label="任意托盘" value="any" /><el-option label="仅空托盘" value="empty" /><el-option label="仅载料托盘" value="loaded" /></el-select>
+								<label :for="`stage-${point.pointId}`">完成后物料阶段</label><el-input :id="`stage-${point.pointId}`" v-model="point.process.materialStageOnComplete" size="small" clearable aria-label="完成后物料阶段" placeholder="例如 inspected" @change="syncRouteGraph" />
+							</template>
 							<el-checkbox v-model="point.process.simulationEntry" @change="syncRouteGraph">Simulation 入口工位</el-checkbox>
 							<el-input v-model="point.process.physicalLane" size="small" clearable placeholder="物理通道，如 A / B" @change="syncRouteGraph" />
 							<el-select v-model="point.process.releaseEdgeId" size="small" clearable filterable placeholder="物理离站出口" @change="syncRouteGraph"><el-option v-for="option in outgoingRouteEdgeOptions(point.pointId)" :key="option.value" :label="option.label" :value="option.value" /></el-select>
@@ -342,7 +351,7 @@
 			</section>
 
 			<section v-if="workspaceMode === 'split'" class="twin-flow-split-pane">
-				<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
+				<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :scene-snapshots="sceneFlowSnapshots" @scene-control="controlSceneActionFlows" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
 			</section>
 
 			<aside v-show="!rightPanelCollapsed" class="twin-panel twin-panel--right">
@@ -411,9 +420,10 @@
 					</div>
 					<div class="twin-inline-control"><strong>TCP / ToolFrame</strong><el-tag size="small">{{ selectedToolFrames.length }}</el-tag><el-button text type="primary" size="small" @click="addToolFrame">新增</el-button></div>
 					<div v-for="frame in selectedToolFrames" :key="frame.toolFrameId" class="twin-behavior-item">
+						<label :for="`tcp-axes-${frame.toolFrameId}`">直角坐标工具驱动轴（桁架）</label><el-select :id="`tcp-axes-${frame.toolFrameId}`" v-model="frame.cartesianActuatorIds" multiple clearable filterable size="small" aria-label="直角坐标工具驱动轴" @change="syncBehaviorManifest"><el-option v-for="axis in selectedActuators.filter(a => a.kind === 'linear-axis')" :key="axis.actuatorId" :label="axis.name" :value="axis.actuatorId" /></el-select>
 						<div class="twin-behavior-item__head"><el-input v-model="frame.name" size="small" @change="syncBehaviorManifest" /><el-button circle text type="danger" size="small" @click="removeToolFrame(frame.toolFrameId)">×</el-button></div>
 						<div class="twin-behavior-grid"><el-input v-model="frame.nodePath" size="small" placeholder="工具节点路径" @change="syncBehaviorManifest" /><el-input :model-value="(frame.payloadTypes || []).join(',')" size="small" placeholder="允许物料类型，逗号分隔" @change="setToolFramePayloadTypes(frame, $event)" /></div>
-						<div class="twin-coordinate-grid"><el-input-number v-model="frame.localPosition[0]" :step="0.05" size="small" controls-position="right" placeholder="TCP X" @change="syncBehaviorManifest" /><el-input-number v-model="frame.localPosition[1]" :step="0.05" size="small" controls-position="right" placeholder="TCP Y" @change="syncBehaviorManifest" /><el-input-number v-model="frame.localPosition[2]" :step="0.05" size="small" controls-position="right" placeholder="TCP Z" @change="syncBehaviorManifest" /></div>
+						<div class="twin-coordinate-grid"><el-input-number v-for="(axis, index) in ['X', 'Y', 'Z']" :key="axis" :model-value="frame.localPosition?.[index] ?? 0" :step="0.05" size="small" controls-position="right" :aria-label="`TCP ${axis}`" :placeholder="`TCP ${axis}`" @change="setToolFramePosition(frame, index, $event)" /></div>
 					</div>
 					<div class="twin-inline-control"><strong>执行机构</strong><el-tag size="small">{{ selectedActuators.length }} Axis/Tool</el-tag><el-button text type="primary" size="small" @click="addActuator">新增</el-button></div>
 					<div v-for="actuator in selectedActuators" :key="actuator.actuatorId" class="twin-behavior-item">
@@ -445,6 +455,10 @@
 							<div class="twin-action-row__head"><span>{{ actionIndex + 1 }}</span><el-select v-model="action.kind" size="small" @change="syncBehaviorManifest"><el-option v-for="option in behaviorActionKindOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-button text size="small" :disabled="actionIndex === 0" @click="moveBehaviorAction(behavior, actionIndex, -1)">↑</el-button><el-button text size="small" :disabled="actionIndex === behavior.actions.length - 1" @click="moveBehaviorAction(behavior, actionIndex, 1)">↓</el-button><el-button circle text type="danger" size="small" @click="removeBehaviorAction(behavior, action.actionId)">×</el-button></div>
 							<el-input-number v-model="action.speedRatio" :min="0.05" :max="2" :step="0.05" size="small" controls-position="right" placeholder="速度倍率" @change="syncBehaviorManifest" />
 							<el-select v-if="['moveTo','pick','place','home'].includes(action.kind)" v-model="action.workPointId" size="small" clearable filterable placeholder="语义工作点" @change="syncBehaviorManifest"><el-option v-for="option in workPointOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+							<template v-if="action.kind === 'moveTo'">
+								<el-checkbox v-model="action.alignPayloadGrid" @change="syncBehaviorManifest">到位时按实际物料变距（2×6 夹具）</el-checkbox>
+								<div v-if="action.alignPayloadGrid" class="twin-behavior-grid"><el-select v-model="action.sourceSlotId" clearable filterable size="small" aria-label="变距来源槽位" placeholder="取料来源槽位" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-select v-model="action.targetSlotId" clearable filterable size="small" aria-label="变距目标槽位" placeholder="放料目标槽位" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input v-model="action.payloadType" size="small" aria-label="变距物料类型" placeholder="silk-cake" @change="syncBehaviorManifest" /><el-input-number v-model="action.payloadCount" :min="1" :max="12" size="small" aria-label="变距抓位数量" @change="syncBehaviorManifest" /></div>
+							</template>
 							<div v-if="['moveTo','pick','place'].includes(action.kind)" class="twin-behavior-grid">
 								<el-input-number :model-value="Number(action.approachOffset?.[0] ?? 0)" :step="0.05" size="small" controls-position="right" placeholder="工作点偏移 X" @change="setActionApproachOffset(action, 0, $event)" />
 								<el-input-number :model-value="Number(action.approachOffset?.[1] ?? 0)" :step="0.05" size="small" controls-position="right" placeholder="工作点偏移 Y" @change="setActionApproachOffset(action, 1, $event)" />
@@ -459,7 +473,7 @@
 							<div v-if="['pick','attach'].includes(action.kind)" class="twin-behavior-grid"><el-checkbox v-model="action.allowPartialPayload" @change="syncBehaviorManifest">允许尾批部分抓取</el-checkbox><el-input-number v-if="action.allowPartialPayload" v-model="action.minimumPayloadCount" :min="1" :max="99" :step="1" size="small" controls-position="right" placeholder="最少抓取数量" @change="syncBehaviorManifest" /></div>
 							<div v-if="['place','detach'].includes(action.kind)" class="twin-behavior-grid"><el-select v-model="action.targetSlotId" clearable filterable size="small" placeholder="目标 MaterialSlot" @change="syncBehaviorManifest"><el-option v-for="option in materialSlotOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-select v-model="action.toolFrameId" clearable filterable size="small" placeholder="放置 TCP" @change="syncBehaviorManifest"><el-option v-for="option in toolFrameOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></div>
 							<div v-if="action.kind === 'wait'" class="twin-behavior-grid"><el-select v-model="action.waitForInterlockId" size="small" clearable placeholder="等待联锁" @change="syncBehaviorManifest"><el-option v-for="option in interlockOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><el-input-number v-model="action.waitSeconds" :min="0" :max="300" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
-							<div v-if="action.kind === 'waitSignal'" class="twin-behavior-item"><el-select v-model="action.signalBindingId" size="small" clearable filterable placeholder="PLC / Telemetry Binding" @change="syncBehaviorManifest"><el-option v-for="option in signalBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><div class="twin-behavior-grid"><el-select v-model="action.signalOperator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-input v-model="action.signalValue" size="small" placeholder="比较值（truthy/falsy 可空）" @change="syncBehaviorManifest" /></div><el-input-number v-model="action.timeoutSeconds" :min="0" :max="3600" :step="0.5" size="small" controls-position="right" placeholder="超时秒数" @change="syncBehaviorManifest" /></div>
+							<div v-if="action.kind === 'waitSignal'" class="twin-behavior-item"><el-select v-model="action.signalBindingId" size="small" clearable filterable placeholder="PLC / Telemetry Binding" @change="syncBehaviorManifest"><el-option v-for="option in signalBindingOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select><div class="twin-behavior-grid"><el-select v-model="action.signalOperator" size="small" @change="syncBehaviorManifest"><el-option label="为真" value="truthy" /><el-option label="为假" value="falsy" /><el-option label="等于" value="equals" /><el-option label="不等于" value="notEquals" /></el-select><el-input :model-value="String(action.signalValue ?? '')" size="small" aria-label="信号比较值" placeholder="比较值（truthy/falsy 可空）" @change="setBehaviorSignalValue(action, $event)" /></div><el-input-number v-model="action.timeoutSeconds" :min="0" :max="3600" :step="0.5" size="small" controls-position="right" placeholder="超时秒数" @change="syncBehaviorManifest" /></div>
 							<div v-if="action.kind === 'axisMove' && !action.actuatorId" class="twin-behavior-grid"><el-select v-model="action.axis" size="small" @change="syncBehaviorManifest"><el-option label="X" value="x" /><el-option label="Y" value="y" /><el-option label="Z" value="z" /></el-select><el-input-number v-model="action.axisValue" :step="0.1" size="small" controls-position="right" @change="syncBehaviorManifest" /></div>
 							<div class="twin-inline-control"><small>动作开始状态</small><el-button text type="primary" size="small" @click="addStateAssignment(ensureActionStartState(action))">增加</el-button></div>
 							<div v-for="(state, stateIndex) in action.onStartState || []" :key="`${action.actionId}:start:${stateIndex}`" class="twin-condition-row"><el-input v-model="state.source" size="small" placeholder="状态源" @change="syncBehaviorManifest" /><el-input :model-value="String(state.value ?? '')" size="small" placeholder="值" @change="setStateAssignmentValue(state, $event)" /><el-button circle text type="danger" size="small" @click="removeStateAssignment(action.onStartState!, stateIndex)">×</el-button></div>
@@ -512,7 +526,7 @@
 			</aside>
 		</main>
 		<main v-else class="twin-flow-only">
-			<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
+			<ActionFlowDesigner :flows="manifest.actionFlows || []" :manifest="manifest" :scene-snapshots="sceneFlowSnapshots" @scene-control="controlSceneActionFlows" :focus-object-id="flowFocusObjectId" :persisted-flows="currentScene?.actionFlows || []" :scene-id="currentScene?.id" :published-version-id="currentScene?.publishedVersionId" :scene-revision="currentScene?.revision" :published-source-revision="currentScene?.publishedSourceRevision" @update:flows="updateActionFlows" @focus-object="focusActionFlowObject" @changed="markActionFlowChanged" @create-interlock="createFlowInterlock" @create-material-slot="createFlowMaterialSlot" />
 		</main>
 
 		<el-dialog v-model="createDialogVisible" title="新建数字孪生场景" width="520px">
@@ -561,6 +575,7 @@ import { addActuatorDefinition, addBehaviorActionDefinition, addBehaviorDefiniti
 import ThreeJsEditorHost from '/@/digital-twin/components/ThreeJsEditorHost.vue';
 import { applyComponentSnap, areComponentPortsCompatible, builtInComponentResourceRegistrations, builtInComponentTemplates, ensureComponentActuators, migrateSilkLineInfrastructureToV7, removeConnectionsForObject, resolveComponentPorts, snapSceneComponent, upsertGeneratedComponentRoute, upsertGeneratedComponentRoutes, validateV7ComponentManifest } from '/@/digital-twin/components';
 import { createReferencePackagingLineTwinSceneManifest, upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
+import { createDrawingPackagingProcessManifest, drawingActionFlowUpgradeIssue, upgradeDrawingPackagingActionFlows } from '/@/digital-twin/presets/DrawingPackagingProcessManifest';
 import { resolveTwinDiagnosticObjectId } from '/@/digital-twin/diagnostics/diagnosticLocator';
 import { attachRoutePointToPort, detachRoutePointFromPort, inferRouteEndpointRole, listRouteEndpointPortSnapOptions } from '/@/digital-twin/routes/RouteSnapEngine';
 import { convertGeneratedRouteToManual, ensureRouteSection, routeHasGeneratedAuthoring } from '/@/digital-twin/routes/RouteAuthoringTools';
@@ -600,6 +615,7 @@ const assetDevices = ref<TwinBindingDeviceOption[]>([]);
 const bindingKeyOptions = ref<BindingKeyOption[]>([]);
 const bindingKeysLoading = ref(false);
 const models = ref<TwinModelResource[]>([]);
+const modelsLoading = ref(false);
 const versions = ref<TwinSceneVersion[]>([]);
 const selected = ref<TwinSelectionInfo | null>(null);
 const advancedInspectorExpanded = ref(false);
@@ -640,15 +656,20 @@ const showBlockingDiagnostics = async (title: string, items: Array<{ message: st
 };
 
 const createForm = reactive({ name: '丝饼完整工艺数字孪生 V6', description: '80托盘全在线闭环；Robot 1×6 后先识别空托，空托短回流，有料托经过外检、套袋、套袋后 A/B 分流、Gantry 2×3、木托盘8层及后包装入库。', rootAssetId: '' });
-const createSceneTemplate = ref<'blank' | 'silk-v6' | 'reference-packaging-v1'>('blank');
-const createSceneTemplateHelp = computed(() => createSceneTemplate.value === 'silk-v6'
+type SceneTemplate = 'blank' | 'silk-v6' | 'reference-packaging-v1' | 'drawing-process-v2';
+const createSceneTemplate = ref<SceneTemplate>('blank');
+const createSceneTemplateHelp = computed(() => createSceneTemplate.value === 'drawing-process-v2'
+	? '按确认图新建独立全动作流 V3，不覆盖 V19。七套可编辑节点图驱动 50 小托盘、抓丝、外检、双套袋、空回流、码垛隔板和出料；不使用旧动作序列，仅离线仿真。组件、绑定和动作图随场景入库。'
+	: createSceneTemplate.value === 'silk-v6'
 	? '将创建完整工艺 V6：丝车、旋转台、上料机器人、分流、桁架、回流及托盘闭环。'
 	: createSceneTemplate.value === 'reference-packaging-v1'
 		? '将按当前参考图 V18 创建组件化产线；动作、Pose、TCP、物料槽位、码垛规则和联锁均可在设计器中编辑。'
 		: '将创建空白 3D 场景：不预置模型、设备或工艺路线。');
-const openCreateSceneDialog = (template: 'blank' | 'silk-v6' | 'reference-packaging-v1' = 'blank') => {
+const openCreateSceneDialog = (template: SceneTemplate = 'blank') => {
 	createSceneTemplate.value = template;
-	if (template === 'silk-v6') {
+	if (template === 'drawing-process-v2') {
+		const drawing = createDrawingPackagingProcessManifest(); createForm.name = drawing.name; createForm.description = drawing.description || '';
+	} else if (template === 'silk-v6') {
 		createForm.name = '丝饼完整工艺数字孪生 V6';
 		createForm.description = '80托盘全在线闭环、双面丝车3×6、机器人1×6、分层安全桁架2×3、木托盘8层、盖板、贴标、缠膜和立体库入库。';
 	} else if (template === 'reference-packaging-v1') {
@@ -1041,20 +1062,22 @@ const bindingKeys = computed(() => {
 	return bindingKeyOptions.value;
 });
 const routeStateText = computed(() => ({ running: '运行中', waiting: '等待放行', paused: '已暂停', completed: '已完成' })[metrics.state]);
-const waitingReasonText = computed(() => ({ ROUTE_NOT_READY: 'PLC 路由未就绪', DIVERTER_NOT_READY: '分流机构未到位', TARGET_SECTION_FULL: '目标段已满', TARGET_SECTION_BLOCKED: '目标段封锁', TARGET_SECTION_SIGNAL_STALE: '目标段信号失效', TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED: '输送对象类型不允许' })[metrics.waitingReason || 'TARGET_SECTION_BLOCKED']);
+const waitingReasonText = computed(() => ({ ROUTE_NOT_READY: 'PLC 路由未就绪', DIVERTER_NOT_READY: '分流机构未到位', TARGET_SECTION_NOT_READY: '目标段未就绪', TARGET_SECTION_FULL: '目标段已满', TARGET_SECTION_BLOCKED: '目标段封锁', TARGET_SECTION_SIGNAL_STALE: '目标段信号失效', TARGET_SECTION_UNIT_TYPE_NOT_ALLOWED: '输送对象类型不允许' })[metrics.waitingReason || 'TARGET_SECTION_BLOCKED']);
 const curveOptions = [{ label: '直线', value: 'line' }, { label: '平滑曲线', value: 'catmullRom' }];
 const routingModeOptions = [{ label: '手动', value: 'manual' }, { label: '自动规则', value: 'automatic' }];
 const occupancyModeOptions = [{ label: '运行时计算', value: 'calculated' }, { label: '离线仿真', value: 'simulation' }, { label: 'PLC / IoT 实时', value: 'live' }];
 const junctionDecisionModeOptions = [{ label: 'PLC 决策', value: 'plc' }, { label: '离线规则', value: 'simulation' }, { label: '人工调试', value: 'manual' }];
 const ruleSourceOptions = [{ label: '物料属性', value: 'payload' }, { label: 'Device 信号', value: 'binding' }];
 const routePointKindOptions = [{ label: '途经点', value: 'waypoint' }, { label: '普通交叉口', value: 'junction' }, { label: '分流器', value: 'diverter' }, { label: '汇流器', value: 'merger' }, { label: '缓存段', value: 'buffer' }, { label: '加工工位', value: 'processStation' }, { label: '传感器', value: 'sensor' }, { label: '站点', value: 'station' }];
-const processTypeOptions = [{ label: '机器人上料', value: 'robot-loading' }, { label: '外检机', value: 'external-inspection' }, { label: '套袋机', value: 'bagging' }, { label: '桁架码垛', value: 'gantry-stacking' }, { label: '扫码工位', value: 'scan' }];
+const processTypeOptions = [{ label: '机器人上料', value: 'robot-loading' }, { label: '外检机', value: 'external-inspection' }, { label: '套袋机', value: 'bagging' }, { label: '桁架码垛', value: 'gantry-stacking' }, { label: '木托码垛等待', value: 'wood-stack-ready' }, { label: '扫码工位', value: 'scan' }];
 const conveyorSizeOptions = [{ label: '小辊道', value: 'small' }, { label: '大辊道', value: 'large' }];
 const ruleOperatorOptions = [{ label: '等于', value: 'equals' }, { label: '不等于', value: 'notEquals' }, { label: '大于', value: 'greaterThan' }, { label: '大于等于', value: 'greaterThanOrEqual' }, { label: '小于', value: 'lessThan' }, { label: '小于等于', value: 'lessThanOrEqual' }, { label: '包含', value: 'contains' }, { label: '为真', value: 'truthy' }, { label: '为假', value: 'falsy' }];
 const viewportModeOptions = [{ label: '专业编辑', value: 'editor' }, { label: '运行预览', value: 'runtime' }];
 const workspaceModeOptions = [{ label: '3D', value: '3d' }, { label: '流程', value: 'flow' }, { label: '分屏', value: 'split' }];
 const flowFocusObjectId = computed(() => selected.value?.objectId || undefined);
-const updateActionFlows = (flows: TwinActionFlowDefinitionV2[]) => { manifest.value.actionFlows = flows; refreshDiagnostics(); scheduleWorkbenchHistory(); };
+const sceneFlowSnapshots = ref<ReturnType<ThreeJsEditorAdapter['getActionFlowSnapshots']>>([]);
+const sceneFlowDirty = ref(false);
+const updateActionFlows = (flows: TwinActionFlowDefinitionV2[]) => { manifest.value.actionFlows = flows; sceneFlowDirty.value=true; if(viewportMode.value==='runtime'){adapter.value?.setRunning(false);playing.value=false;sceneFlowSnapshots.value=[];} refreshDiagnostics(); scheduleWorkbenchHistory(); };
 const markActionFlowChanged = () => { refreshDiagnostics(); scheduleWorkbenchHistory(); };
 const createFlowInterlock = (definition: TwinInterlockDefinition) => {
 	addInterlockDefinition(manifest.value, definition);
@@ -1620,10 +1643,22 @@ const removeStateAssignment = (target: TwinStateAssignmentDefinition[], index: n
 const ensureBehaviorInitialState = (behavior: TwinBehaviorDefinition) => (behavior.initialState ||= []);
 const ensureActionStartState = (action: TwinBehaviorActionDefinition) => (action.onStartState ||= []);
 const ensureActionCompleteState = (action: TwinBehaviorActionDefinition) => (action.onCompleteState ||= []);
-const setStateAssignmentValue = (assignment: TwinStateAssignmentDefinition, raw: unknown) => {
+const parseBehaviorValue = (raw: unknown) => {
 	const text = String(raw ?? '').trim();
 	const lower = text.toLowerCase();
-	assignment.value = lower === 'true' ? true : lower === 'false' ? false : lower === 'null' ? null : text !== '' && Number.isFinite(Number(text)) ? Number(text) : text;
+	return lower === 'true' ? true : lower === 'false' ? false : lower === 'null' ? null : text !== '' && Number.isFinite(Number(text)) ? Number(text) : text;
+};
+const setStateAssignmentValue = (assignment: TwinStateAssignmentDefinition, raw: unknown) => {
+	assignment.value = parseBehaviorValue(raw);
+	syncBehaviorManifest();
+};
+const setBehaviorSignalValue = (action: TwinBehaviorActionDefinition, raw: unknown) => {
+	action.signalValue = parseBehaviorValue(raw);
+	syncBehaviorManifest();
+};
+const setToolFramePosition = (frame: TwinToolFrameDefinition, index: number, value: number | undefined) => {
+	if (index < 0 || index > 2 || value === undefined || !Number.isFinite(value)) return;
+	(frame.localPosition ||= [0, 0, 0])[index] = value;
 	syncBehaviorManifest();
 };
 const setInterlockConditionValue = (condition: TwinInterlockDefinition['conditions'][number], raw: unknown) => {
@@ -1667,9 +1702,10 @@ const initializeRuntime = () => {
 	adapter.value = new ThreeJsEditorAdapter(viewport.value, previewManifest, {
 		onSelectionChange: handleSelectionChange,
 		onRouteChange: applyRuntimeRoute,
-		onMetrics: (value) => Object.assign(metrics, value),
+		onMetrics: (value) => { Object.assign(metrics, value); sceneFlowSnapshots.value = adapter.value?.getActionFlowSnapshots() || []; if(sceneFlowSnapshots.value.some(s=>s.state==='Faulted'))playing.value=false; },
 		onError: (message) => ElMessage.error(message),
 	});
+	sceneFlowDirty.value=false;
 	const payload = parsePreviewPayload(false);
 	if (payload) adapter.value.setRouteRoutingContext({ payload, edgeOccupancy: { ...previewOccupancy } });
 };
@@ -1761,7 +1797,11 @@ const changeRootAsset = async (assetId: string | number | boolean) => {
 	}
 	await loadAssetDevices(nextAssetId); adapter.value?.loadManifest(manifest.value); refreshDiagnostics();
 };
-const loadModels = async () => { models.value = apiData<TwinModelResource[]>(await digitalTwinApi.listModels({})); };
+const loadModels = async () => {
+	modelsLoading.value = true;
+	try { models.value = apiData<TwinModelResource[]>(await digitalTwinApi.listModels({})); }
+	finally { modelsLoading.value = false; }
+};
 const databaseComponentResource = (resourceKey: string) => models.value.find((item) => item.resourceKey === resourceKey
 	&& item.runtimeFormat === 'application/vnd.iotsharp.twin-component+json'
 	&& item.processingStatus === 'Ready');
@@ -1884,13 +1924,14 @@ const createScene = async () => {
 	try {
 		const useSilkTemplate = createSceneTemplate.value === 'silk-v6';
 		const useReferenceTemplate = createSceneTemplate.value === 'reference-packaging-v1';
-		const draft = useSilkTemplate
+		const useDrawingTemplate = createSceneTemplate.value === 'drawing-process-v2';
+		const draft = useDrawingTemplate ? createDrawingPackagingProcessManifest() : useSilkTemplate
 			? createSilkCakeLineTwinSceneManifest()
 			: useReferenceTemplate
 				? createReferencePackagingLineTwinSceneManifest()
 				: createBlankTwinSceneManifest();
 		draft.name = createForm.name.trim(); draft.description = createForm.description.trim(); draft.rootAssetId = createForm.rootAssetId;
-		if (useReferenceTemplate) {
+		if (useReferenceTemplate || useDrawingTemplate) {
 			const requiredKeys = new Set((draft.objects as any[]).filter((item) => item.kind === 'component').map((item) => item.component.resourceKey));
 			const registrations = builtInComponentResourceRegistrations.filter((item) => requiredKeys.has(item.resourceKey));
 			const registered = apiData<TwinModelResource[]>(await digitalTwinApi.registerComponentResources(registrations));
@@ -1906,9 +1947,22 @@ const createScene = async () => {
 		}
 		for (const object of draft.objects) object.assetId = createForm.rootAssetId;
 		const detail = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({ name: draft.name, description: draft.description, rootAssetId: createForm.rootAssetId, draftPayload: draft }));
-		createDialogVisible.value = false; viewportMode.value = useSilkTemplate || useReferenceTemplate ? 'runtime' : 'editor'; await loadScenes(); await loadScene(detail.id);
-		ElMessage.success(useSilkTemplate ? '丝饼完整工艺 V6 已写入数据库，点击“运行”即可启动' : useReferenceTemplate ? '参考图双套袋产线已组件化入库，可运行并发布' : '空白 3D 场景已创建');
+		createDialogVisible.value = false; viewportMode.value = useSilkTemplate || useReferenceTemplate || useDrawingTemplate ? 'runtime' : 'editor'; await loadScenes(); await loadScene(detail.id);
+		ElMessage.success(useDrawingTemplate ? '全动作流 V3 已创建并绑定 Asset；七套流程可在分屏中编辑、运行，确认后发布' : useSilkTemplate ? '丝饼完整工艺 V6 已写入数据库，点击“运行”即可启动' : useReferenceTemplate ? '参考图双套袋产线已组件化入库，可运行并发布' : '空白 3D 场景已创建');
 	} finally { creating.value = false; }
+};
+
+const upgradeCurrentDrawingFlows = async () => {
+	const confirmed = await ElMessageBox.confirm('用七套标准动作图替换当前图纸工艺的旧动作序列。保留模型位置、路线几何、资产/资源绑定及已标定工作点；自定义旧动作请先导出备份。仅修改本地草稿，不自动保存或覆盖历史发布。', '升级图纸工艺为全动作流', {type:'warning', confirmButtonText:'升级本地草稿', cancelButtonText:'取消'}).then(()=>true).catch(()=>false);
+	if (!confirmed) return;
+	try {
+		if (viewportMode.value === 'editor') professionalEditor.value?.captureManifest(manifest.value);
+		const upgraded = upgradeDrawingPackagingActionFlows(cloneTwinManifest(manifest.value));
+		adapter.value?.setRunning(false); playing.value=false; liveMode.value=false; stopSnapshotPolling(); upgraded.runtime.dataMode='simulation';
+		manifest.value=upgraded; workspaceMode.value='split'; viewportMode.value='runtime'; sceneFlowSnapshots.value=[];
+		await nextTick(); await initializeViewport(); refreshDiagnostics(); scheduleWorkbenchHistory();
+		ElMessage.success('七套动作图已替换旧序列，布局与绑定保留。请先运行核对，再保存草稿并发布。');
+	}catch(error){ElMessage.error(error instanceof Error?error.message:'升级失败，未写入数据库');}
 };
 
 const applySilkCakeLineTemplate = async () => {
@@ -2389,11 +2443,23 @@ const toggleLiveMode = async (value: string | number | boolean) => {
 	liveMode.value ? startSnapshotPolling() : stopSnapshotPolling();
 };
 const togglePlaying = async () => {
-	if (viewportMode.value !== 'runtime') {
+	if (viewportMode.value !== 'runtime' || sceneFlowDirty.value) {
 		await switchViewportMode('runtime');
 		return;
 	}
 	playing.value = !playing.value; adapter.value?.setRunning(playing.value);
+};
+
+/** 编排调试与视口共用一个真实运行器，重新运行时装入当前编辑的图。 */
+const controlSceneActionFlows = async (command: 'start'|'pause'|'resume'|'reset') => {
+	if(command==='start'){
+		liveMode.value=false;stopSnapshotPolling();manifest.value.runtime.dataMode='simulation';
+		workspaceMode.value='split';await nextTick();
+		await switchViewportMode('runtime');
+	}else if(command==='resume'&&sceneFlowDirty.value){ElMessage.warning('当前动作图已修改，请按当前图重新运行');return;}
+	else if(command==='reset'){adapter.value?.resetRoute();playing.value=false;}
+	else {playing.value=command==='resume';adapter.value?.setRunning(playing.value);}
+	sceneFlowSnapshots.value=adapter.value?.getActionFlowSnapshots()||[];
 };
 const restoreGeneratedRoute = (notify = true) => {
 	upsertGeneratedComponentRoute(manifest.value);

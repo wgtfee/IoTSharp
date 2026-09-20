@@ -79,7 +79,7 @@ onMounted(() => {
             limit: 100, offset: 0
         })
         .then((res) => {
-            state.rules = [...res.data.rows.map(c => { return { value: c.ruleId, label: c.name } })]
+            state.rules = [...res.data.rows.map((c: { ruleId: string; name: string }) => { return { value: c.ruleId, label: c.name } })]
         });
 
 });

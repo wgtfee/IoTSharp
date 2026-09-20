@@ -69,7 +69,7 @@
             <el-button size="small" text type="primary" v-if="
               scope.row.alarmStatus === 'Active_UnAck' ||
               scope.row.alarmStatus === 'Cleared_UnAck'
-            " @click="replay(scope.row)">回放
+            " @click="replay(scope.row as TableDataRow)">回放
             </el-button>
           </template>
         </el-table-column>
@@ -198,7 +198,7 @@ const getRules = () => {
       })
       .then((res) => {
         state.creatorloading=false;
-        state.rules = [...res.data.rows.map(c => { return { value: c.ruleId, label: c.name } })]
+        state.rules = [...res.data.rows.map((c: { ruleId: string; name: string }) => { return { value: c.ruleId, label: c.name } })]
       })
 }
 
@@ -212,7 +212,7 @@ const getCreators = async (creator: string) => {
       customerId: userInfos.customer.id,
       name: creator
     });
-    state.creators = [...res.data?.rows?.map(x => {
+    state.creators = [...res.data?.rows?.map((x: { id: string; name: string }) => {
       return {
         label: x.name, value: x.id
       }

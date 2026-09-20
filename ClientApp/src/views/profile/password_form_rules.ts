@@ -1,3 +1,4 @@
+import type { FormItemRule } from 'element-plus';
 export const passwordFormRules = [
   {
     type: 'input',
@@ -55,6 +56,6 @@ export const passwordFormRules = [
     hidden: false,
     display: true,
     value: '',
-    validate: [],
+    validate: [] as FormItemRule[],
   },
 ]

@@ -695,7 +695,7 @@ function initChart(key: ChartKey, target: typeof messageChartRef, option: EChart
 }
 
 function buildLineSeries(name: string, data: number[], color: string) {
-	return { name, type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 3, color }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: `${color}33` }, { offset: 1, color: `${color}05` }]) }, data };
+	return { name, type: 'line' as const, smooth: true, showSymbol: false, lineStyle: { width: 3, color }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: `${color}33` }, { offset: 1, color: `${color}05` }]) }, data };
 }
 
 function renderCharts() {

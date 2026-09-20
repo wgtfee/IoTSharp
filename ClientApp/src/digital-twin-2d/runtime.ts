@@ -46,7 +46,7 @@ export const resolveTwin2DRuntimeStates = (
 			const update = updateMap.get(binding.bindingId);
 			if (!update) continue;
 			values[binding.source.key || binding.bindingId] = update.value;
-			lastUpdated = update.sourceTimestamp || update.serverTimestamp || lastUpdated;
+			lastUpdated = update.sourceTimestamp || lastUpdated;
 			if (update.stale || update.quality === 'stale') quality = 'stale';
 			else if (['bad', 'missing'].includes(update.quality)) quality = update.quality as 'bad' | 'missing';
 			else if (quality === 'waiting' || quality === 'good') quality = 'good';

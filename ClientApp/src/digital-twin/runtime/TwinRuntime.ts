@@ -4,7 +4,8 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { TwinDataUpdate } from '/@/api/digital-twin';
 import { BindingEngine } from '/@/digital-twin/bindings/BindingEngine';
-import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
+import { createRouteEdge, createRoutePoint, normalizeTwinRoute, type TwinObjectBindingDefinition, type TwinPoseTargetDefinition, type TwinRouteDefinition, type TwinSceneManifest, type TwinSceneObjectDefinition, type TwinVector3 } from '/@/digital-twin/contracts';
+import { isComponentSceneObject } from '/@/digital-twin/components/ComponentConnectionEngine';
 import { RouteEngine, type TwinRouteEngineSnapshot, type TwinRouteRoutingContext } from '/@/digital-twin/routes/RouteEngine';
 import { resolveRuntimeRouteOverlayStates } from '/@/digital-twin/routes/RouteRuntimeOverlay';
 import { ProceduralPackagingLine } from '/@/digital-twin/runtime/ProceduralPackagingLine';
@@ -14,7 +15,8 @@ import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlo
 import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 import { BehaviorRuntime } from '/@/digital-twin/runtime/BehaviorRuntime';
-import { ActuatorRuntime } from '/@/digital-twin/runtime/ActuatorRuntime';
+import { SceneActionFlowRuntime } from '/@/digital-twin/action-flow/runtime/SceneActionFlowRuntime';
+import { ActuatorRuntime, readActuatorNodeValue } from '/@/digital-twin/runtime/ActuatorRuntime';
 import { advanceComponentVisualRuntime } from '/@/digital-twin/components/ComponentVisualRuntime';
 import { createComponentDefinitionFromTemplate, defaultComponentRegistry, hasCompleteSilkV7Infrastructure, hasSilkV7Infrastructure, migrateSilkLineInfrastructureToV7, resolveComponentInternalFlows, type TwinComponentDefinition } from '/@/digital-twin/components';
 
@@ -186,7 +188,8 @@ export class TwinRuntime {
 	private readonly routeSlotArrayRuntime: RouteSlotArrayRuntime;
 	private packagingLine?: ProceduralPackagingLine;
 	private componentProcessRuntime?: ComponentProcessRuntime;
-	private behaviorRuntime?: BehaviorRuntime;
+	private behaviorRuntime?: BehaviorRuntime | SceneActionFlowRuntime;
+	private actionFlowCompileError?: string;
 	private runtimeRunning = false;
 	private componentTestObjectId?: string;
 	private componentTestPath: THREE.Vector3[] = [];
@@ -256,7 +259,8 @@ export class TwinRuntime {
 		this.scene.background = new THREE.Color(manifest.world.background);
 		const isSilkCakeLine = manifest.objects.some((item) => ['packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'].includes(item.procedural?.preset || ''));
 		const isLargeComponentScene = manifest.objects.filter((item: any) => item.kind === 'component').length >= 16;
-		this.camera.position.set(...(isSilkCakeLine ? [32, 26, 38] as const : isLargeComponentScene ? [28, 32, 38] as const : [11, 9, 13] as const));
+		const initialCameraPosition: TwinVector3 = isSilkCakeLine ? [32, 26, 38] : isLargeComponentScene ? [28, 32, 38] : [11, 9, 13];
+		this.camera.position.fromArray(initialCameraPosition);
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1;
@@ -322,6 +326,10 @@ export class TwinRuntime {
 	}
 
 	setRunning(running: boolean) {
+		if (running && this.actionFlowCompileError) { this.events.onError?.(this.actionFlowCompileError); return; }
+		if (running && this.behaviorRuntime instanceof SceneActionFlowRuntime && this.behaviorRuntime.getFault()) {
+			this.events.onError?.('动作流故障保持中，请排除原因后整线复位，不能只启动输送路线。'); return;
+		}
 		this.runtimeRunning = running;
 		if (this.componentTestObjectId) {
 			this.routeSlotArrayRuntime.setRunning(false);
@@ -398,11 +406,12 @@ export class TwinRuntime {
 	}
 
 	resetRoute() {
+		this.setRunning(false);
 		this.routeEngine.reset();
 		this.routeSlotArrayRuntime.reset();
 		this.componentProcessRuntime?.reset();
 		this.packagingLine?.reset();
-		this.behaviorRuntime?.reset();
+		this.behaviorRuntime?.reset({ restoreMaterials: true });
 		this.actuatorRuntime.reset();
 	}
 
@@ -549,11 +558,14 @@ export class TwinRuntime {
 		return this.actuatorRuntime.getSnapshot();
 	}
 
+	/** 编排画布显示真实三维执行的节点状态，不另外启动计时模拟器。 */
+	getActionFlowSnapshots() { return this.behaviorRuntime instanceof SceneActionFlowRuntime ? this.behaviorRuntime.getSnapshot(12).flows : []; }
+
 	/**
 	 * 从当前 3D 模型读取已声明执行机构的真实值，用于设计器“示教/记录 Pose”。
 	 * 这里只读取 ActuatorDefinition，不推断机器人、桁架或任何具体工艺语义。
 	 */
-	captureActuatorPose(objectId: string) {
+	captureActuatorPose(objectId: string): TwinPoseTargetDefinition[] {
 		const root = this.objectIndex.get(objectId);
 		if (!root) return [];
 		const findNode = (path: string): THREE.Object3D | undefined => {
@@ -569,13 +581,13 @@ export class TwinRuntime {
 		};
 		return (this.manifest.actuators || [])
 			.filter((actuator) => actuator.objectId === objectId)
-			.flatMap((actuator) => {
+			.flatMap<TwinPoseTargetDefinition>((actuator) => {
 				const node = findNode(actuator.nodePath);
 				if (!node) return [];
 				if (actuator.kind === 'gripper') return [{ actuatorId: actuator.actuatorId, value: Boolean(node.userData?.gripClosed) }];
 				const axis = actuator.motionAxis || 'y';
 				const raw = actuator.kind === 'rotary-joint' ? node.rotation[axis] : node.position[axis];
-				const value = actuator.kind === 'rotary-joint' && actuator.unit === 'degree' ? THREE.MathUtils.radToDeg(raw) : raw;
+				const value = readActuatorNodeValue(raw, actuator);
 				return [{ actuatorId: actuator.actuatorId, value }];
 			});
 	}
@@ -693,7 +705,8 @@ export class TwinRuntime {
 		const deltaSeconds = Math.min(0.25, Math.max(0, (now - this.lastFrameAt) / 1000));
 		this.lastFrameAt = now;
 		// 执行机构使用实际渲染帧 delta 插值，Snapshot 可以 250~500ms 更新一次目标值，画面仍保持逐帧平滑。
-		this.actuatorRuntime.tick(deltaSeconds);
+		if (this.behaviorRuntime instanceof SceneActionFlowRuntime) this.behaviorRuntime.prepareMotionTick();
+		this.actuatorRuntime.tick(deltaSeconds, this.runtimeRunning);
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
 			this.bindingEngine.tick(this.fixedStep);
@@ -924,21 +937,32 @@ export class TwinRuntime {
 	}
 
 	private rebuildBehaviorRuntime() {
-		if (!(this.manifest.behaviors?.length || this.manifest.workPoints?.length)) return;
-		this.behaviorRuntime = new BehaviorRuntime(
+		this.actionFlowCompileError = undefined;
+		const graphDriven = this.manifest.actionFlows?.some(f => f.policies.executionTarget === 'scene');
+		if (!(graphDriven || this.manifest.behaviors?.length || this.manifest.workPoints?.length)) return;
+		const Runtime: new (...args: ConstructorParameters<typeof SceneActionFlowRuntime>) => BehaviorRuntime | SceneActionFlowRuntime = graphDriven ? SceneActionFlowRuntime : BehaviorRuntime;
+		try { this.behaviorRuntime = new Runtime(
 			this.manifest,
 			this.scene,
 			(objectId) => this.objectIndex.get(objectId),
-			(message) => this.events.onError?.(message),
-			(actuatorId, value) => {
-				const accepted = this.actuatorRuntime.apply({ actuatorId, value, source: 'behavior' });
-				if (!accepted) return false;
+			(message) => { if (graphDriven) this.setRunning(false); this.events.onError?.(message); },
+			(actuatorId, value, speedRatio) => {
+				const accepted = this.actuatorRuntime.apply({ actuatorId, value, speedRatio, source: 'behavior' });
 				const state = this.actuatorRuntime.getState(actuatorId);
+				if (!accepted) { if (state?.error) throw new Error(state.error); return false; }
 				if (!state) return false;
 				if (typeof value === 'boolean') return state.currentValue === value;
-				return Math.abs(Number(state.currentValue) - Number(state.targetValue)) <= 1e-4;
+				return Math.abs(Number(state.currentValue) - Number(value)) <= 1e-4;
 			},
+			(routeId: string, ids: string[], junctionId: string, edgeId: string) => this.routeSlotArrayRuntime.selectSimulationRoute(routeId, ids, junctionId, edgeId),
+			(actorId: string) => this.actuatorRuntime.holdActor(actorId),
 		);
+		} catch(error) {
+			if (!graphDriven) throw error;
+			this.behaviorRuntime = undefined;
+			this.actionFlowCompileError = `动作流校验失败，整线禁止启动：${error instanceof Error ? error.message : String(error)}`;
+			this.setRunning(false); this.events.onError?.(this.actionFlowCompileError); return;
+		}
 		this.behaviorRuntime.setBindingContext(this.bindingEngine.getSignalSnapshot());
 		this.behaviorRuntime.setActorFilter(this.componentTestObjectId);
 		this.behaviorRuntime.setRunning(this.runtimeRunning);
@@ -1471,6 +1495,7 @@ export class TwinRuntime {
 
 	private getSceneObjectRuntimeDetail(objectId?: string, equipmentType?: string, equipmentId?: string): Record<string, unknown> | undefined {
 		const definition = objectId ? this.manifest.objects.find((item) => item.objectId === objectId) : undefined;
+		const component = isComponentSceneObject(definition) ? definition.component : undefined;
 		const behaviorDetail = objectId ? this.behaviorRuntime?.getObjectDetail(objectId) : undefined;
 		const actuatorDetail = objectId ? this.actuatorRuntime.getSnapshot().filter((item) => item.objectId === objectId) : [];
 		const withActuators = (detail: Record<string, unknown> | undefined) => detail ? { ...detail, actuators: actuatorDetail } : actuatorDetail.length ? { actuators: actuatorDetail } : undefined;
@@ -1486,16 +1511,16 @@ export class TwinRuntime {
 				case 'wrapper': return withActuators({ station: 'wrapper', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
 				case 'inbound-lift': return withActuators({ station: 'inbound-lift', woodenPallet: snapshot.woodenPallet, postProcess: snapshot.postProcess });
 			}
-			const semantic = `${definition?.name || ''} ${definition?.component?.resourceKey || ''} ${definition?.component?.componentType || ''}`.toLocaleLowerCase();
+			const semantic = `${definition?.name || ''} ${component?.resourceKey || ''} ${component?.componentType || ''}`.toLocaleLowerCase();
 			if (/external[-_ ]?inspection|外检/.test(semantic)) return withActuators({ station: 'external-inspection', ...snapshot.preProcess.inspection });
 			if (/bagging|套袋/.test(semantic)) return withActuators({ station: 'bagging', ...snapshot.preProcess.bagging });
 			if (/gantry|桁架/.test(semantic)) return withActuators(snapshot.gantry as unknown as Record<string, unknown>);
 			if (/robot|机器人/.test(semantic)) return withActuators(snapshot.robot as unknown as Record<string, unknown>);
 		}
-		if (definition?.component) return withActuators({
-			componentType: definition.component.componentType,
-			resourceKey: definition.component.resourceKey,
-			properties: definition.component.properties,
+		if (component) return withActuators({
+			componentType: component.componentType,
+			resourceKey: component.resourceKey,
+			properties: component.properties,
 			...(behaviorDetail || {}),
 		});
 		return withActuators(behaviorDetail as Record<string, unknown> | undefined);

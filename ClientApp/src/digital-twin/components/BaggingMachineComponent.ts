@@ -59,7 +59,7 @@ export class BaggingMachineComponent implements TwinComponentGenerator {
 		const conveyor = createStraightRollerGeometry({ length, width: conveyorWidth, height: conveyorHeight, rollerDiameter: 0.14, rollerPitch: 0.38, frameHeight: 0.16, frameThickness: 0.1, supportSpacing: 1.8, frameColor: 0x334155, rollerColor: 0x94a3b8 });
 		conveyor.name = 'BaggingConveyor'; conveyor.userData.throughConveyor = true; conveyor.userData.smallPalletConveyor = true; root.add(conveyor);
 
-		const frameHalfX = Math.min(length * 0.35, 1.85);
+		const frameHalfX = resolveNumber(props, 'frameLength', Math.min(length * 0.7, 3.7), 2, length - 0.2) / 2;
 		const frameHalfZ = Math.max(conveyorWidth / 2 + 0.42, width / 2 - 0.22);
 		for (const x of [-frameHalfX, frameHalfX]) for (const z of [-frameHalfZ, frameHalfZ]) {
 			const post = addBox(root, 'Bagging-Frame-Post-' + (x < 0 ? 'IN' : 'OUT') + '-' + (z < 0 ? 'ZN' : 'ZP'), [0.14, machineHeight, 0.14], [x, machineHeight / 2, z], frame);

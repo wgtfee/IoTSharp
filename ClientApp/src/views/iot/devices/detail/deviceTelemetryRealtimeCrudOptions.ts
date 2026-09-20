@@ -1,22 +1,22 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
 import { deviceApi } from '/@/api/devices';
 import { dateUtil, formatToDateTime } from '/@/utils/dateUtil';
 import { compute, dict } from '@fast-crud/fast-crud';
 // eslint-disable-next-line no-unused-vars
-export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }, deviceId, state) {
+export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }: { expose: CrudExpose }, deviceId: string, state: { telemetryKeys: string[] }): { crudOptions: CrudOptions; deviceId?: string } {
 	const deviceId_param = deviceId;
 	let records: any[] = [];
 	const FsButton = {
 		link: true,
 	};
-	const formatColumnDataTime = (row, column, cellValue, index) => {
-		return formatToDateTime(row.value);
-	};
-	const pageRequest = async (query) => {
+
+	const pageRequest: PageRequest = async (query) => {
 		const res = await deviceApi().getDeviceLatestTelemetry(deviceId_param);
 
 
 
-		state.telemetryKeys = res.data.filter((x) => typeof x.value === 'number').map((c) => c.keyName); // DeviceDetailTelemetry 组件状态， 要传到遥测历史组件
+		state.telemetryKeys = (res.data as { keyName: string; value: unknown }[]).filter(x => typeof x.value === 'number').map(c => c.keyName); // DeviceDetailTelemetry 组件状态， 要传到遥测历史组件
 		records = res.data;
 		return {
 			total:records.length,
@@ -126,7 +126,7 @@ export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }, de
 					title: '时间',
 					type: 'text',
 					column: {
-						formatter: formatColumnDataTime,
+						formatter: (context) => formatToDateTime(context.value),
 					},
 					addForm: {
 						show: false,
@@ -135,7 +135,7 @@ export const createDeviceTelemetryRealtimeCrudOptions = function ({ expose }, de
 						show: false,
 					},
 				},
-				
+
 			},
 		},
 	};

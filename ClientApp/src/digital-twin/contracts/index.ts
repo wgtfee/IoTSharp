@@ -78,6 +78,7 @@ export type TwinRoutePointKind = 'waypoint' | 'junction' | 'station' | 'diverter
 export type TwinRouteAuthoringMode = 'generated' | 'manual';
 export interface TwinRoutePointAuthoringDefinition {
 	mode: TwinRouteAuthoringMode;
+	convertedFromGenerated?: boolean;
 	sourceObjectId?: string;
 	sourcePortId?: string;
 	generatedKey?: string;
@@ -143,6 +144,14 @@ export interface TwinProcessDefinition {
 	cycleSeconds?: number;
 	/** 工位一次必须到齐的运输单元数量。 */
 	batchSize?: number;
+	/** 沿真实路线逐托停车；不使用旧版工位视觉重排。仅 Simulation 执行。 */
+	batchArrivalMode?: 'legacy' | 'route-aligned';
+	/** 同一工位单排需要到位的数量；所有排合计应等于 batchSize。 */
+	batchLaneSize?: number;
+	/** 按实体实际挂载物料筛选工位；空托可以跳过套袋/码垛。 */
+	materialAdmission?: 'any' | 'loaded' | 'empty';
+	/** Simulation 工位完成后回写真实物料阶段，不代替 PLC 完成信号。 */
+	materialStageOnComplete?: string;
 	/** simulation 工位批次的物理排布；所有坐标必须落在真实输送设备表面。 */
 	batchLayout?: TwinProcessBatchLayoutDefinition;
 	/** Simulation 运输单元进入该 Route 时优先从此工位开始；同一物理 lane 最多配置一个。 */
@@ -253,6 +262,8 @@ export interface TwinRouteDefinition {
 	/** 交叉口 pointId -> 要采用的出边 edgeId。 */
 	junctionDecisions: Record<string, string>;
 	routingMode: 'manual' | 'automatic';
+	/** Simulation 载料状态变化只重算尚未经过的岔口，已进入的路段保持锁定。 */
+	replanUpcomingJunctions?: boolean;
 	decisionRules: TwinRouteDecisionRule[];
 	sections?: TwinRouteSectionDefinition[];
 }
@@ -279,6 +290,12 @@ export interface TwinRuntimeDefinition {
 
 export interface TwinRoutePalletInitializerDefinition {
 	routeId: string;
+	/** 多支路物理空跑的初始摆放策略，不影响 live 槽位事实。 */
+	simulationPlacement?: 'uniform' | 'non-overlapping';
+	/** 路口前置预约，只适用于独立物理空跑；不替代 PLC/工艺互锁。 */
+	simulationTraffic?: 'legacy' | 'reserved-junctions';
+	/** 仿真分组附加载荷，只用于测试路线，不代表真实工艺或 PLC 值。 */
+	simulationPayloadTemplates?: Array<Record<string, string | number | boolean>>;
 	/** PLC/Telemetry 侧建议使用的语义键；实际 deviceId 仍由场景绑定配置。 */
 	telemetryKey: string;
 	/** Live 模式使用的 routeSlotArray Binding；未配置时兼容旧场景，接受该路线唯一的 routeSlotArray Binding。 */
@@ -288,6 +305,10 @@ export interface TwinRoutePalletInitializerDefinition {
 	simulationAutoFeed?: boolean;
 	/** 自动补料时同时处于未完成状态的最大运输单元数量，默认 1。 */
 	simulationAutoFeedMaxActive?: number;
+	/** 运输单元的实际组件尺寸，Simulation/Live 共用同一可视模型定义。 */
+	transportUnitProperties?: Record<string, unknown>;
+	/** 已完成的仿真成品离开场景显示区，记录仍保留在运行快照中。 */
+	simulationHideAtExit?: boolean;
 	emptyValue?: string | number | boolean | null;
 }
 
@@ -357,6 +378,8 @@ export interface TwinToolFrameDefinition {
 	/** 工具从夹具本体指向被抓物的接近方向（工具节点局部坐标）。 */
 	approachDirectionLocal?: TwinVector3;
 	payloadTypes?: string[];
+	/** 直角坐标工具的平移轴；仅沿声明的实际执行机构接近工作点。 */
+	cartesianActuatorIds?: string[];
 }
 
 export interface TwinWorkPointDefinition {
@@ -374,7 +397,7 @@ export interface TwinWorkPointDefinition {
 
 export type TwinActuatorKind = 'rotary-joint' | 'linear-axis' | 'gripper';
 export type TwinActuatorAxis = 'x' | 'y' | 'z';
-export type TwinActuatorUnit = 'rad' | 'degree' | 'meter' | 'boolean';
+export type TwinActuatorUnit = 'rad' | 'degree' | 'meter' | 'millimeter' | 'boolean';
 
 export interface TwinActuatorBindingDefinition {
 	positionBindingId?: string;
@@ -467,6 +490,8 @@ export interface TwinBehaviorActionDefinition {
 	targetSlotId?: string;
 	toolFrameId?: string;
 	approachOffset?: TwinVector3;
+	/** MoveTo 到位后，用夹具实际变距轴与来源/目标物料网格对齐。仅支持已声明可变距夹具。 */
+	alignPayloadGrid?: boolean;
 	liftOffset?: TwinVector3;
 	axis?: 'x' | 'y' | 'z';
 	axisValue?: number;
@@ -675,7 +700,7 @@ export interface TwinSceneManifest {
 	actionFlows?: TwinActionFlowDefinitionV2[];
 	interlocks?: TwinInterlockDefinition[];
 	runtime: TwinRuntimeDefinition;
-	editorExtension: {
+	editorExtension?: {
 		source: 'iotsharp-threejs-editor-adapter' | 'threejs-editor';
 		payloadVersion: 1 | 2;
 		threeEditor?: ThreeEditorSnapshot;
@@ -683,7 +708,7 @@ export interface TwinSceneManifest {
 }
 
 export interface TwinValidationDiagnostic {
-	severity: 'error' | 'warning';
+	severity: 'error' | 'warning' | 'info';
 	code: string;
 	message: string;
 	path?: string;
@@ -994,7 +1019,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 	const allowedDecisionModes: TwinJunctionDecisionMode[] = ['plc', 'simulation', 'manual'];
 	const allowedConveyorSizeClasses: TwinConveyorSizeClass[] = ['small', 'large'];
 	const allowedTransportUnitTypes: TwinTransportUnitType[] = ['plastic-pallet', 'wooden-pallet', 'carton'];
-	const allowedProcessTypes: TwinProcessType[] = ['robot-loading', 'external-inspection', 'bagging', 'gantry-stacking', 'scan'];
+	const allowedProcessTypes: TwinProcessType[] = ['robot-loading', 'external-inspection', 'bagging', 'gantry-stacking', 'wood-stack-ready', 'scan'];
 	const allowedBehaviorActionKinds: TwinBehaviorActionKind[] = ['moveTo', 'movePose', 'jointMove', 'axisMove', 'pick', 'place', 'gripOpen', 'gripClose', 'waitSignal', 'wait', 'prepareSlot', 'home', 'attach', 'detach'];
 	const allowedEquipmentTypes: TwinEquipmentType[] = ['loading-robot', 'silk-cart-turntable', 'gantry-stacker', 'cover-applicator', 'labeler', 'wrapper', 'inbound-lift'];
 	const allowedProceduralPresets = ['basic-conveyor', 'packaging-line', 'silk-cake-line', 'silk-cake-packaging-line'];
@@ -1090,6 +1115,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (!frame.nodePath?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.node.required', message: 'TCP/ToolFrame 必须配置稳定节点路径。', path: `toolFrames[${index}].nodePath` });
 		if (frame.localPosition && !isFiniteVector(frame.localPosition)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.position.invalid', message: 'TCP 局部坐标必须是三个有限数值。', path: `toolFrames[${index}].localPosition` });
 		if (frame.localRotation && !isFiniteVector(frame.localRotation)) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.rotation.invalid', message: 'TCP 局部旋转必须是三个有限数值。', path: `toolFrames[${index}].localRotation` });
+		if (frame.cartesianActuatorIds !== undefined && (!Array.isArray(frame.cartesianActuatorIds) || frame.cartesianActuatorIds.length > 3 || new Set(frame.cartesianActuatorIds).size !== frame.cartesianActuatorIds.length || frame.cartesianActuatorIds.some(id => !manifest.actuators?.some(axis => axis.actuatorId === id && axis.objectId === frame.objectId && axis.kind === 'linear-axis')))) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.cartesian.invalid', message: 'TCP 驱动轴必须是所属设备的最多三个、不重复的直线轴。', path: `toolFrames[${index}].cartesianActuatorIds` });
 	}
 
 	const workPointIds = new Set<string>();
@@ -1113,11 +1139,11 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (!objectIds.has(actuator.objectId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.object.invalid', message: '执行机构引用的场景对象不存在。', path: `actuators[${index}].objectId` });
 		if (!actuator.nodePath?.trim()) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.node.required', message: '执行机构必须配置稳定的 Three.js 节点路径。', path: `actuators[${index}].nodePath` });
 		if (!['rotary-joint', 'linear-axis', 'gripper'].includes(actuator.kind)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.kind.invalid', message: '执行机构类型不受支持。', path: `actuators[${index}].kind` });
-		if (!['rad', 'degree', 'meter', 'boolean'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.unit.invalid', message: '执行机构单位不受支持。', path: `actuators[${index}].unit` });
+		if (!['rad', 'degree', 'meter', 'millimeter', 'boolean'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.unit.invalid', message: '执行机构单位不受支持。', path: `actuators[${index}].unit` });
 		if (actuator.kind !== 'gripper' && !['x', 'y', 'z'].includes(actuator.motionAxis || '')) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.axis.invalid', message: '旋转关节和直线轴必须配置 X/Y/Z 运动轴。', path: `actuators[${index}].motionAxis` });
 		if (actuator.kind === 'gripper' && actuator.unit !== 'boolean') diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.gripper-unit.invalid', message: '夹具执行机构必须使用 boolean 单位。', path: `actuators[${index}].unit` });
 		if (actuator.kind === 'rotary-joint' && !['rad', 'degree'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.rotary-unit.invalid', message: '旋转关节单位必须是 rad 或 degree。', path: `actuators[${index}].unit` });
-		if (actuator.kind === 'linear-axis' && actuator.unit !== 'meter') diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.linear-unit.invalid', message: '直线轴单位必须是 meter。', path: `actuators[${index}].unit` });
+		if (actuator.kind === 'linear-axis' && !['meter', 'millimeter'].includes(actuator.unit)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.linear-unit.invalid', message: '直线轴单位必须是 meter 或 millimeter。', path: `actuators[${index}].unit` });
 		if (actuator.minValue !== undefined && !Number.isFinite(actuator.minValue)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.min.invalid', message: '执行机构最小值必须是有限数值。', path: `actuators[${index}].minValue` });
 		if (actuator.maxValue !== undefined && !Number.isFinite(actuator.maxValue)) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.max.invalid', message: '执行机构最大值必须是有限数值。', path: `actuators[${index}].maxValue` });
 		if (actuator.minValue !== undefined && actuator.maxValue !== undefined && actuator.minValue > actuator.maxValue) diagnostics.push({ severity: 'error', code: 'twin.behavior.actuator.range.invalid', message: '执行机构最小值不能大于最大值。', path: `actuators[${index}]` });
@@ -1192,6 +1218,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (['moveTo', 'pick', 'place'].includes(action.kind) && (!action.workPointId || !workPointIds.has(action.workPointId))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint.invalid', message: '移动/抓取/放置动作必须引用有效工作点。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
 			if (action.workPointId && !workPointIds.has(action.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.workpoint-reference.invalid', message: '动作引用的工作点不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].workPointId` });
 			if (action.sourceSlotId && !materialSlotIds.has(action.sourceSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.source-slot.invalid', message: '动作引用的来源 MaterialSlot 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].sourceSlotId` });
+			if (action.alignPayloadGrid !== undefined && (typeof action.alignPayloadGrid !== 'boolean' || (action.alignPayloadGrid && (action.kind !== 'moveTo' || Boolean(action.sourceSlotId) === Boolean(action.targetSlotId) || !Number.isInteger(action.payloadCount ?? 1) || (action.payloadCount ?? 1) < 1 || (action.payloadCount ?? 1) > 12)))) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.grid.invalid', message: '变距对齐仅用于 moveTo，必须且只能选择来源或目标槽位，抓位数量为 1 至 12。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].alignPayloadGrid` });
 			if (action.targetSlotId && !materialSlotIds.has(action.targetSlotId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.target-slot.invalid', message: '动作引用的目标 MaterialSlot 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].targetSlotId` });
 			if (action.toolFrameId && !toolFrameIds.has(action.toolFrameId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.tool-frame.invalid', message: '动作引用的 TCP/ToolFrame 不存在。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].toolFrameId` });
 			if (action.toolFrameId && toolFrameObjectIds.get(action.toolFrameId) && toolFrameObjectIds.get(action.toolFrameId) !== behavior.actorObjectId) diagnostics.push({ severity: 'error', code: 'twin.behavior.action.tool-frame-actor.mismatch', message: '动作 TCP 必须属于当前执行对象。', path: `behaviors[${behaviorIndex}].actions[${actionIndex}].toolFrameId` });
@@ -1258,6 +1285,7 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			diagnostics.push({ severity: 'error', code: 'twin.route.points.insufficient', message: '一条路线至少需要两个控制点。', path: `routes[${routeIndex}].points` });
 		}
 		const pointIds = new Set<string>();
+		if (route.replanUpcomingJunctions !== undefined && (typeof route.replanUpcomingJunctions !== 'boolean' || (route.replanUpcomingJunctions && route.curveKind !== 'line'))) diagnostics.push({ severity: 'error', code: 'twin.route.replan.invalid', message: '未经过岔口重规划仅支持折线路线，开关必须为布尔值。', path: `routes[${routeIndex}].replanUpcomingJunctions` });
 		for (const [pointIndex, point] of route.points.entries()) {
 			if (!point.pointId?.trim() || pointIds.has(point.pointId)) {
 				diagnostics.push({ severity: 'error', code: 'twin.route.point.id.invalid', message: '路线控制点 ID 为空或重复。', path: `routes[${routeIndex}].points[${pointIndex}]` });
@@ -1270,6 +1298,14 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 			if (point.decisionMode && !allowedDecisionModes.includes(point.decisionMode)) diagnostics.push({ severity: 'error', code: 'twin.route.point.decision-mode.invalid', message: '岔口决策模式只能是 plc、simulation 或 manual。', path: `routes[${routeIndex}].points[${pointIndex}].decisionMode` });
 			if (point.decisionTimeoutSeconds !== undefined && (!Number.isFinite(point.decisionTimeoutSeconds) || point.decisionTimeoutSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.point.decision-timeout.invalid', message: '岔口决策超时必须大于 0 秒。', path: `routes[${routeIndex}].points[${pointIndex}].decisionTimeoutSeconds` });
 			if (point.process) {
+				const process = point.process, processPath = `routes[${routeIndex}].points[${pointIndex}].process`;
+				if (process.batchArrivalMode !== undefined && !['legacy', 'route-aligned'].includes(process.batchArrivalMode)) diagnostics.push({ severity: 'error', code: 'twin.route.batch.mode.invalid', message: '批次到位方式不受支持。', path: processPath });
+				if (process.materialAdmission !== undefined && !['any', 'loaded', 'empty'].includes(process.materialAdmission)) diagnostics.push({ severity: 'error', code: 'twin.route.batch.admission.invalid', message: '进站条件只支持任意、空托或载料。', path: processPath });
+				if (process.materialStageOnComplete !== undefined && (typeof process.materialStageOnComplete !== 'string' || !process.materialStageOnComplete.trim() || process.materialStageOnComplete.length > 128)) diagnostics.push({ severity: 'error', code: 'twin.route.batch.stage.invalid', message: '物料完成阶段必须是 1 至 128 字符的文本。', path: processPath });
+				if (process.batchArrivalMode === 'route-aligned') {
+					if (route.curveKind !== 'line' || !objectIds.has(point.componentObjectId || '')) diagnostics.push({ severity: 'error', code: 'twin.route.batch.anchor.invalid', message: '沿路线停车必须使用折线并关联实际设备对象。', path: processPath });
+					if (![process.batchSize ?? 1, process.batchLaneSize ?? process.batchSize ?? 1].every(n => Number.isInteger(n) && n > 0 && n <= 99) || Number(process.batchLaneSize || 1) > Number(process.batchSize || 1)) diagnostics.push({ severity: 'error', code: 'twin.route.batch.size.invalid', message: '批次和通道停车数必须为 1 至 99 的整数，通道数不能超过批次总数。', path: processPath });
+				}
 				if (point.kind !== 'processStation') diagnostics.push({ severity: 'error', code: 'twin.route.point.process-kind.invalid', message: '只有加工工位节点可以配置工艺定义。', path: `routes[${routeIndex}].points[${pointIndex}].process` });
 				if (!allowedProcessTypes.includes(point.process.type)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-type.invalid', message: '工位类型不受支持。', path: `routes[${routeIndex}].points[${pointIndex}].process.type` });
 				if (point.process.cycleSeconds !== undefined && (!Number.isFinite(point.process.cycleSeconds) || point.process.cycleSeconds <= 0)) diagnostics.push({ severity: 'error', code: 'twin.route.point.process-cycle.invalid', message: '工位仿真节拍必须大于 0 秒。', path: `routes[${routeIndex}].points[${pointIndex}].process.cycleSeconds` });
@@ -1360,10 +1396,21 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		}
 	}
 
+	const alignedStations = new Map<string, TwinRoutePointDefinition[]>();
+	for (const r of manifest.routes) for (const p of r.points) if (p.process?.batchArrivalMode === 'route-aligned') alignedStations.set(p.componentObjectId || '', [...(alignedStations.get(p.componentObjectId || '') || []), p]);
+	for (const [objectId, points] of alignedStations) {
+		const required = points[0].process!.batchSize || 1;
+		if (points.some(p => (p.process!.batchSize || 1) !== required) || points.reduce((total, p) => total + (p.process!.batchLaneSize || p.process!.batchSize || 1), 0) !== required || new Set(points.map(p => p.pointId)).size !== points.length) diagnostics.push({ severity: 'error', code: 'twin.route.batch.capacity.invalid', message: `设备 ${objectId} 的各通道停车数之和必须等于批次总数，且到位点不能重复。`, path: 'routes' });
+	}
 	for (const [initializerIndex, initializer] of (manifest.runtime.routePalletInitializers || []).entries()) {
 		const initializerPath = `runtime.routePalletInitializers[${initializerIndex}]`;
+		if (initializer.transportUnitProperties !== undefined && (!initializer.transportUnitProperties || Array.isArray(initializer.transportUnitProperties) || typeof initializer.transportUnitProperties !== 'object' || Object.values(initializer.transportUnitProperties).some(value => !['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))))) diagnostics.push({ severity: 'error', code: 'twin.runtime.transport-properties.invalid', message: '仿真托盘参数只允许文本、有限数字和布尔值。', path: `${initializerPath}.transportUnitProperties` });
+		if (initializer.simulationHideAtExit !== undefined && typeof initializer.simulationHideAtExit !== 'boolean') diagnostics.push({ severity: 'error', code: 'twin.runtime.hide-exit.invalid', message: '出料后隐藏必须是布尔值。', path: `${initializerPath}.simulationHideAtExit` });
 		if (!routeIds.has(initializer.routeId)) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.route.invalid', message: '托盘初始化必须引用当前场景中存在的路线。', path: `${initializerPath}.routeId` });
 		if (!Number.isInteger(initializer.simulationDefaultCount) || initializer.simulationDefaultCount < 0) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.count.invalid', message: 'Simulation 初始化托盘数量必须是大于等于 0 的整数。', path: `${initializerPath}.simulationDefaultCount` });
+		if (initializer.simulationPlacement && !['uniform', 'non-overlapping'].includes(initializer.simulationPlacement)) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.placement.invalid', message: '不支持的仿真托盘摆放策略。', path: `${initializerPath}.simulationPlacement` });
+		if (initializer.simulationTraffic && !['legacy', 'reserved-junctions'].includes(initializer.simulationTraffic)) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.traffic.invalid', message: '不支持的仿真通行策略。', path: `${initializerPath}.simulationTraffic` });
+		if (initializer.simulationPayloadTemplates !== undefined && (!Array.isArray(initializer.simulationPayloadTemplates) || initializer.simulationPayloadTemplates.length > 100 || initializer.simulationPayloadTemplates.some((item) => !item || Array.isArray(item) || typeof item !== 'object' || Object.values(item).some((value) => !['string', 'number', 'boolean'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value)))))) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.payload.invalid', message: '仿真分组最多 100 组，属性只允许文本、有限数字和布尔值。', path: `${initializerPath}.simulationPayloadTemplates` });
 		if (initializer.liveBindingId) {
 			const bindingRouteId = routeSlotBindingRouteIds.get(initializer.liveBindingId);
 			if (!bindingRouteId) diagnostics.push({ severity: 'error', code: 'twin.runtime.route-pallet-initializer.live-binding.invalid', message: 'Live 托盘数组必须引用 routeSlotArray Telemetry Binding。', path: `${initializerPath}.liveBindingId` });
@@ -1377,10 +1424,11 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		diagnostics.push({
 			severity: flowDiagnostic.severity,
 			code: flowDiagnostic.code,
-			message: flowDiagnostic.suggestion ? `${flowDiagnostic.message} 寤鸿锛?{flowDiagnostic.suggestion}` : flowDiagnostic.message,
+			message: flowDiagnostic.suggestion ? `${flowDiagnostic.message} 建议：${flowDiagnostic.suggestion}` : flowDiagnostic.message,
 			path: flowDiagnostic.propertyPath ? `${basePath}.${flowDiagnostic.propertyPath}` : basePath,
 		});
-	}	if (manifest.resources.some((resource) => resource.status === 'local-poc')) {
+	}
+	if (manifest.resources.some((resource) => resource.status === 'local-poc')) {
 		diagnostics.push({ severity: 'warning', code: 'twin.resource.local', message: '场景包含仅在当前浏览器有效的本地模型，发布前需要上传到 IoTSharp 模型资源中心。' });
 	}
 	return diagnostics;
@@ -1428,7 +1476,7 @@ export const createRouteDecisionRule = (junctionPointId: string, edgeId: string,
 
 /** 将旧版顺序控制点路线升级为路线图，保证已入库场景继续可编辑、可运行。 */
 export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinition => {
-	const points = (route.points || []).map((point) => {
+	const points = (route.points || []).map<TwinRoutePointDefinition>((point) => {
 		const isJunction = ['junction', 'diverter', 'merger'].includes(point.kind || '');
 		const inferredDecisionMode: TwinJunctionDecisionMode = route.routingMode === 'automatic'
 			? (route.decisionRules || []).some((rule) => rule.junctionPointId === point.pointId && rule.source === 'binding') ? 'plc' : 'simulation'
@@ -1446,8 +1494,8 @@ export const normalizeTwinRoute = (route: TwinRouteDefinition): TwinRouteDefinit
 		};
 	});
 	const configuredEdges = Array.isArray(route.edges) ? route.edges : [];
-	const edges = configuredEdges.length > 0
-		? configuredEdges.map((edge) => ({
+	const edges: TwinRouteEdgeDefinition[] = configuredEdges.length > 0
+		? configuredEdges.map<TwinRouteEdgeDefinition>((edge) => ({
 			...edge,
 			authoring: edge.authoring
 				? { ...edge.authoring, mode: edge.authoring.mode === 'manual' ? 'manual' : 'generated' }

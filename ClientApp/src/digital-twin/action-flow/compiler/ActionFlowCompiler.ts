@@ -52,6 +52,7 @@ export const compileActionFlow = (flow: TwinActionFlowDefinitionV2, manifest?: T
 		name: flow.name,
 		contractVersion: '2.0' as const,
 		revision: flow.revision,
+		variables: structuredClone(flow.variables || []),
 		entryNodeId: start.nodeId,
 		nodes: flow.nodes.map((node) => ({ ...structuredClone(node), editor: undefined })),
 		edges: flow.edges.map((edge) => structuredClone(edge)),

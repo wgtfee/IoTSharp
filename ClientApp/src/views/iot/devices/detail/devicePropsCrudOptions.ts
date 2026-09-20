@@ -1,12 +1,15 @@
+import type { CrudExpose, CrudOptions, PageRequest, AddRequest, EditRequest, DelRequest } from '@fast-crud/fast-crud';
+import type { Ref } from 'vue';
+import { errorMessage } from '/@/utils/errorMessage';
 import { deviceApi } from '/@/api/devices';
-import _ from 'lodash-es';
+import * as _ from 'lodash-es';
 import { compute, dict } from '@fast-crud/fast-crud';
 import { TableDataRow } from '/@/views/iot/devices/model';
 import { ElMessage } from 'element-plus';
 import { formatToDateTime } from '/@/utils/dateUtil';
 import dayjs from 'dayjs';
 // eslint-disable-next-line no-unused-vars
-export const createDevicePropsCrudOptions = function ({ expose }, deviceId, state) {
+export const createDevicePropsCrudOptions = function ({ expose }: { expose: CrudExpose }, deviceId: string, state: { currentPageState: string }): { crudOptions: CrudOptions; deviceId?: string } {
 	const deviceId_param = deviceId;
 	let records: any[] = [];
 	const FsButton = {
@@ -16,9 +19,9 @@ export const createDevicePropsCrudOptions = function ({ expose }, deviceId, stat
 		activeColor: 'var(--el-color-primary)',
 		inactiveColor: 'var(el-switch-of-color)',
 	};
-	const pageRequest = async (query) => {
+	const pageRequest: PageRequest = async (query) => {
 		const res = await deviceApi().getDeviceAttributes(deviceId_param);
-		records = res.data.map((x) => {
+		records = res.data.map((x: { dateTime?: string; dataType: string; value: string | number | null; keyName: string }) => {
 			var _dataTime = '';
 			if (x.dateTime) {
 				_dataTime=dayjs.tz(x.dateTime, 'Asia/Shanghai').add(8, 'hour').format('YYYY-MM-DD HH:mm:ss')
@@ -49,18 +52,19 @@ export const createDevicePropsCrudOptions = function ({ expose }, deviceId, stat
 			total: records.length,
 		};
 	};
-	const delRequest = async ({ row }) => {
+	const delRequest: DelRequest = async ({ row }) => {
 		try {
 			await deviceApi().removeDeviceAttributes(deviceId, row);
 			_.remove(records, (item: TableDataRow) => {
 				return item.id === row.id;
 			});
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 
-	const addRequest = async ({ form }) => {
+	const addRequest: AddRequest = async ({ form }) => {
 		try {
 			form.deviceId = deviceId;
 			form.value = null;
@@ -68,7 +72,8 @@ export const createDevicePropsCrudOptions = function ({ expose }, deviceId, stat
 			records.push(form);
 			return form;
 		} catch (e) {
-			ElMessage.error(e.response.msg);
+			ElMessage.error(errorMessage(e));
+            throw e;
 		}
 	};
 	return {

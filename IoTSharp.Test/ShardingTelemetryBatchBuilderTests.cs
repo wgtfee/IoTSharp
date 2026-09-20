@@ -25,7 +25,7 @@ public sealed class ShardingTelemetryBatchBuilderTests
         var batch = ShardingTelemetryBatchBuilder.Build(messages);
 
         Assert.Equal(3, batch.HistoryRows.Count);
-        Assert.Equal(new[] { 1L, 2L, 3L }, batch.HistoryRows.Select(row => row.Value_Long).ToArray());
+        Assert.Equal(new long?[] { 1L, 2L, 3L }, batch.HistoryRows.Select(row => row.Value_Long).ToArray());
         var latest = Assert.Single(batch.LatestValues);
         Assert.Equal(3, Convert.ToInt32(latest.Value));
         Assert.Equal(timestamp.AddTicks(2), latest.Timestamp);
@@ -45,7 +45,7 @@ public sealed class ShardingTelemetryBatchBuilderTests
         });
 
         Assert.Equal(2, batch.HistoryRows.Count);
-        Assert.Equal(new[] { 10L, 11L }, batch.HistoryRows.Select(row => row.Value_Long).ToArray());
+        Assert.Equal(new long?[] { 10L, 11L }, batch.HistoryRows.Select(row => row.Value_Long).ToArray());
         Assert.Equal(11, Convert.ToInt32(Assert.Single(batch.LatestValues).Value));
     }
 
