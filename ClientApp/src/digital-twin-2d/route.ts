@@ -7,6 +7,7 @@ import {
 	type TwinSceneManifest,
 } from '/@/digital-twin/contracts';
 import type { Twin2DObjectView, Twin2DRoutePointView, Twin2DViewDefinition } from './types';
+import { defaultTwin2DPorts } from './library';
 
 export type Twin2DRoutePointKind = 'waypoint' | 'junction' | 'station' | 'diverter' | 'merger' | 'buffer' | 'processStation' | 'sensor';
 export interface Twin2DPortVisual { objectId: string; portId: string; type: string; name: string; x: number; y: number }
@@ -58,13 +59,19 @@ export const add2DRouteEdge = (
 export const remove2DRoutePoint = (route: TwinRouteDefinition, view: Twin2DViewDefinition, pointId: string) => {
 	route.points = route.points.filter((item) => item.pointId !== pointId);
 	route.edges = route.edges.filter((item) => item.fromPointId !== pointId && item.toPointId !== pointId);
-	if (route.decisionRules) route.decisionRules = route.decisionRules.filter((item: any) => item.pointId !== pointId);
+	const remainingEdges = new Set(route.edges.map(edge => edge.edgeId));
+	if (route.decisionRules) route.decisionRules = route.decisionRules.filter(item => item.junctionPointId !== pointId && remainingEdges.has(item.edgeId));
+	if (route.junctionDecisions) for (const [junctionId, edgeId] of Object.entries(route.junctionDecisions)) {
+		if (junctionId === pointId || !remainingEdges.has(edgeId)) delete route.junctionDecisions[junctionId];
+	}
+	if (route.startPointId === pointId) route.startPointId = route.points[0]?.pointId;
 	delete view.routePoints[pointId];
 };
 
 export const remove2DRouteEdge = (route: TwinRouteDefinition, edgeId: string) => {
 	route.edges = route.edges.filter((item) => item.edgeId !== edgeId);
 	if (route.decisionRules) route.decisionRules = route.decisionRules.filter((item: any) => item.edgeId !== edgeId);
+	for (const [pointId, selectedEdge] of Object.entries(route.junctionDecisions || {})) if (selectedEdge === edgeId) delete route.junctionDecisions![pointId];
 };
 
 export const move2DRoutePoint = (view: Twin2DViewDefinition, pointId: string, x: number, y: number) => {
@@ -78,7 +85,7 @@ const metadataPorts = (resource: any) => resource?.modelMetadata?.ports || resou
 
 export const resolve2DPorts = (manifest: TwinSceneManifest, viewObject: Twin2DObjectView, resource?: any): Twin2DPortVisual[] => {
 	const object = businessObject(manifest, viewObject);
-	const ports = metadataPorts(resource);
+	const ports = metadataPorts(resource).length ? metadataPorts(resource) : viewObject.ports?.length ? viewObject.ports : defaultTwin2DPorts(viewObject.symbolKey);
 	if (!ports.length && !object?.component) return [];
 	const source = ports.length ? ports : [
 		{ portId: 'input', name: 'IN', type: 'material-input', localPosition: [-1, 0, 0] },
@@ -90,7 +97,11 @@ export const resolve2DPorts = (manifest: TwinSceneManifest, viewObject: Twin2DOb
 		const vertical = Number(local[2] || local[1] || 0);
 		const px = viewObject.x + viewObject.width * (horizontal < -0.25 ? 0 : horizontal > 0.25 ? 1 : 0.5);
 		const py = viewObject.y + viewObject.height * (vertical < -0.25 ? 0 : vertical > 0.25 ? 1 : 0.5);
-		return { objectId: object?.objectId || viewObject.businessObjectId || viewObject.id, portId: port.portId || `port-${index}`, type: port.type || 'material-bidirectional', name: port.name || port.portId || `P${index + 1}`, x: px, y: py };
+		const angle = viewObject.rotation * Math.PI / 180;
+		const cx = viewObject.x + viewObject.width / 2, cy = viewObject.y + viewObject.height / 2;
+		const x = cx + (px - cx) * Math.cos(angle) - (py - cy) * Math.sin(angle);
+		const y = cy + (px - cx) * Math.sin(angle) + (py - cy) * Math.cos(angle);
+		return { objectId: object?.objectId || viewObject.businessObjectId || viewObject.id, portId: port.portId || `port-${index}`, type: port.type || 'material-bidirectional', name: port.name || port.portId || `P${index + 1}`, x, y };
 	});
 };
 
@@ -111,6 +122,7 @@ export const nearestCompatiblePort = (source: Twin2DPortVisual, candidates: Twin
 };
 
 export const connectPorts2D = (manifest: TwinSceneManifest, from: Twin2DPortVisual, to: Twin2DPortVisual) => {
+	if (from.objectId === to.objectId) throw new Error('不能连接同一对象的端口。');
 	if (!compatible(from, to)) throw new Error('端口方向不兼容。');
 	const connections = ((manifest as any).connections ||= []);
 	const existing = connections.find((item: any) => item.from?.objectId === from.objectId && item.from?.portId === from.portId && item.to?.objectId === to.objectId && item.to?.portId === to.portId);

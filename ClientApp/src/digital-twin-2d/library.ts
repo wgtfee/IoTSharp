@@ -45,7 +45,7 @@ export const createTwin2DLibraryObject = (item: Twin2DLibraryItem, x: number, y:
 	componentType: item.componentType,
 	customSvg: item.customSvg,
 	componentSchema: item.componentSchema,
-	ports: item.ports,
+	ports: cloneTwin2DState(item.ports || defaultTwin2DPorts(item.symbolKey)),
 	bindingSlots: item.bindingSlots,
 	properties: cloneTwin2DState(item.defaultProperties || {}),
 	layerId: ['pallet', 'carton', 'agv'].includes(item.symbolKey) ? 'material-flow' : item.symbolKey === 'label' ? 'labels' : 'production',
@@ -59,3 +59,10 @@ export const createTwin2DLibraryObject = (item: Twin2DLibraryItem, x: number, y:
 	stroke: '#7dd3fc',
 	opacity: 1,
 });
+
+/** 没有数据库组件资源的内置输送设备仍有明确的物料端口。 */
+export const defaultTwin2DPorts = (symbol: Twin2DSymbolKey): Array<Record<string, unknown>> =>
+	['conveyor-small', 'conveyor-large', 'turntable', 'buffer', 'inspection', 'bagging', 'station', 'gantry', 'robot'].includes(symbol)
+		? [{ portId: 'input', name: 'IN', type: 'material-input', localPosition: [-1, 0, 0] },
+			{ portId: 'output', name: 'OUT', type: 'material-output', localPosition: [1, 0, 0] }]
+		: [];

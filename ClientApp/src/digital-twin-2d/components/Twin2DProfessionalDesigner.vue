@@ -1,121 +1,637 @@
 <template>
-	<div class="pro" v-loading="loading">
+	<div ref="designerRoot" class="pro" v-loading="loading || runtimeLoading" :aria-busy="sceneBusy">
 		<header class="topbar">
-			<div class="brand"><small>IOTSHARP TWIN 2D PROFESSIONAL</small><strong>{{ currentScene?.name || '2D 数字孪生设计器' }}</strong></div>
-			<el-select v-model="selectedSceneId" class="scene-select" filterable placeholder="选择场景" @change="requestSceneChange"><el-option v-for="s in scenes" :key="s.id" :label="s.name" :value="s.id" /></el-select>
-			<el-tag :type="currentScene?.status==='Published'?'success':'warning'">{{ currentScene ? `${currentScene.status} · r${currentScene.revision}` : '未选择' }}</el-tag>
+			<div class="brand">
+				<small>IOTSHARP TWIN 2D PROFESSIONAL</small><strong>{{ currentScene?.name || '2D 数字孪生设计器' }}</strong>
+			</div>
+			<el-select v-model="selectedSceneId" :disabled="sceneBusy" class="scene-select" filterable placeholder="选择场景" @change="requestSceneChange"
+				><el-option v-for="s in scenes" :key="s.id" :label="s.name" :value="s.id"
+			/></el-select>
+			<el-tag :type="currentScene?.status === 'Published' ? 'success' : 'warning'">{{
+				currentScene ? `${currentScene.status} · r${currentScene.revision}` : '未选择'
+			}}</el-tag>
 			<el-tag v-if="dirty" type="danger" effect="plain">未保存</el-tag>
 			<div class="grow" />
-			<el-button-group><el-button :disabled="!canUndo || mode==='runtime'" @click="undo">撤销</el-button><el-button :disabled="!canRedo || mode==='runtime'" @click="redo">重做</el-button></el-button-group>
-			<el-segmented v-model="mode" :options="modeOptions" />
-			<el-button v-if="canAdd" @click="createVisible=true">新建</el-button>
-			<el-button v-if="canEdit" :loading="saving" :disabled="!currentScene" @click="saveDraft">保存草稿</el-button>
-			<el-button :disabled="!currentScene" @click="validateScene">校验</el-button>
-			<el-button v-if="canEdit" type="success" :loading="publishing" :disabled="!currentScene" @click="publishScene">发布</el-button>
-			<el-dropdown><el-button>更多</el-button><template #dropdown><el-dropdown-menu>
-				<el-dropdown-item @click="openVersions">版本与回滚</el-dropdown-item>
-				<el-dropdown-item :disabled="!currentScene" @click="openPublishedViewer">2D 线上运行态</el-dropdown-item>
-				<el-dropdown-item :disabled="!currentScene" @click="duplicateScene">复制场景</el-dropdown-item>
-				<el-dropdown-item :disabled="!currentScene" @click="exportManifest">导出 Manifest</el-dropdown-item>
-				<el-dropdown-item v-if="canEdit" @click="importInput?.click()">导入 Manifest</el-dropdown-item>
-				<el-dropdown-item divided @click="router.push('/iot/digital-twin/scenes')">场景中心</el-dropdown-item>
-				<el-dropdown-item @click="router.push({path:'/iot/digital-twin/workbench',query:{sceneId:selectedSceneId}})">三维场景</el-dropdown-item>
-				<el-dropdown-item @click="router.push('/iot/digital-twin/yt-pack-2d')">亚特包装线 2D</el-dropdown-item>
-			</el-dropdown-menu></template></el-dropdown>
+			<el-button-group
+				><el-button :disabled="!canUndo || mode === 'runtime'" @click="undo">撤销</el-button
+				><el-button :disabled="!canRedo || mode === 'runtime'" @click="redo">重做</el-button></el-button-group
+			>
+			<el-segmented v-model="mode" :options="modeOptions" :disabled="sceneBusy || flowDesignerVisible || !!interaction || !currentScene" />
+			<el-button v-if="canAdd" :disabled="sceneBusy || mode === 'runtime'" @click="createVisible = true">新建</el-button>
+			<el-button v-if="canEdit" :loading="saving" :disabled="!currentScene || sceneBusy || mode === 'runtime'" @click="saveDraft">保存草稿</el-button>
+			<el-button :disabled="!currentScene" @click="validateScene()">校验</el-button>
+			<el-button v-if="canEdit" type="success" :loading="publishing" :disabled="!currentScene || sceneBusy || mode === 'runtime'" @click="publishScene"
+				>发布</el-button
+			>
+			<el-button v-if="canEdit" :disabled="!currentScene || sceneBusy || mode === 'runtime'" @click="flowDesignerVisible = true">动作编排</el-button>
+			<el-dropdown
+				><el-button>更多</el-button
+				><template #dropdown
+					><el-dropdown-menu>
+						<el-dropdown-item @click="openVersions">版本与回滚</el-dropdown-item>
+						<el-dropdown-item :disabled="!currentScene" @click="openPublishedViewer">2D 线上运行态</el-dropdown-item>
+						<el-dropdown-item :disabled="!currentScene || sceneBusy || mode === 'runtime'" @click="duplicateScene">复制场景</el-dropdown-item>
+						<el-dropdown-item :disabled="!currentScene" @click="exportManifest">导出 Manifest</el-dropdown-item>
+						<el-dropdown-item v-if="canEdit" :disabled="sceneBusy || mode === 'runtime'" @click="importInput?.click()">导入 Manifest</el-dropdown-item>
+						<el-dropdown-item divided @click="router.push('/iot/digital-twin/scenes')">场景中心</el-dropdown-item>
+						<el-dropdown-item @click="router.push({ path: '/iot/digital-twin/workbench', query: { sceneId: selectedSceneId } })"
+							>三维场景</el-dropdown-item
+						>
+						<el-dropdown-item @click="router.push('/iot/digital-twin/yt-pack-2d')">亚特包装线 2D</el-dropdown-item>
+					</el-dropdown-menu></template
+				></el-dropdown
+			>
 			<input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="importManifest" />
 		</header>
 
-		<div v-if="mode==='runtime'" class="runtime-strip"><b>TELEMETRY POLLING</b><span>{{ polling?'1s 轮询':'暂停' }}</span><span>Bindings {{ manifest.bindings?.length || 0 }}</span><span class="good">Good {{ runtimeCounts.good }}</span><span class="warn">Stale {{ runtimeCounts.stale }}</span><span class="danger">Bad {{ runtimeCounts.bad }}</span><span>Blocked {{ runtimeCounts.blocked }}</span></div>
+		<div v-if="mode === 'runtime'" class="runtime-strip">
+			<b>TELEMETRY POLLING</b><span>{{ polling ? '1s 轮询' : '暂停' }}</span
+			><span v-if="pollError" class="danger" role="alert">{{ pollError }}</span
+			><span>Bindings {{ manifest.bindings?.length || 0 }}</span
+			><span class="good">Good {{ runtimeCounts.good }}</span
+			><span class="warn">Stale {{ runtimeCounts.stale }}</span
+			><span class="danger">Bad {{ runtimeCounts.bad }}</span
+			><span>Blocked {{ runtimeCounts.blocked }}</span>
+		</div>
 
 		<main class="workspace">
 			<aside v-show="!leftCollapsed" class="left panel">
 				<el-tabs v-model="leftTab" stretch>
 					<el-tab-pane label="模型库" name="library">
-						<div class="library-filters"><el-input v-model="libraryKeyword" clearable placeholder="搜索 2D 模型" /><el-segmented v-model="libraryScope" :options="libraryScopes" size="small" /></div>
+						<div class="library-filters">
+							<el-input v-model="libraryKeyword" clearable placeholder="搜索 2D 模型" /><el-segmented
+								v-model="libraryScope"
+								:options="libraryScopes"
+								size="small"
+							/>
+						</div>
 						<div class="library-list">
-							<div v-for="item in filteredLibrary" :key="item.resourceKey" class="lib-card" draggable="true" @dragstart="beginLibraryDrag($event,item)">
-								<div class="lib-preview">{{ symbolEmoji(item.symbolKey) }}</div><div class="lib-info"><strong>{{ item.name }}</strong><small>{{ item.category }} · {{ item.origin || 'builtin' }}</small><span>{{ item.description }}</span></div>
-								<div class="lib-actions"><el-button link @click.stop="toggleFavorite(item)">{{ libraryState.favorites.includes(item.resourceKey)?'★':'☆' }}</el-button><el-button link type="primary" @click.stop="addLibraryItem(item)">添加</el-button></div>
+							<div
+								v-for="item in filteredLibrary"
+								:key="item.resourceKey"
+								class="lib-card"
+								:draggable="canEditScene"
+								@dragstart="beginLibraryDrag($event, item)" @dragend="draggingLibraryItem=undefined"
+							>
+								<div class="lib-preview">{{ symbolEmoji(item.symbolKey) }}</div>
+								<div class="lib-info">
+									<strong>{{ item.name }}</strong
+									><small>{{ item.category }} · {{ item.origin || 'builtin' }}</small
+									><span>{{ item.description }}</span>
+								</div>
+								<div class="lib-actions">
+									<el-button link @click.stop="toggleFavorite(item)">{{ libraryState.favorites.includes(item.resourceKey) ? '★' : '☆' }}</el-button
+									><el-button link type="primary" :disabled="!canEditScene" @click.stop="addLibraryItem(item)">添加</el-button>
+								</div>
 							</div>
 						</div>
-						<el-button v-if="canEdit" class="full" type="primary" plain @click="customVisible=true">+ 自定义 SVG 组件</el-button>
+						<el-button v-if="canEdit" class="full" type="primary" plain @click="customVisible = true">+ 自定义 SVG 组件</el-button>
 					</el-tab-pane>
 					<el-tab-pane label="场景树" name="tree">
-						<div class="tree-row" v-for="item in orderedObjects" :key="item.id" :class="{active:selectedObjectIds.includes(item.id)}" @click="selectFromTree($event,item.id)"><span>{{ item.hidden?'◌':'●' }}</span><b>{{ item.name }}</b><small>{{ item.layerId }}</small></div>
+						<div
+							class="tree-row"
+							v-for="item in orderedObjects"
+							:key="item.id"
+							:class="{ active: selectedObjectIds.includes(item.id) }"
+							@click="selectFromTree($event, item.id)"
+						>
+							<span>{{ item.hidden ? '◌' : '●' }}</span
+							><b>{{ item.name }}</b
+							><small>{{ item.layerId }}</small>
+						</div>
 					</el-tab-pane>
 					<el-tab-pane label="图层" name="layers">
 						<div v-for="layer in view.layers" :key="layer.id" class="layer-row">
-							<el-checkbox v-model="layer.visible" class="layer-visible" :disabled="mode==='runtime'" @change="commit"><span class="layer-name">{{ layer.name }}</span></el-checkbox>
-							<el-switch v-model="layer.locked" class="layer-lock" :disabled="mode==='runtime'" size="small" active-text="锁" inline-prompt @change="commit" />
+							<el-checkbox v-model="layer.visible" class="layer-visible" :disabled="!canEditScene" @change="commit"
+								><span class="layer-name">{{ layer.name }}</span></el-checkbox
+							>
+							<el-switch
+								v-model="layer.locked"
+								class="layer-lock"
+								:disabled="!canEditScene"
+								size="small"
+								active-text="锁"
+								inline-prompt
+								@change="commit"
+							/>
 						</div>
-						<el-button v-if="canEdit && mode==='design'" class="layer-add" size="small" @click="addLayer">新增图层</el-button>
+						<el-button v-if="canEdit && mode === 'design'" class="layer-add" size="small" @click="addLayer">新增图层</el-button>
 					</el-tab-pane>
 				</el-tabs>
 			</aside>
 
 			<section class="stage-shell">
-				<button type="button" class="panel-handle left-handle" :aria-label="leftCollapsed?'展开左侧模型库':'收起左侧模型库'" :title="leftCollapsed?'展开左侧模型库':'收起左侧模型库'" @click="leftCollapsed=!leftCollapsed">{{ leftCollapsed?'›':'‹' }}</button>
-				<button type="button" class="panel-handle right-handle" :aria-label="rightCollapsed?'展开右侧属性栏':'收起右侧属性栏'" :title="rightCollapsed?'展开右侧属性栏':'收起右侧属性栏'" @click="rightCollapsed=!rightCollapsed">{{ rightCollapsed?'‹':'›' }}</button>
+				<button
+					type="button"
+					class="panel-handle left-handle"
+					:aria-label="leftCollapsed ? '展开左侧模型库' : '收起左侧模型库'"
+					:title="leftCollapsed ? '展开左侧模型库' : '收起左侧模型库'"
+					@click="leftCollapsed = !leftCollapsed"
+				>
+					{{ leftCollapsed ? '›' : '‹' }}
+				</button>
+				<button
+					type="button"
+					class="panel-handle right-handle"
+					:aria-label="rightCollapsed ? '展开右侧属性栏' : '收起右侧属性栏'"
+					:title="rightCollapsed ? '展开右侧属性栏' : '收起右侧属性栏'"
+					@click="rightCollapsed = !rightCollapsed"
+				>
+					{{ rightCollapsed ? '‹' : '›' }}
+				</button>
 				<div class="stage-tools">
-					<el-radio-group v-model="tool" size="small" :disabled="mode==='runtime'"><el-radio-button value="select">选择</el-radio-button><el-radio-button value="point">路线节点</el-radio-button><el-radio-button value="edge">路线连线</el-radio-button><el-radio-button value="port">端口连接</el-radio-button></el-radio-group>
-					<el-select v-if="tool==='point'" v-model="routePointKind" size="small" style="width:130px"><el-option v-for="k in routePointKinds" :key="k" :label="k" :value="k" /></el-select>
-					<el-button-group size="small"><el-button :disabled="selectedObjectIds.length<2" @click="align('left')">左齐</el-button><el-button :disabled="selectedObjectIds.length<2" @click="align('center-x')">中齐</el-button><el-button :disabled="selectedObjectIds.length<2" @click="align('top')">顶齐</el-button><el-button :disabled="selectedObjectIds.length<3" @click="distribute('horizontal')">横分布</el-button><el-button :disabled="selectedObjectIds.length<3" @click="distribute('vertical')">纵分布</el-button></el-button-group>
-					<el-button v-if="canLink" size="small" :disabled="!manifest.connections?.length" @click="generateRoute">连接生成路线</el-button><el-button v-if="canDelete && selectedConnectionId" size="small" type="danger" plain @click="deleteConnection">删除连接</el-button>
-					<div class="grow"/><el-checkbox v-model="view.canvas.showGrid" :disabled="mode==='runtime'" @change="commit">网格</el-checkbox><el-checkbox v-model="view.canvas.snapToGrid" :disabled="mode==='runtime'" @change="commit">吸附</el-checkbox><el-select v-model="view.canvas.gridSize" size="small" class="grid-size" :disabled="mode==='runtime'" @change="commit"><el-option label="10" :value="10"/><el-option label="20" :value="20"/><el-option label="50" :value="50"/></el-select><el-checkbox v-model="view.showMinimap">MiniMap</el-checkbox>
-					<el-button-group size="small"><el-button @click="zoom(0.85)">＋</el-button><el-button @click="zoom(1.18)">－</el-button><el-button @click="resetViewport">复位</el-button></el-button-group><span>{{ zoomPercent }}%</span>
+					<el-radio-group v-model="tool" size="small" :disabled="!canEditScene"
+						><el-radio-button value="select">选择</el-radio-button><el-radio-button value="point">路线节点</el-radio-button
+						><el-radio-button value="edge">路线连线</el-radio-button><el-radio-button value="port">端口连接</el-radio-button></el-radio-group
+					>
+					<el-select v-if="tool === 'point'" v-model="routePointKind" size="small" style="width: 130px"
+						><el-option v-for="k in routePointKinds" :key="k" :label="k" :value="k"
+					/></el-select>
+					<el-button-group size="small"
+						><el-button :disabled="!canEdit || mode === 'runtime' || selectedObjectIds.length < 2" @click="align('left')">左齐</el-button
+						><el-button :disabled="!canEdit || mode === 'runtime' || selectedObjectIds.length < 2" @click="align('center-x')">中齐</el-button
+						><el-button :disabled="!canEdit || mode === 'runtime' || selectedObjectIds.length < 2" @click="align('top')">顶齐</el-button
+						><el-button :disabled="!canEdit || mode === 'runtime' || selectedObjectIds.length < 3" @click="distribute('horizontal')">横分布</el-button
+						><el-button :disabled="!canEdit || mode === 'runtime' || selectedObjectIds.length < 3" @click="distribute('vertical')"
+							>纵分布</el-button
+						></el-button-group
+					>
+					<el-button v-if="canLink" size="small" :disabled="!canEdit || mode === 'runtime' || !manifest.connections?.length" @click="generateRoute"
+						>连接生成路线</el-button
+					><el-button
+						v-if="canDelete && selectedConnectionId"
+						size="small"
+						type="danger"
+						plain
+						:disabled="!canEditScene"
+						@click="deleteConnection"
+						>删除连接</el-button
+					>
+					<div class="grow" />
+					<el-checkbox v-model="view.canvas.showGrid" :disabled="!canEditScene" @change="commit">网格</el-checkbox
+					><el-checkbox v-model="view.canvas.snapToGrid" :disabled="!canEditScene" @change="commit">吸附</el-checkbox
+					><el-select v-model="view.canvas.gridSize" size="small" class="grid-size" :disabled="!canEditScene" @change="commit"
+						><el-option label="10" :value="10" /><el-option label="20" :value="20" /><el-option label="50" :value="50" /></el-select
+					><el-checkbox v-model="view.showMinimap">MiniMap</el-checkbox>
+					<el-button-group size="small"
+						><el-button @click="zoom(0.85)">＋</el-button><el-button @click="zoom(1.18)">－</el-button
+						><el-button @click="resetViewport">复位</el-button></el-button-group
+					><span>{{ zoomPercent }}%</span>
 				</div>
 				<div ref="runtimeStage" class="canvas-wrap">
-					<svg ref="canvas" class="canvas" tabindex="0" :viewBox="`${viewport.x} ${viewport.y} ${viewport.w} ${viewport.h}`" :style="{background:view.canvas.background}" @wheel.prevent="onWheel" @pointerdown="onCanvasDown" @pointermove="onCanvasMove" @pointerup="finishInteraction" @pointercancel="finishInteraction" @dragover.prevent @drop.prevent="onDrop">
-						<defs><pattern id="pro2d-grid" :width="view.canvas.gridSize" :height="view.canvas.gridSize" patternUnits="userSpaceOnUse"><path :d="`M ${view.canvas.gridSize} 0 L 0 0 0 ${view.canvas.gridSize}`" fill="none" stroke="rgba(148,163,184,.15)" stroke-width="1" /></pattern></defs>
-						<rect class="canvas-bg" x="0" y="0" :width="view.canvas.width" :height="view.canvas.height" :fill="view.canvas.showGrid?'url(#pro2d-grid)':view.canvas.background" />
+					<svg
+						ref="canvas"
+						class="canvas"
+						tabindex="0"
+						:viewBox="`${viewport.x} ${viewport.y} ${viewport.w} ${viewport.h}`"
+						:style="{ background: view.canvas.background }"
+						@wheel.prevent="onWheel"
+						@pointerdown="onCanvasDown"
+						@pointermove="onCanvasMove"
+						@pointerup="finishInteraction"
+						@pointercancel="finishInteraction"
+						@dragover.prevent
+						@drop.prevent="onDrop"
+					>
+						<defs>
+							<pattern id="pro2d-grid" :width="view.canvas.gridSize" :height="view.canvas.gridSize" patternUnits="userSpaceOnUse">
+								<path
+									:d="`M ${view.canvas.gridSize} 0 L 0 0 0 ${view.canvas.gridSize}`"
+									fill="none"
+									stroke="rgba(148,163,184,.15)"
+									stroke-width="1"
+								/>
+							</pattern>
+						</defs>
+						<rect
+							class="canvas-bg"
+							x="0"
+							y="0"
+							:width="view.canvas.width"
+							:height="view.canvas.height"
+							:fill="view.canvas.showGrid ? 'url(#pro2d-grid)' : view.canvas.background"
+						/>
 
 						<g class="route-layer">
-							<template v-for="r in manifest.routes || []" :key="r.routeId"><line v-for="e in r.edges" :key="e.edgeId" v-bind="edgeLine(e)" class="route-edge" :class="edgeClass(e)" @pointerdown.stop="selectEdge(r.routeId,e.edgeId)" /></template>
-							<template v-for="r in manifest.routes || []" :key="`${r.routeId}:points`"><g v-for="p in r.points" :key="p.pointId" class="route-point-group" @pointerdown.stop="onRoutePointDown($event,r.routeId,p.pointId)"><circle :cx="routePointView(p.pointId).x" :cy="routePointView(p.pointId).y" :r="selectedRoutePointId===p.pointId?10:7" :class="{active:selectedRoutePointId===p.pointId}"/><text :x="routePointView(p.pointId).x+10" :y="routePointView(p.pointId).y-10">{{ p.name }}</text></g></template>
+							<template v-for="r in manifest.routes || []" :key="r.routeId">
+								<line
+									v-for="e in r.edges"
+									:key="e.edgeId"
+									v-bind="edgeLine(e)"
+									class="route-edge"
+									:class="edgeClass(e)"
+									@pointerdown.stop="selectEdge(r.routeId, e.edgeId)"
+								/>
+							</template>
+							<template v-for="r in manifest.routes || []" :key="`${r.routeId}:points`">
+								<g
+									v-for="p in r.points"
+									:key="p.pointId"
+									class="route-point-group"
+									@pointerdown.stop="onRoutePointDown($event, r.routeId, p.pointId)"
+								>
+									<circle
+										:cx="routePointView(p.pointId).x"
+										:cy="routePointView(p.pointId).y"
+										:r="selectedRoutePointId === p.pointId ? 10 : 7"
+										:class="{ active: selectedRoutePointId === p.pointId }"
+									/>
+									<text :x="routePointView(p.pointId).x + 10" :y="routePointView(p.pointId).y - 10">{{ p.name }}</text>
+								</g>
+							</template>
 						</g>
 
-						<g class="connection-layer"><line v-for="c in connectionVisuals" :key="c.connectionId" :x1="c.from.x" :y1="c.from.y" :x2="c.to.x" :y2="c.to.y" class="connection-line" @pointerdown.stop="selectedConnectionId=c.connectionId" /></g>
-						<g v-if="mode==='design'" class="alignment-guides"><line v-for="x in alignmentGuides.vertical" :key="`vx-${x}`" :x1="x" y1="0" :x2="x" :y2="view.canvas.height"/><line v-for="y in alignmentGuides.horizontal" :key="`hy-${y}`" x1="0" :y1="y" :x2="view.canvas.width" :y2="y"/></g>
+						<g class="connection-layer">
+							<line
+								v-for="c in connectionVisuals"
+								:key="c.connectionId"
+								:x1="c.from.x"
+								:y1="c.from.y"
+								:x2="c.to.x"
+								:y2="c.to.y"
+								class="connection-line"
+								@pointerdown.stop="selectedConnectionId = c.connectionId"
+							/>
+						</g>
+						<g v-if="mode === 'design'" class="alignment-guides">
+							<line v-for="x in alignmentGuides.vertical" :key="`vx-${x}`" :x1="x" y1="0" :x2="x" :y2="view.canvas.height" />
+							<line v-for="y in alignmentGuides.horizontal" :key="`hy-${y}`" x1="0" :y1="y" :x2="view.canvas.width" :y2="y" />
+						</g>
 
-						<g v-for="item in visibleObjects" :key="item.id" v-show="runtimeState(item).visible" class="scene-object" :class="{selected:selectedObjectIds.includes(item.id),locked:isObjectLocked(item)}" :transform="objectTransform(item)" :opacity="item.opacity ?? 1" @pointerdown.stop="onObjectDown($event,item)">
+						<g
+							v-for="item in visibleObjects"
+							:key="item.id"
+							v-show="runtimeState(item).visible"
+							class="scene-object"
+							:class="{ selected: selectedObjectIds.includes(item.id), locked: isObjectLocked(item) }"
+							:transform="objectTransform(item)"
+							:opacity="item.opacity ?? 1"
+							@pointerdown.stop="onObjectDown($event, item)"
+						>
 							<Twin2DSymbol :item="item" :runtime="runtimeState(item)" />
 						</g>
+						<g v-for="p in routeSlotPallets" :key="p.key" class="route-slot-pallet" :transform="`translate(${p.x} ${p.y})`">
+							<rect x="-18" y="-13" width="36" height="26" rx="6" />
+							<text text-anchor="middle" dominant-baseline="middle">{{ p.palletId }}</text>
+							<title>{{ p.routeName }} · 槽位 {{ p.slotIndex + 1 }} · 托盘 {{ p.palletId }}</title>
+						</g>
 
-						<g v-if="tool==='port'" class="ports"><g v-for="p in allPorts" :key="`${p.objectId}:${p.portId}`" @pointerdown.stop="onPortClick(p)"><circle :cx="p.x" :cy="p.y" r="8" :class="{active:selectedPort?.objectId===p.objectId && selectedPort?.portId===p.portId}"/><text :x="p.x+9" :y="p.y-9">{{ p.name }}</text></g></g>
+						<g v-if="mode === 'design' && tool === 'port'" class="ports">
+							<g v-for="p in allPorts" :key="`${p.objectId}:${p.portId}`" @pointerdown.stop="onPortClick(p)">
+								<circle :cx="p.x" :cy="p.y" r="8" :class="{ active: selectedPort?.objectId === p.objectId && selectedPort?.portId === p.portId }" />
+								<text :x="p.x + 9" :y="p.y - 9">{{ p.name }}</text>
+							</g>
+						</g>
 
-						<g v-if="mode==='design' && selectionRect" class="selection-ui"><rect :x="selectionRect.x" :y="selectionRect.y" :width="selectionRect.width" :height="selectionRect.height" class="selection-box"/><template v-if="selectedObjectIds.length===1"><circle :cx="selectionRect.x+selectionRect.width" :cy="selectionRect.y+selectionRect.height" r="9" class="handle resize" @pointerdown.stop="startResize($event)"/><line :x1="selectionRect.x+selectionRect.width/2" :y1="selectionRect.y" :x2="selectionRect.x+selectionRect.width/2" :y2="selectionRect.y-28" class="handle-line"/><circle :cx="selectionRect.x+selectionRect.width/2" :cy="selectionRect.y-34" r="9" class="handle rotate" @pointerdown.stop="startRotate($event)"/></template></g>
+						<g v-if="mode === 'design' && selectionRect" class="selection-ui">
+							<rect :x="selectionRect.x" :y="selectionRect.y" :width="selectionRect.width" :height="selectionRect.height" class="selection-box" />
+							<template v-if="selectedObjectIds.length === 1">
+								<circle
+									:cx="selectionRect.x + selectionRect.width"
+									:cy="selectionRect.y + selectionRect.height"
+									r="9"
+									class="handle resize"
+									@pointerdown.stop="startResize($event)"
+								/>
+								<line
+									:x1="selectionRect.x + selectionRect.width / 2"
+									:y1="selectionRect.y"
+									:x2="selectionRect.x + selectionRect.width / 2"
+									:y2="selectionRect.y - 28"
+									class="handle-line"
+								/>
+								<circle
+									:cx="selectionRect.x + selectionRect.width / 2"
+									:cy="selectionRect.y - 34"
+									r="9"
+									class="handle rotate"
+									@pointerdown.stop="startRotate($event)"
+								/>
+							</template>
+						</g>
 						<rect v-if="marquee" :x="marquee.x" :y="marquee.y" :width="marquee.width" :height="marquee.height" class="marquee" />
 					</svg>
 
-					<div v-if="view.showMinimap" class="minimap"><svg :viewBox="`0 0 ${view.canvas.width} ${view.canvas.height}`" preserveAspectRatio="none"><rect width="100%" height="100%" fill="#07111f"/><rect v-for="o in visibleObjects" :key="o.id" :x="o.x" :y="o.y" :width="o.width" :height="o.height" fill="#38bdf8" opacity=".65"/><rect :x="viewport.x" :y="viewport.y" :width="viewport.w" :height="viewport.h" fill="none" stroke="#facc15" stroke-width="12"/></svg></div>
-					<div v-if="mode==='runtime' && runtimeVisible && runtimeObject && runtimeAnchor.visible" class="runtime-popover" :class="`is-${runtimeCardPlacement.side}`" :style="runtimeCardPlacement.cardStyle" @pointerdown.stop @click.stop>
-						<div class="runtime-popover__arrow" :style="runtimeCardPlacement.arrowStyle"/><div class="runtime-popover__head"><div><small>OBJECT STATUS</small><strong>{{ runtimeObject.name }}</strong><span>{{ runtimeObject.businessObjectId || runtimeObject.id }}</span></div><div><em :class="runtimeStatusTone(runtimeObject)">{{ runtimeState(runtimeObject).statusText }}</em><button type="button" @click="runtimeVisible=false">×</button></div></div>
-						<div class="runtime-popover__grid"><div><label>信号</label><b>{{ runtimeSignalSummary(runtimeObject) }}</b></div><div><label>位置</label><b>{{ runtimePosition(runtimeObject) }}</b></div><div><label>Quality</label><b>{{ runtimeState(runtimeObject).quality }}</b></div><div><label>路线</label><b>{{ runtimeState(runtimeObject).routeProgress===undefined?'-':`${(runtimeState(runtimeObject).routeProgress!*100).toFixed(1)}%` }}</b></div><div><label>占用</label><b>{{ runtimeState(runtimeObject).occupancy ?? '-' }} / {{ runtimeState(runtimeObject).capacity ?? '-' }}</b></div><div><label>预留</label><b>{{ runtimeState(runtimeObject).reserved ?? '-' }}</b></div></div>
-						<div v-if="Object.keys(runtimeState(runtimeObject).values).length" class="runtime-popover__signals"><div v-for="([key,value]) in Object.entries(runtimeState(runtimeObject).values).slice(0,4)" :key="key"><span>{{ key }}</span><code>{{ value }}</code></div></div><div v-else class="runtime-popover__empty">暂无实时点位值</div>
+					<div v-if="view.showMinimap" class="minimap">
+						<svg :viewBox="`0 0 ${view.canvas.width} ${view.canvas.height}`" preserveAspectRatio="none">
+							<rect width="100%" height="100%" fill="#07111f" />
+							<rect v-for="o in visibleObjects" :key="o.id" :x="o.x" :y="o.y" :width="o.width" :height="o.height" fill="#38bdf8" opacity=".65" />
+							<rect :x="viewport.x" :y="viewport.y" :width="viewport.w" :height="viewport.h" fill="none" stroke="#facc15" stroke-width="12" />
+						</svg>
+					</div>
+					<div
+						v-if="mode === 'runtime' && runtimeVisible && runtimeObject && runtimeAnchor.visible"
+						class="runtime-popover"
+						:class="`is-${runtimeCardPlacement.side}`"
+						:style="runtimeCardPlacement.cardStyle"
+						@pointerdown.stop
+						@click.stop
+					>
+						<div class="runtime-popover__arrow" :style="runtimeCardPlacement.arrowStyle" />
+						<div class="runtime-popover__head">
+							<div>
+								<small>OBJECT STATUS</small><strong>{{ runtimeObject.name }}</strong
+								><span>{{ runtimeObject.businessObjectId || runtimeObject.id }}</span>
+							</div>
+							<div>
+								<em :class="runtimeStatusTone(runtimeObject)">{{ runtimeState(runtimeObject).statusText }}</em
+								><button type="button" @click="runtimeVisible = false">×</button>
+							</div>
+						</div>
+						<div class="runtime-popover__grid">
+							<div>
+								<label>信号</label><b>{{ runtimeSignalSummary(runtimeObject) }}</b>
+							</div>
+							<div>
+								<label>位置</label><b>{{ runtimePosition(runtimeObject) }}</b>
+							</div>
+							<div>
+								<label>Quality</label><b>{{ runtimeState(runtimeObject).quality }}</b>
+							</div>
+							<div>
+								<label>路线</label
+								><b>{{
+									runtimeState(runtimeObject).routeProgress === undefined ? '-' : `${(runtimeState(runtimeObject).routeProgress! * 100).toFixed(1)}%`
+								}}</b>
+							</div>
+							<div>
+								<label>占用</label><b>{{ runtimeState(runtimeObject).occupancy ?? '-' }} / {{ runtimeState(runtimeObject).capacity ?? '-' }}</b>
+							</div>
+							<div>
+								<label>预留</label><b>{{ runtimeState(runtimeObject).reserved ?? '-' }}</b>
+							</div>
+						</div>
+						<div v-if="Object.keys(runtimeState(runtimeObject).values).length" class="runtime-popover__signals">
+							<div v-for="[key, value] in Object.entries(runtimeState(runtimeObject).values).slice(0, 4)" :key="key">
+								<span>{{ key }}</span
+								><code>{{ value }}</code>
+							</div>
+						</div>
+						<div v-else class="runtime-popover__empty">暂无实时点位值</div>
 					</div>
 				</div>
-				<footer class="statusbar"><span :class="dirty?'danger':'good'">{{ dirty?'草稿未保存':'草稿已保存' }}</span><span>Objects {{ view.objects.length }}</span><span>Selected {{ selectedObjectIds.length }}</span><span>Routes {{ manifest.routes?.length || 0 }}</span><span>Connections {{ manifest.connections?.length || 0 }}</span><span>Bindings {{ manifest.bindings?.length || 0 }}</span><span>Grid {{ view.canvas.gridSize }}</span><span>Zoom {{ zoomPercent }}%</span><span v-if="selectedConnectionId">Connection {{ selectedConnectionId }}</span></footer>
+				<footer class="statusbar">
+					<span :class="dirty ? 'danger' : 'good'">{{ dirty ? '草稿未保存' : '草稿已保存' }}</span
+					><span>Objects {{ view.objects.length }}</span
+					><span>Selected {{ selectedObjectIds.length }}</span
+					><span>Routes {{ manifest.routes?.length || 0 }}</span
+					><span>Connections {{ manifest.connections?.length || 0 }}</span
+					><span>Bindings {{ manifest.bindings?.length || 0 }}</span
+					><span>Grid {{ view.canvas.gridSize }}</span
+					><span>Zoom {{ zoomPercent }}%</span><span v-if="selectedConnectionId">Connection {{ selectedConnectionId }}</span>
+				</footer>
 			</section>
 
 			<aside v-show="!rightCollapsed" class="right panel">
 				<el-empty v-if="!selectedObject && !selectedRoutePoint && !selectedRouteEdge" description="选择对象、路线节点或路线边" />
 				<el-tabs v-else v-model="rightTab" stretch>
-					<el-tab-pane v-if="selectedObject" label="属性" name="base"><el-form label-position="top" size="small"><el-form-item label="对象 ID"><el-input :model-value="selectedObject.id" disabled/></el-form-item><el-form-item label="名称"><el-input v-model="selectedObject.name" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item><div class="grid2"><el-form-item label="X"><el-input-number v-model="selectedObject.x" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item><el-form-item label="Y"><el-input-number v-model="selectedObject.y" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item><el-form-item label="宽"><el-input-number v-model="selectedObject.width" :disabled="!canEdit || mode==='runtime'" :min="20" @change="commit"/></el-form-item><el-form-item label="高"><el-input-number v-model="selectedObject.height" :disabled="!canEdit || mode==='runtime'" :min="20" @change="commit"/></el-form-item><el-form-item label="层级"><el-input-number v-model="selectedObject.zIndex" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item></div><el-form-item label="旋转"><el-slider v-model="selectedObject.rotation" :disabled="!canEdit || mode==='runtime'" :min="-180" :max="180" @change="commit"/></el-form-item><el-form-item label="图层"><el-select v-model="selectedObject.layerId" :disabled="!canEdit || mode==='runtime'" @change="commit"><el-option v-for="l in view.layers" :key="l.id" :label="l.name" :value="l.id"/></el-select></el-form-item><el-form-item label="业务对象"><el-select v-model="selectedObject.businessObjectId" :disabled="!canEdit || mode==='runtime'" clearable filterable @change="onBusinessChanged"><el-option v-for="o in manifest.objects" :key="o.objectId" :label="o.name" :value="o.objectId"/></el-select></el-form-item><div class="order-actions"><el-button size="small" :disabled="!canEdit || mode==='runtime'" @click="bringFront">置于顶层</el-button><el-button size="small" :disabled="!canEdit || mode==='runtime'" @click="sendBack">置于底层</el-button></div><el-checkbox v-model="selectedObject.locked" :disabled="!canEdit || mode==='runtime'" @change="commit">锁定</el-checkbox><el-checkbox v-model="selectedObject.hidden" :disabled="!canEdit || mode==='runtime'" @change="commit">隐藏</el-checkbox></el-form></el-tab-pane>
-					<el-tab-pane v-if="selectedObject" label="外观" name="style"><el-form label-position="top" size="small"><el-form-item label="填充"><el-color-picker v-model="selectedObject.fill" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item><el-form-item label="边框"><el-color-picker v-model="selectedObject.stroke" :disabled="!canEdit || mode==='runtime'" @change="commit"/></el-form-item><el-form-item label="透明度"><el-slider v-model="selectedObject.opacity" :disabled="!canEdit || mode==='runtime'" :min="0.1" :max="1" :step="0.05" @change="commit"/></el-form-item></el-form></el-tab-pane>
-					<el-tab-pane v-if="selectedObject" label="组件" name="component"><template v-if="schemaProperties.length"><el-form label-position="top" size="small"><el-form-item v-for="p in schemaProperties" :key="schemaKey(p)" :label="schemaLabel(p)"><el-switch v-if="schemaType(p)==='boolean'" v-model="selectedObject.properties![schemaKey(p)] as boolean" @change="commit"/><el-input-number v-else-if="schemaType(p)==='number'" v-model="selectedObject.properties![schemaKey(p)] as any" :min="schemaMin(p)" :max="schemaMax(p)" @change="commit"/><el-select v-else-if="schemaOptions(p).length" v-model="selectedObject.properties![schemaKey(p)] as string | number | boolean" @change="commit"><el-option v-for="x in schemaOptions(p)" :key="String(x.value)" :label="x.label" :value="x.value"/></el-select><el-input v-else v-model="selectedObject.properties![schemaKey(p)] as any" @change="commit"/></el-form-item></el-form></template><el-empty v-else description="该 2D 组件没有动态 Schema"/><div v-if="selectedObject.bindingSlots?.length" class="slot-list"><h4>Binding Slots</h4><el-tag v-for="slot in selectedObject.bindingSlots" :key="String(slot.slotId || slot.semantic)" class="slot" @click="useBindingSlot(slot)">{{ slot.slotId || slot.semantic }} · {{ slot.semantic || '-' }}</el-tag></div></el-tab-pane>
-					<el-tab-pane v-if="selectedObject" label="遥测" name="binding"><el-form label-position="top" size="small"><el-form-item label="Device"><el-select v-model="bindingForm.deviceId" filterable clearable @change="refreshBindingKeys"><el-option v-for="d in assetDevices" :key="d.id" :label="d.name || d.id" :value="d.id"/></el-select></el-form-item><el-form-item label="Telemetry Key"><el-select v-model="bindingForm.key" filterable allow-create default-first-option><el-option v-for="k in bindingKeys" :key="k.value" :label="k.label" :value="k.value"/></el-select></el-form-item><el-form-item label="Target"><el-select v-model="bindingForm.targetKind"><el-option label="运行动画" value="animation"/><el-option label="可见" value="visible"/><el-option label="颜色" value="color"/><el-option label="文本" value="text"/><el-option label="自定义属性" value="customProperty"/></el-select></el-form-item><el-button v-if="canEdit" type="primary" :disabled="!canAddBinding" @click="addBinding">添加 Telemetry Binding</el-button></el-form><div class="binding-list"><div v-for="b in selectedBindings" :key="b.bindingId"><b>{{ b.source.key }}</b><span>{{ b.target.kind }} · {{ b.source.deviceId }}</span><el-button v-if="canDelete" link type="danger" @click="removeBinding(b.bindingId)">删除</el-button></div></div></el-tab-pane>
-					<el-tab-pane v-if="selectedRoutePoint || selectedRouteEdge" label="路线" name="route"><el-form v-if="selectedRoutePoint" label-position="top" size="small"><el-form-item label="节点名称"><el-input v-model="selectedRoutePoint.name" @change="commit"/></el-form-item><el-form-item label="节点类型"><el-select v-model="selectedRoutePoint.kind" @change="commit"><el-option v-for="k in routePointKinds" :key="k" :label="k" :value="k"/></el-select></el-form-item><el-form-item v-if="isDecisionPoint(selectedRoutePoint)" label="决策模式"><el-select v-model="selectedRoutePoint.decisionMode" @change="commit"><el-option label="PLC" value="plc"/><el-option label="仿真" value="simulation"/><el-option label="人工" value="manual"/></el-select></el-form-item><el-button v-if="canDelete" type="danger" plain @click="deleteRoutePoint">删除节点</el-button></el-form><el-form v-if="selectedRouteEdge" label-position="top" size="small"><el-form-item label="容量"><el-input-number v-model="selectedRouteEdge.capacity" :min="1" @change="commit"/></el-form-item><el-form-item label="Occupancy Mode"><el-select v-model="selectedRouteEdge.occupancyMode" @change="commit"><el-option label="实时 Telemetry" value="live"/><el-option label="运行时计算" value="calculated"/><el-option label="仿真" value="simulation"/></el-select></el-form-item><el-form-item label="Reservation Timeout"><el-input-number v-model="selectedRouteEdge.reservationTimeoutSeconds" :min="1" :max="3600" @change="commit"/></el-form-item><el-form-item label="速度限制"><el-input-number v-model="selectedRouteEdge.speedLimit" :min="0" :step="0.1" @change="commit"/></el-form-item><el-checkbox v-model="selectedRouteEdge.enabled" @change="commit">启用</el-checkbox><el-button v-if="canDelete" type="danger" plain @click="deleteRouteEdge">删除路线边</el-button></el-form></el-tab-pane>
-					<el-tab-pane v-if="selectedObject" label="运行态" name="runtime"><div class="runtime-card"><strong>{{ runtimeState(selectedObject).statusText }}</strong><p>Quality {{ runtimeState(selectedObject).quality }}</p><p>Occupancy {{ runtimeState(selectedObject).occupancy ?? '-' }} / {{ runtimeState(selectedObject).capacity ?? '-' }} · Reserved {{ runtimeState(selectedObject).reserved ?? '-' }}</p><pre>{{ JSON.stringify(runtimeState(selectedObject).values,null,2) }}</pre></div></el-tab-pane>
+					<el-tab-pane v-if="selectedObject" label="属性" name="base"
+						><el-form label-position="top" size="small" :disabled="!canEditScene"
+							><el-form-item label="对象 ID"><el-input :model-value="selectedObject.id" disabled /></el-form-item
+							><el-form-item label="名称"
+								><el-input v-model="selectedObject.name" :disabled="!canEdit || mode === 'runtime'" @change="commit"
+							/></el-form-item>
+							<div class="grid2">
+								<el-form-item label="X"
+									><el-input-number v-model="selectedObject.x" :disabled="!canEdit || mode === 'runtime'" @change="commit" /></el-form-item
+								><el-form-item label="Y"
+									><el-input-number v-model="selectedObject.y" :disabled="!canEdit || mode === 'runtime'" @change="commit" /></el-form-item
+								><el-form-item label="宽"
+									><el-input-number
+										v-model="selectedObject.width"
+										:disabled="!canEdit || mode === 'runtime'"
+										:min="20"
+										@change="commit" /></el-form-item
+								><el-form-item label="高"
+									><el-input-number
+										v-model="selectedObject.height"
+										:disabled="!canEdit || mode === 'runtime'"
+										:min="20"
+										@change="commit" /></el-form-item
+								><el-form-item label="层级"
+									><el-input-number v-model="selectedObject.zIndex" :disabled="!canEdit || mode === 'runtime'" @change="commit"
+								/></el-form-item>
+							</div>
+							<el-form-item label="旋转"
+								><el-slider
+									v-model="selectedObject.rotation"
+									:disabled="!canEdit || mode === 'runtime'"
+									:min="-180"
+									:max="180"
+									@change="commit" /></el-form-item
+							><el-form-item label="图层"
+								><el-select v-model="selectedObject.layerId" :disabled="!canEdit || mode === 'runtime'" @change="commit"
+									><el-option v-for="l in view.layers" :key="l.id" :label="l.name" :value="l.id" /></el-select></el-form-item
+							><el-form-item label="业务对象"
+								><el-select
+									v-model="selectedObject.businessObjectId"
+									:disabled="!canEdit || mode === 'runtime'"
+									clearable
+									filterable
+									@change="onBusinessChanged"
+									><el-option v-for="o in manifest.objects" :key="o.objectId" :label="o.name" :value="o.objectId" /></el-select
+							></el-form-item>
+							<div class="order-actions">
+								<el-button size="small" :disabled="!canEdit || mode === 'runtime'" @click="bringFront">置于顶层</el-button
+								><el-button size="small" :disabled="!canEdit || mode === 'runtime'" @click="sendBack">置于底层</el-button>
+							</div>
+							<el-checkbox v-model="selectedObject.locked" :disabled="!canEdit || mode === 'runtime'" @change="commit">锁定</el-checkbox
+							><el-checkbox v-model="selectedObject.hidden" :disabled="!canEdit || mode === 'runtime'" @change="commit">隐藏</el-checkbox></el-form
+						></el-tab-pane
+					>
+					<el-tab-pane v-if="selectedObject" label="外观" name="style"
+						><el-form label-position="top" size="small" :disabled="!canEditScene"
+							><el-form-item label="填充"
+								><el-color-picker v-model="selectedObject.fill" :disabled="!canEdit || mode === 'runtime'" @change="commit" /></el-form-item
+							><el-form-item label="边框"
+								><el-color-picker v-model="selectedObject.stroke" :disabled="!canEdit || mode === 'runtime'" @change="commit" /></el-form-item
+							><el-form-item label="透明度"
+								><el-slider
+									v-model="selectedObject.opacity"
+									:disabled="!canEdit || mode === 'runtime'"
+									:min="0.1"
+									:max="1"
+									:step="0.05"
+									@change="commit" /></el-form-item></el-form
+					></el-tab-pane>
+					<el-tab-pane v-if="selectedObject" label="组件" name="component"
+						><template v-if="schemaProperties.length"
+							><el-form label-position="top" size="small" :disabled="!canEditScene"
+								><el-form-item v-for="p in schemaProperties" :key="schemaKey(p)" :label="schemaLabel(p)"
+									><el-switch
+										v-if="schemaType(p) === 'boolean'"
+										v-model="selectedObject.properties![schemaKey(p)] as boolean"
+										@change="commit" /><el-input-number
+										v-else-if="schemaType(p) === 'number'"
+										v-model="selectedObject.properties![schemaKey(p)] as any"
+										:min="schemaMin(p)"
+										:max="schemaMax(p)"
+										@change="commit" /><el-select
+										v-else-if="schemaOptions(p).length"
+										v-model="selectedObject.properties![schemaKey(p)] as string | number | boolean"
+										@change="commit"
+										><el-option v-for="x in schemaOptions(p)" :key="String(x.value)" :label="x.label" :value="x.value" /></el-select
+									><el-input v-else v-model="selectedObject.properties![schemaKey(p)] as any" @change="commit" /></el-form-item></el-form></template
+						><el-empty v-else description="该 2D 组件没有动态 Schema" />
+						<div v-if="selectedObject.bindingSlots?.length" class="slot-list">
+							<h4>Binding Slots</h4>
+							<el-tag
+								v-for="slot in selectedObject.bindingSlots"
+								:key="String(slot.slotId || slot.semantic)"
+								class="slot"
+								@click="useBindingSlot(slot)"
+								>{{ slot.slotId || slot.semantic }} · {{ slot.semantic || '-' }}</el-tag
+							>
+						</div></el-tab-pane
+					>
+					<el-tab-pane v-if="selectedObject" label="遥测" name="binding"
+						><el-form label-position="top" size="small" :disabled="!canEditScene"
+							><el-form-item label="Device"
+								><el-select v-model="bindingForm.deviceId" filterable clearable @change="refreshBindingKeys"
+									><el-option v-for="d in assetDevices" :key="d.id" :label="d.name || d.id" :value="d.id" /></el-select></el-form-item
+							><el-form-item label="Telemetry Key"
+								><el-select v-model="bindingForm.key" filterable allow-create default-first-option
+									><el-option v-for="k in bindingKeys" :key="k.value" :label="k.label" :value="k.value" /></el-select></el-form-item
+							><el-form-item label="Target"
+								><el-select v-model="bindingForm.targetKind"
+									><el-option label="运行动画" value="animation" /><el-option label="可见" value="visible" /><el-option
+										label="颜色"
+										value="color" /><el-option label="文本" value="text" /><el-option
+										label="自定义属性"
+										value="customProperty" /></el-select></el-form-item
+							><el-button v-if="canEdit" type="primary" :disabled="!canAddBinding" @click="addBinding">添加 Telemetry Binding</el-button></el-form
+						>
+						<div class="binding-list">
+							<div v-for="b in selectedBindings" :key="b.bindingId">
+								<b>{{ b.source.key }}</b
+								><span>{{ b.target.kind }} · {{ b.source.deviceId }}</span
+								><el-button v-if="canDelete" link type="danger" :disabled="!canEditScene" @click="removeBinding(b.bindingId)">删除</el-button>
+							</div>
+						</div></el-tab-pane
+					>
+					<el-tab-pane v-if="selectedRoutePoint || selectedRouteEdge" label="路线" name="route"
+						><el-form v-if="selectedRoutePoint" label-position="top" size="small" :disabled="!canEditScene"
+							><el-form-item label="节点名称"><el-input v-model="selectedRoutePoint.name" @change="commit" /></el-form-item
+							><el-form-item label="节点类型"
+								><el-select v-model="selectedRoutePoint.kind" @change="commit"
+									><el-option v-for="k in routePointKinds" :key="k" :label="k" :value="k" /></el-select></el-form-item
+							><el-form-item v-if="isDecisionPoint(selectedRoutePoint)" label="决策模式"
+								><el-select v-model="selectedRoutePoint.decisionMode" @change="commit"
+									><el-option label="PLC" value="plc" /><el-option label="仿真" value="simulation" /><el-option
+										label="人工"
+										value="manual" /></el-select></el-form-item
+							><el-button v-if="canDelete" type="danger" plain @click="deleteRoutePoint">删除节点</el-button></el-form
+						><el-form v-if="selectedRouteEdge" label-position="top" size="small" :disabled="!canEditScene"
+							><el-form-item label="容量"><el-input-number v-model="selectedRouteEdge.capacity" :min="1" @change="commit" /></el-form-item
+							><el-form-item label="Occupancy Mode"
+								><el-select v-model="selectedRouteEdge.occupancyMode" @change="commit"
+									><el-option label="实时 Telemetry" value="live" /><el-option label="运行时计算" value="calculated" /><el-option
+										label="仿真"
+										value="simulation" /></el-select></el-form-item
+							><el-form-item label="Reservation Timeout"
+								><el-input-number v-model="selectedRouteEdge.reservationTimeoutSeconds" :min="1" :max="3600" @change="commit" /></el-form-item
+							><el-form-item label="速度限制"
+								><el-input-number v-model="selectedRouteEdge.speedLimit" :min="0" :step="0.1" @change="commit" /></el-form-item
+							><el-checkbox v-model="selectedRouteEdge.enabled" @change="commit">启用</el-checkbox
+							><el-button v-if="canDelete" type="danger" plain @click="deleteRouteEdge">删除路线边</el-button></el-form
+						></el-tab-pane
+					>
+					<el-tab-pane v-if="selectedObject" label="运行态" name="runtime"
+						><div class="runtime-card">
+							<strong>{{ runtimeState(selectedObject).statusText }}</strong>
+							<p>Quality {{ runtimeState(selectedObject).quality }}</p>
+							<p>
+								Occupancy {{ runtimeState(selectedObject).occupancy ?? '-' }} / {{ runtimeState(selectedObject).capacity ?? '-' }} · Reserved
+								{{ runtimeState(selectedObject).reserved ?? '-' }}
+							</p>
+							<pre>{{ JSON.stringify(runtimeState(selectedObject).values, null, 2) }}</pre>
+						</div></el-tab-pane
+					>
 				</el-tabs>
 			</aside>
 		</main>
 
-		<el-dialog v-model="createVisible" title="新建 2D 场景" width="520px"><el-form label-position="top"><el-form-item label="名称"><el-input v-model="createForm.name"/></el-form-item><el-form-item label="Root Asset"><el-select v-model="createForm.rootAssetId" filterable><el-option v-for="a in assets" :key="a.id" :label="a.name" :value="a.id"/></el-select></el-form-item><el-form-item label="描述"><el-input v-model="createForm.description" type="textarea"/></el-form-item></el-form><template #footer><el-button @click="createVisible=false">取消</el-button><el-button type="primary" :loading="creating" :disabled="!createForm.name.trim() || !createForm.rootAssetId" @click="createScene">创建</el-button></template></el-dialog>
+		<el-dialog v-model="createVisible" title="新建 2D 场景" width="520px"
+			><el-form label-position="top"
+				><el-form-item label="名称"><el-input v-model="createForm.name" /></el-form-item
+				><el-form-item label="Root Asset"
+					><el-select v-model="createForm.rootAssetId" filterable
+						><el-option v-for="a in assets" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item
+				><el-form-item label="描述"><el-input v-model="createForm.description" type="textarea" /></el-form-item></el-form
+			><template #footer
+				><el-button @click="createVisible = false">取消</el-button
+				><el-button type="primary" :loading="creating" :disabled="!createForm.name.trim() || !createForm.rootAssetId" @click="createScene"
+					>创建</el-button
+				></template
+			></el-dialog
+		>
 
-		<el-dialog v-model="customVisible" title="自定义 2D SVG 组件" width="700px"><el-form label-position="top"><div class="grid2"><el-form-item label="名称"><el-input v-model="customForm.name"/></el-form-item><el-form-item label="分类"><el-input v-model="customForm.category"/></el-form-item><el-form-item label="默认宽"><el-input-number v-model="customForm.width" :min="20"/></el-form-item><el-form-item label="默认高"><el-input-number v-model="customForm.height" :min="20"/></el-form-item></div><el-form-item label="SVG"><el-input v-model="customForm.svg" type="textarea" :rows="12" placeholder="粘贴 SVG；script、事件属性和外部引用会被清理"/></el-form-item><el-form-item label="Binding Slots（逗号分隔）"><el-input v-model="customForm.bindingSlots" placeholder="running,fault,occupied"/></el-form-item></el-form><template #footer><el-button @click="customVisible=false">取消</el-button><el-button type="primary" :loading="customSaving" @click="saveCustomComponent">保存到组件库</el-button></template></el-dialog>
+		<el-dialog v-model="customVisible" title="自定义 2D SVG 组件" width="700px"
+			><el-form label-position="top"
+				><div class="grid2">
+					<el-form-item label="名称"><el-input v-model="customForm.name" /></el-form-item
+					><el-form-item label="分类"><el-input v-model="customForm.category" /></el-form-item
+					><el-form-item label="默认宽"><el-input-number v-model="customForm.width" :min="20" /></el-form-item
+					><el-form-item label="默认高"><el-input-number v-model="customForm.height" :min="20" /></el-form-item>
+				</div>
+				<el-form-item label="SVG"
+					><el-input v-model="customForm.svg" type="textarea" :rows="12" placeholder="粘贴 SVG；script、事件属性和外部引用会被清理" /></el-form-item
+				><el-form-item label="Binding Slots（逗号分隔）"
+					><el-input v-model="customForm.bindingSlots" placeholder="running,fault,occupied" /></el-form-item></el-form
+			><template #footer
+				><el-button @click="customVisible = false">取消</el-button
+				><el-button type="primary" :loading="customSaving" @click="saveCustomComponent">保存到组件库</el-button></template
+			></el-dialog
+		>
 
-		<el-drawer v-model="versionsVisible" title="发布版本与回滚" size="560px"><el-empty v-if="!versions.length" description="暂无版本"/><el-timeline v-else><el-timeline-item v-for="v in versions" :key="v.id" :timestamp="formatDate(v.createdAt)" :type="v.isCurrent?'success':'primary'"><div class="version"><strong>v{{ v.version }} <el-tag v-if="v.isCurrent" size="small" type="success">线上</el-tag></strong><span>来源 r{{ v.sourceDraftRevision }} · {{ v.changeSummary || '无说明' }}</span><el-button size="small" @click="router.push({path:'/iot/digital-twin/2d-viewer',query:{sceneId:currentScene?.id,version:v.version}})">2D 查看</el-button><el-button v-if="canEdit && !v.isCurrent" size="small" type="warning" @click="rollbackVersion(v.version)">恢复草稿</el-button></div></el-timeline-item></el-timeline></el-drawer>
-		<el-drawer v-model="validationVisible" title="2D 场景校验" size="560px"><el-empty v-if="!diagnostics.length" description="无诊断项"/><el-alert v-for="(d,i) in diagnostics" :key="i" :type="d.severity==='error'?'error':d.severity==='warning'?'warning':'info'" :title="d.message" :description="d.path || d.code" :closable="false" show-icon/></el-drawer>
+		<el-drawer v-model="versionsVisible" title="发布版本与回滚" size="560px"
+			><el-empty v-if="!versions.length" description="暂无版本" /><el-timeline v-else
+				><el-timeline-item v-for="v in versions" :key="v.id" :timestamp="formatDate(v.createdAt)" :type="v.isCurrent ? 'success' : 'primary'"
+					><div class="version">
+						<strong>v{{ v.version }} <el-tag v-if="v.isCurrent" size="small" type="success">线上</el-tag></strong
+						><span>来源 r{{ v.sourceDraftRevision }} · {{ v.changeSummary || '无说明' }}</span
+						><el-button
+							size="small"
+							@click="router.push({ path: '/iot/digital-twin/2d-viewer', query: { sceneId: currentScene?.id, version: v.version } })"
+							>2D 查看</el-button
+						><el-button v-if="canEdit && !v.isCurrent" size="small" type="warning" @click="rollbackVersion(v.version)">恢复草稿</el-button>
+					</div></el-timeline-item
+				></el-timeline
+			></el-drawer
+		>
+		<el-drawer v-model="validationVisible" title="2D 场景校验" size="560px"
+			><el-empty v-if="!diagnostics.length" description="无诊断项" /><el-alert
+				v-for="(d, i) in diagnostics"
+				:key="i"
+				:type="d.severity === 'error' ? 'error' : d.severity === 'warning' ? 'warning' : 'info'"
+				:title="d.message"
+				:description="d.path || d.code"
+				:closable="false"
+				show-icon
+		/></el-drawer>
+		<el-drawer v-model="flowDesignerVisible" title="动作流编排 · 与 3D 共用场景清单" size="min(96vw, 1600px)" class="flow-drawer" destroy-on-close>
+			<div class="flow-editor-body">
+			<el-alert title="此处编辑共用 Action Flow V2，支持独立流程仿真。真实设备下发、实体动作联动请到 3D 运行预览；2D 运行预览只读已发布遥测。" type="info" :closable="false" />
+			<ActionFlowDesigner
+				:scene-execution-available="false"
+				:live-execution-available="false"
+				:flows="manifest.actionFlows || []"
+				:manifest="manifest"
+				:focus-object-id="selectedObject?.businessObjectId"
+				:persisted-flows="currentScene?.actionFlows || []"
+				:scene-id="currentScene?.id"
+				:published-version-id="currentScene?.publishedVersionId"
+				:scene-revision="currentScene?.revision"
+				:published-source-revision="currentScene?.publishedSourceRevision"
+				@update:flows="update2DActionFlows"
+				@changed="commit"
+				@focus-object="focus2DFlowObject"
+				@create-interlock="create2DFlowInterlock"
+				@create-material-slot="create2DFlowMaterialSlot"
+				@scene-control="control2DSceneFlow"
+			/>
+			</div>
+		</el-drawer>
 	</div>
 </template>
 
@@ -125,159 +641,2015 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useUserInfo } from '/@/stores/userInfo';
 import { assetApi } from '/@/api/asset';
-import { digitalTwinApi, type DigitalTwinSceneDetail, type DigitalTwinSceneSummary, type TwinDataUpdate, type TwinModelResource, type TwinRuntimeSnapshot, type TwinSceneVersion } from '/@/api/digital-twin';
-import { createDefaultTwinSceneManifest, type TwinBindingTargetKind, type TwinObjectBindingDefinition, type TwinSceneManifest } from '/@/digital-twin/contracts';
+import {
+	digitalTwinApi,
+	type DigitalTwinSceneDetail,
+	type DigitalTwinSceneSummary,
+	type TwinDataUpdate,
+	type TwinModelResource,
+	type TwinRuntimeSnapshot,
+	type TwinSceneVersion,
+} from '/@/api/digital-twin';
+import {
+	createDefaultTwinSceneManifest,
+	validateTwinSceneManifest,
+	type TwinBindingTargetKind,
+	type TwinObjectBindingDefinition,
+	type TwinSceneManifest,
+} from '/@/digital-twin/contracts';
 import type { TwinComponentResourceRegistrationPayload } from '/@/digital-twin/components/ComponentResourceRegistration';
 import { createTwin2DLibraryObject, twin2DBuiltInLibrary, type Twin2DLibraryItem } from '../library';
-import { loadTwin2DLibraryState, mapModelResourceTo2DLibraryItem, rememberTwin2DRecent, toggleTwin2DFavorite, upsertTwin2DCustomResource } from '../library-store';
-import { alignObjects, bringSelectionToFront, distributeObjects, duplicateObjects, moveObjects, normalizeRect, objectsInMarquee, replaceObjectsById, resizeObjectFromCorner, rotationFromPointer, selectionBounds, sendSelectionToBack, snapObjectsToAlignmentGuides, type Twin2DAlignMode, type Twin2DAlignmentGuides, type Twin2DDistributeMode, type Twin2DPoint, type Twin2DRect } from '../editor';
-import { add2DRouteEdge, add2DRoutePoint, connectPorts2D, connectionVisuals2D, generateRouteFrom2DConnections, move2DRoutePoint, nearestCompatiblePort, remove2DRouteEdge, remove2DRoutePoint, removeConnection2D, resolve2DPorts, type Twin2DPortVisual, type Twin2DRoutePointKind } from '../route';
-import { createDefaultTwin2DView, ensureTwin2DView, snap2DValue, validateTwin2DView, type Twin2DObjectView, type Twin2DValidationDiagnostic, type Twin2DViewDefinition, type TwinSceneManifestWith2D } from '../types';
+import {
+	loadTwin2DLibraryState,
+	mapModelResourceTo2DLibraryItem,
+	rememberTwin2DRecent,
+	toggleTwin2DFavorite,
+	upsertTwin2DCustomResource,
+} from '../library-store';
+import {
+	alignObjects,
+	bringSelectionToFront,
+	distributeObjects,
+	duplicateTwin2DSelection,
+	moveObjects,
+	normalizeRect,
+	objectsInMarquee,
+	replaceObjectsById,
+	resizeObjectFromCorner,
+	rotationFromPointer,
+	selectionBounds,
+	sendSelectionToBack,
+	snapObjectsToAlignmentGuides,
+	type Twin2DAlignMode,
+	type Twin2DAlignmentGuides,
+	type Twin2DDistributeMode,
+	type Twin2DPoint,
+	type Twin2DRect,
+} from '../editor';
+import {
+	add2DRouteEdge,
+	add2DRoutePoint,
+	connectPorts2D,
+	connectionVisuals2D,
+	generateRouteFrom2DConnections,
+	move2DRoutePoint,
+	nearestCompatiblePort,
+	remove2DRouteEdge,
+	remove2DRoutePoint,
+	removeConnection2D,
+	resolve2DPorts,
+	type Twin2DPortVisual,
+	type Twin2DRoutePointKind,
+} from '../route';
+import {
+	createDefaultTwin2DView,
+	ensureTwin2DView,
+	snap2DValue,
+	validateTwin2DView,
+	type Twin2DObjectView,
+	type Twin2DValidationDiagnostic,
+	type Twin2DViewDefinition,
+	type TwinSceneManifestWith2D,
+} from '../types';
 import { interpolateTwin2DRoute, resolveTwin2DRouteRuntimeStates, resolveTwin2DRuntimeStates, type Twin2DObjectRuntimeState } from '../runtime';
 import { isSafeTwin2DSvg, sanitizeTwin2DSvg } from '../svg';
 import { cloneTwin2DState } from '../clone';
 import Twin2DSymbol from './Twin2DSymbol.vue';
 import { buildRuntimeStatusCardPlacement } from '/@/digital-twin/runtime/RuntimeStatusUiSupport';
+import ActionFlowDesigner from '/@/digital-twin/action-flow/components/ActionFlowDesigner.vue';
+import { resolveTwin2DRoutingContext, resolveTwin2DRouteSlotPallets } from '../runtime';
+import type { TwinActionFlowDefinitionV2 } from '/@/digital-twin/action-flow/contracts/action-flow-v2';
+import type { TwinInterlockDefinition, TwinMaterialSlotDefinition } from '/@/digital-twin/contracts';
+import { addInterlockDefinition, addMaterialSlotDefinition } from '/@/digital-twin/orchestration/TwinOrchestrationDesigner';
 
-const router=useRouter(), route=useRoute(), userStore=useUserInfo();
-const apiData=<T,>(r:any):T=>r.data as T;
-const can=(p:string)=>userStore.userInfos.roles?.includes('admin') || userStore.userInfos.authBtnList?.includes(p);
-const canAdd=computed(()=>can('btn.add')), canEdit=computed(()=>can('btn.edit')), canDelete=computed(()=>can('btn.del')), canLink=computed(()=>can('btn.link'));
-const loading=ref(false),saving=ref(false),publishing=ref(false),creating=ref(false),customSaving=ref(false),dirty=ref(false),polling=ref(false);
-const leftCollapsed=ref(false),rightCollapsed=ref(false);
-const mode=ref<'design'|'runtime'>('design'), tool=ref<'select'|'point'|'edge'|'port'>('select'), leftTab=ref('library'),rightTab=ref('base');
-const selectedSceneId=ref(''), currentScene=ref<DigitalTwinSceneDetail>(), scenes=ref<DigitalTwinSceneSummary[]>([]), versions=ref<TwinSceneVersion[]>([]);
-const manifest=ref<TwinSceneManifest>(createDefaultTwinSceneManifest()), view=ref<Twin2DViewDefinition>(createDefaultTwin2DView());
-const models=ref<TwinModelResource[]>([]), assets=ref<any[]>([]),assetDevices=ref<any[]>([]),runtimeUpdates=ref<TwinDataUpdate[]>([]);
-const selectedObjectIds=ref<string[]>([]), selectedRouteId=ref(''),selectedRoutePointId=ref(''),selectedRouteEdgeId=ref(''),selectedConnectionId=ref('');
-const selectedPort=ref<Twin2DPortVisual>(), edgeFromPointId=ref(''),routePointKind=ref<Twin2DRoutePointKind>('waypoint');
-const routePointKinds: Twin2DRoutePointKind[]=['waypoint','junction','station','diverter','merger','buffer','processStation','sensor'];
-const canvas=ref<SVGSVGElement>(),runtimeStage=ref<HTMLElement>(),importInput=ref<HTMLInputElement>();
-const viewport=reactive({x:0,y:0,w:2400,h:1500}); const zoomPercent=computed(()=>Math.round(4800/viewport.w*100));
-const createVisible=ref(false),customVisible=ref(false),versionsVisible=ref(false),validationVisible=ref(false),runtimeVisible=ref(false);
-const runtimeAnchor=reactive({x:0,y:0,width:1,height:1,visible:false}); let runtimeAnchorFrame=0;
-const createForm=reactive({name:'新建 2D 数字孪生场景',rootAssetId:'',description:''});
-const customForm=reactive({name:'自定义 2D 组件',category:'用户组件',width:180,height:100,svg:'<svg viewBox="0 0 100 100"><rect x="5" y="5" width="90" height="90" rx="8" fill="#1e3a5f" stroke="#38bdf8" stroke-width="3"/></svg>',bindingSlots:'running,fault'});
-const bindingForm=reactive({deviceId:'',key:'',targetKind:'animation' as TwinBindingTargetKind}); const bindingKeys=ref<Array<{label:string,value:string}>>([]);
-const diagnostics=ref<Twin2DValidationDiagnostic[]>([]),runtimeObject=ref<Twin2DObjectView>();
-const libraryKeyword=ref(''),libraryScope=ref('all'); const libraryScopes=[{label:'全部',value:'all'},{label:'收藏',value:'favorite'},{label:'最近',value:'recent'},{label:'自定义',value:'custom'}];
-const libraryState=reactive(loadTwin2DLibraryState()); let draggingLibraryItem:Twin2DLibraryItem|undefined;
-const modeOptions=[{label:'设计',value:'design'},{label:'运行',value:'runtime'}];
+const router = useRouter(),
+	route = useRoute(),
+	userStore = useUserInfo();
+const apiData = <T,>(r: any): T => r.data as T;
+const can = (p: string) => userStore.userInfos.roles?.includes('admin') || userStore.userInfos.authBtnList?.includes(p);
+const canAdd = computed(() => can('btn.add')),
+	canEdit = computed(() => can('btn.edit')),
+	canDelete = computed(() => can('btn.del')),
+	canLink = computed(() => can('btn.link'));
+const loading = ref(false),
+	saving = ref(false),
+	publishing = ref(false),
+	creating = ref(false),
+	customSaving = ref(false),
+	dirty = ref(false),
+	polling = ref(false),
+	pollError = ref('');
+const leftCollapsed = ref(false),
+	rightCollapsed = ref(false);
+const designerRoot = ref<HTMLElement>();
+const runtimeLoading = ref(false);
+const sceneBusy = computed(() => loading.value || runtimeLoading.value || saving.value || publishing.value || creating.value);
+const canEditScene = computed(() => canEdit.value && mode.value === 'design' && !loading.value && !runtimeLoading.value && !publishing.value && !creating.value);
+const mode = ref<'design' | 'runtime'>('design'),
+	tool = ref<'select' | 'point' | 'edge' | 'port'>('select'),
+	leftTab = ref('library'),
+	rightTab = ref('base');
+const selectedSceneId = ref(''),
+	currentScene = ref<DigitalTwinSceneDetail>(),
+	scenes = ref<DigitalTwinSceneSummary[]>([]),
+	versions = ref<TwinSceneVersion[]>([]);
+const manifest = ref<TwinSceneManifest>(createDefaultTwinSceneManifest()),
+	view = ref<Twin2DViewDefinition>(createDefaultTwin2DView());
+const models = ref<TwinModelResource[]>([]),
+	assets = ref<any[]>([]),
+	assetDevices = ref<any[]>([]),
+	runtimeUpdates = ref<TwinDataUpdate[]>([]);
+const selectedObjectIds = ref<string[]>([]),
+	selectedRouteId = ref(''),
+	selectedRoutePointId = ref(''),
+	selectedRouteEdgeId = ref(''),
+	selectedConnectionId = ref('');
+const selectedPort = ref<Twin2DPortVisual>(),
+	edgeFromPointId = ref(''),
+	routePointKind = ref<Twin2DRoutePointKind>('waypoint');
+const routePointKinds: Twin2DRoutePointKind[] = ['waypoint', 'junction', 'station', 'diverter', 'merger', 'buffer', 'processStation', 'sensor'];
+const canvas = ref<SVGSVGElement>(),
+	runtimeStage = ref<HTMLElement>(),
+	importInput = ref<HTMLInputElement>();
+const viewport = reactive({ x: 0, y: 0, w: 2400, h: 1500 });
+const zoomPercent = computed(() => Math.round((4800 / viewport.w) * 100));
+const createVisible = ref(false),
+	customVisible = ref(false),
+	versionsVisible = ref(false),
+	validationVisible = ref(false),
+	runtimeVisible = ref(false),
+	flowDesignerVisible = ref(false);
+const runtimeAnchor = reactive({ x: 0, y: 0, width: 1, height: 1, visible: false });
+let runtimeAnchorFrame = 0;
+const createForm = reactive({ name: '新建 2D 数字孪生场景', rootAssetId: '', description: '' });
+const customForm = reactive({
+	name: '自定义 2D 组件',
+	category: '用户组件',
+	width: 180,
+	height: 100,
+	svg: '<svg viewBox="0 0 100 100"><rect x="5" y="5" width="90" height="90" rx="8" fill="#1e3a5f" stroke="#38bdf8" stroke-width="3"/></svg>',
+	bindingSlots: 'running,fault',
+});
+const bindingForm = reactive({ deviceId: '', key: '', targetKind: 'animation' as TwinBindingTargetKind });
+const bindingKeys = ref<Array<{ label: string; value: string }>>([]);
+const diagnostics = ref<Twin2DValidationDiagnostic[]>([]),
+	runtimeObject = ref<Twin2DObjectView>();
+const libraryKeyword = ref(''),
+	libraryScope = ref('all');
+const libraryScopes = [
+	{ label: '全部', value: 'all' },
+	{ label: '收藏', value: 'favorite' },
+	{ label: '最近', value: 'recent' },
+	{ label: '自定义', value: 'custom' },
+];
+const libraryState = reactive(loadTwin2DLibraryState());
+let draggingLibraryItem: Twin2DLibraryItem | undefined;
+const modeOptions = [
+	{ label: '设计', value: 'design' },
+	{ label: '运行', value: 'runtime' },
+];
 
-type HistorySnapshot={manifest:TwinSceneManifest;view:Twin2DViewDefinition}; const history=ref<HistorySnapshot[]>([]),historyIndex=ref(-1);
-const snapshot=():HistorySnapshot=>({manifest:cloneTwin2DState(manifest.value),view:cloneTwin2DState(view.value)});
-const resetHistory=()=>{history.value=[snapshot()];historyIndex.value=0};
-const historyKey=(s:HistorySnapshot)=>JSON.stringify(s);
-const pushHistory=()=>{const next=snapshot();const current=historyIndex.value>=0?history.value[historyIndex.value]:undefined;if(current&&historyKey(current)===historyKey(next))return;history.value=history.value.slice(0,historyIndex.value+1);history.value.push(next);if(history.value.length>60)history.value.shift();historyIndex.value=history.value.length-1};
-const restore=(s:HistorySnapshot)=>{manifest.value=cloneTwin2DState(s.manifest);view.value=cloneTwin2DState(s.view)};
-const canUndo=computed(()=>historyIndex.value>0),canRedo=computed(()=>historyIndex.value>=0&&historyIndex.value<history.value.length-1);
-const undo=()=>{if(!canUndo.value)return;historyIndex.value--;restore(history.value[historyIndex.value]);dirty.value=true}; const redo=()=>{if(!canRedo.value)return;historyIndex.value++;restore(history.value[historyIndex.value]);dirty.value=true};
-const commit=()=>{if(mode.value==='runtime'||!canEdit.value)return;dirty.value=true;pushHistory()};
-
-const orderedObjects=computed(()=>[...view.value.objects].sort((a,b)=>a.zIndex-b.zIndex));
-const layerMap=computed(()=>new Map((view.value.layers||[]).map(l=>[l.id,l])));
-const visibleObjects=computed(()=>orderedObjects.value.filter(o=>{const l=layerMap.value.get(o.layerId||'production');return !o.hidden && l?.visible!==false}));
-const selectedObjects=computed(()=>view.value.objects.filter(o=>selectedObjectIds.value.includes(o.id))); const selectedObject=computed(()=>selectedObjects.value.length===1?selectedObjects.value[0]:undefined); const selectionRect=computed(()=>selectionBounds(selectedObjects.value));
-const selectedRoute=computed<any>(()=>(manifest.value.routes||[]).find((r:any)=>r.routeId===selectedRouteId.value) || (manifest.value.routes||[])[0]);
-const selectedRoutePoint=computed<any>(()=>selectedRoute.value?.points?.find((p:any)=>p.pointId===selectedRoutePointId.value)); const selectedRouteEdge=computed<any>(()=>selectedRoute.value?.edges?.find((e:any)=>e.edgeId===selectedRouteEdgeId.value));
-const runtimeStates=computed(()=>resolveTwin2DRuntimeStates(view.value.objects,manifest.value,runtimeUpdates.value)); const routeRuntimeStates=computed(()=>resolveTwin2DRouteRuntimeStates(manifest.value,runtimeUpdates.value));
-const runtimeCounts=computed(()=>Object.values(runtimeStates.value).reduce((a,s)=>{if(s.quality==='stale')a.stale++;else if(['bad','missing'].includes(s.quality))a.bad++;else a.good++;if(s.blocked)a.blocked++;return a},{good:0,stale:0,bad:0,blocked:0}));
-const runtimeState=(o:Twin2DObjectView):Twin2DObjectRuntimeState=>runtimeStates.value[o.id]||{quality:'good',running:false,fault:false,visible:true,blocked:false,waiting:false,statusText:'UNBOUND',values:{}};
-const databaseLibrary=computed(()=>models.value.map(mapModelResourceTo2DLibraryItem).filter(Boolean) as Twin2DLibraryItem[]); const allLibrary=computed(()=>[...twin2DBuiltInLibrary,...databaseLibrary.value,...libraryState.custom]);
-const filteredLibrary=computed(()=>allLibrary.value.filter(item=>{const q=libraryKeyword.value.trim().toLowerCase();const match=!q||`${item.name} ${item.category} ${item.description}`.toLowerCase().includes(q);if(!match)return false;if(libraryScope.value==='favorite')return libraryState.favorites.includes(item.resourceKey);if(libraryScope.value==='recent')return libraryState.recent.includes(item.resourceKey);if(libraryScope.value==='custom')return item.origin==='custom'||item.origin==='database';return true}).sort((a,b)=>{if(libraryScope.value==='recent')return libraryState.recent.indexOf(a.resourceKey)-libraryState.recent.indexOf(b.resourceKey);return a.category.localeCompare(b.category,'zh-CN')}));
-const selectedBindings=computed(()=>selectedObject.value?.businessObjectId?(manifest.value.bindings||[]).filter(b=>b.objectId===selectedObject.value!.businessObjectId):[]); const canAddBinding=computed(()=>Boolean(canEdit.value&&selectedObject.value?.businessObjectId&&bindingForm.deviceId&&bindingForm.key));
-const schemaProperties=computed<any[]>(()=>selectedObject.value?.componentSchema?.properties||[]);
-const resourceFor=(o:Twin2DObjectView)=>models.value.find(m=>(m.modelMetadata?.resourceKey||m.resourceKey)===o.resourceKey);
-const allPorts=computed(()=>visibleObjects.value.flatMap(o=>resolve2DPorts(manifest.value,o,resourceFor(o)))); const connectionVisuals=computed(()=>connectionVisuals2D(manifest.value,allPorts.value));
-
-const clientPoint=(e:{clientX:number;clientY:number}):Twin2DPoint=>{if(!canvas.value)return{x:0,y:0};const p=canvas.value.createSVGPoint();p.x=e.clientX;p.y=e.clientY;const m=canvas.value.getScreenCTM()?.inverse();return m?p.matrixTransform(m):{x:0,y:0}};
-const objectTransform=(o:Twin2DObjectView)=>{const state=runtimeState(o);const moving=['pallet','carton','agv'].includes(o.symbolKey)&&state.routeProgress!==undefined?interpolateTwin2DRoute(manifest.value,view.value.routePoints,state.routeProgress):undefined;const x=moving?moving.x-o.width/2:o.x,y=moving?moving.y-o.height/2:o.y;return `translate(${x} ${y}) rotate(${o.rotation} ${o.width/2} ${o.height/2})`};
-const runtimePosition=(o:Twin2DObjectView)=>{const s=runtimeState(o);const moving=['pallet','carton','agv'].includes(o.symbolKey)&&s.routeProgress!==undefined?interpolateTwin2DRoute(manifest.value,view.value.routePoints,s.routeProgress):undefined;const x=moving?.x??(o.x+o.width/2),y=moving?.y??(o.y+o.height/2);return `X ${x.toFixed(1)} · Y ${y.toFixed(1)}`};
-const runtimeSignalSummary=(o:Twin2DObjectView)=>{const count=o.businessObjectId?(manifest.value.bindings||[]).filter(b=>b.objectId===o.businessObjectId&&b.enabled!==false).length:0;const received=Object.keys(runtimeState(o).values).length;return count?`${received}/${count} 条已收到`:'未绑定信号'};
-const runtimeAnchorPoint=(o:Twin2DObjectView)=>{const s=runtimeState(o);const moving=['pallet','carton','agv'].includes(o.symbolKey)&&s.routeProgress!==undefined?interpolateTwin2DRoute(manifest.value,view.value.routePoints,s.routeProgress):undefined;return{x:moving?.x??(o.x+o.width/2),y:moving?moving.y-o.height/2:o.y}};
-const runtimeCardPlacement=computed(()=>buildRuntimeStatusCardPlacement(runtimeAnchor,332,16,14));
-const runtimeStatusTone=(o:Twin2DObjectView)=>{const s=runtimeState(o);return s.fault||['bad','missing'].includes(s.quality)?'is-danger':s.quality==='stale'||s.waiting?'is-warn':s.running||s.quality==='good'?'is-good':'is-info'};
-const updateRuntimeAnchor=()=>{if(mode.value==='runtime'&&runtimeVisible.value&&runtimeObject.value&&canvas.value&&runtimeStage.value){const p=runtimeAnchorPoint(runtimeObject.value),svgPoint=canvas.value.createSVGPoint();svgPoint.x=p.x;svgPoint.y=p.y;const matrix=canvas.value.getScreenCTM();if(matrix){const client=svgPoint.matrixTransform(matrix),rect=runtimeStage.value.getBoundingClientRect();Object.assign(runtimeAnchor,{x:client.x-rect.left,y:client.y-rect.top,width:rect.width,height:rect.height,visible:client.x>=rect.left&&client.x<=rect.right&&client.y>=rect.top&&client.y<=rect.bottom})}else runtimeAnchor.visible=false}else runtimeAnchor.visible=false;runtimeAnchorFrame=requestAnimationFrame(updateRuntimeAnchor)};
-const isObjectLocked=(o:Twin2DObjectView)=>Boolean(o.locked||layerMap.value.get(o.layerId||'production')?.locked);
-const symbolEmoji=(k:string)=>({robot:'🤖',gantry:'🏗️',agv:'🚚',pallet:'▤',carton:'▣','custom-svg':'◇',turntable:'◉',buffer:'▥',label:'T'} as any)[k]||'▰';
-const toggleFavorite=(i:Twin2DLibraryItem)=>toggleTwin2DFavorite(libraryState,i.resourceKey);
-const beginLibraryDrag=(e:DragEvent,i:Twin2DLibraryItem)=>{draggingLibraryItem=i;e.dataTransfer?.setData('text/plain',i.resourceKey)};
-const createBusinessObject=(item:Twin2DLibraryItem,viewObject:Twin2DObjectView)=>{
-	const objectId=`2d-object-${crypto.randomUUID?.()||Date.now()}`;
-	const transform={position:[viewObject.x/100,0,viewObject.y/100],rotation:[0,-viewObject.rotation*Math.PI/180,0],scale:[1,1,1]};
-	if(item.modelResourceId){
-		if(!manifest.value.resources.some(resource=>resource.resourceId===item.modelResourceId))manifest.value.resources.push({resourceId:item.modelResourceId,name:item.name,sourceFileName:item.name,status:'ready'});
-		(manifest.value.objects as any[]).push({objectId,name:item.name,kind:'component',resourceId:item.modelResourceId,assetId:manifest.value.rootAssetId||undefined,component:{resourceKey:item.resourceKey,componentType:item.componentType||'twin2d-component',generator:item.generator||'twin2d-library',generatorVersion:item.generatorVersion||1,properties:cloneTwin2DState(item.defaultProperties||{})},transform});
-	}else{
-		manifest.value.objects.push({objectId,name:item.name,kind:'visual',assetId:manifest.value.rootAssetId||undefined,transform:transform as any});
-	}
-	viewObject.businessObjectId=objectId;
+type HistorySnapshot = { manifest: TwinSceneManifest; view: Twin2DViewDefinition };
+const history = ref<HistorySnapshot[]>([]),
+	historyIndex = ref(-1);
+const snapshot = (): HistorySnapshot => ({ manifest: cloneTwin2DState(manifest.value), view: cloneTwin2DState(view.value) });
+const resetHistory = () => {
+	history.value = [snapshot()];
+	historyIndex.value = 0;
 };
-const addLibraryItem=(i:Twin2DLibraryItem,x=viewport.x+viewport.w/2-i.width/2,y=viewport.y+viewport.h/2-i.height/2)=>{if(mode.value==='runtime'||!canEdit.value)return;tool.value='select';const o=createTwin2DLibraryObject(i,snap2DValue(x,view.value),snap2DValue(y,view.value),Math.max(0,...view.value.objects.map(x=>x.zIndex))+1);createBusinessObject(i,o);view.value.objects.push(o);selectedObjectIds.value=[o.id];rememberTwin2DRecent(libraryState,i.resourceKey);commit()};
-const onDrop=(e:DragEvent)=>{const key=e.dataTransfer?.getData('text/plain');const i=draggingLibraryItem||allLibrary.value.find(x=>x.resourceKey===key);if(!i)return;const p=clientPoint(e);addLibraryItem(i,p.x-i.width/2,p.y-i.height/2);draggingLibraryItem=undefined};
+const historyKey = (s: HistorySnapshot) => JSON.stringify(s);
+const pushHistory = () => {
+	const next = snapshot();
+	const current = historyIndex.value >= 0 ? history.value[historyIndex.value] : undefined;
+	if (current && historyKey(current) === historyKey(next)) return;
+	history.value = history.value.slice(0, historyIndex.value + 1);
+	history.value.push(next);
+	if (history.value.length > 60) history.value.shift();
+	historyIndex.value = history.value.length - 1;
+};
+const restore = (s: HistorySnapshot) => {
+	manifest.value = cloneTwin2DState(s.manifest);
+	view.value = cloneTwin2DState(s.view);
+};
+const canUndo = computed(() => historyIndex.value > 0),
+	canRedo = computed(() => historyIndex.value >= 0 && historyIndex.value < history.value.length - 1);
+const undo = () => {
+	if (!canEditScene.value || !canUndo.value) return;
+	historyIndex.value--;
+	restore(history.value[historyIndex.value]);
+	dirty.value = true;
+};
+const redo = () => {
+	if (!canEditScene.value || !canRedo.value) return;
+	historyIndex.value++;
+	restore(history.value[historyIndex.value]);
+	dirty.value = true;
+};
+const commit = () => {
+	if (!canEditScene.value) return;
+	dirty.value = true;
+	pushHistory();
+};
+const update2DActionFlows = (flows: TwinActionFlowDefinitionV2[]) => {
+	if (!canEditScene.value) return;
+	manifest.value.actionFlows = cloneTwin2DState(flows);
+	commit();
+};
+const create2DFlowInterlock = (definition: TwinInterlockDefinition) => {
+	if (!canEditScene.value) return;
+	addInterlockDefinition(manifest.value, definition);
+	commit();
+};
+const create2DFlowMaterialSlot = (definition: TwinMaterialSlotDefinition) => {
+	if (!canEditScene.value) return;
+	addMaterialSlotDefinition(manifest.value, definition.objectId, definition);
+	commit();
+};
+const focus2DFlowObject = (objectId?: string) => {
+	if (!objectId) return;
+	const found = view.value.objects.find((o) => o.businessObjectId === objectId);
+	if (found) selectObject(found.id);
+};
+const control2DSceneFlow = () => ElMessage.info('2D 目前仅编排共用动作流；实体场景请在 3D 运行预览启动');
 
-interface Interaction{kind:'pan'|'move'|'resize'|'rotate'|'marquee'|'route-point';start:Twin2DPoint;pointerId?:number;originViewport?:{x:number,y:number};objects?:Twin2DObjectView[];object?:Twin2DObjectView;routePointId?:string;originRoutePoint?:Twin2DPoint;changed?:boolean}
-const interaction=ref<Interaction>(); const marquee=ref<Twin2DRect>(); let spaceDown=false;
-const alignmentGuides=ref<Twin2DAlignmentGuides>({vertical:[],horizontal:[]});
-const selectFromTree=(e:MouseEvent,id:string)=>selectObject(id,e.ctrlKey||e.metaKey); const selectObject=(id:string,toggle=false)=>{if(toggle){const set=new Set(selectedObjectIds.value);set.has(id)?set.delete(id):set.add(id);selectedObjectIds.value=[...set]}else selectedObjectIds.value=[id];selectedRoutePointId.value='';selectedRouteEdgeId.value=''};
-const capturePointer=(e:PointerEvent)=>{e.preventDefault();canvas.value?.focus();try{canvas.value?.setPointerCapture(e.pointerId)}catch{}};
-const onObjectDown=(e:PointerEvent,o:Twin2DObjectView)=>{if(e.button!==0||tool.value!=='select')return;if(mode.value==='runtime'){selectObject(o.id);openRuntime(o);return}if(isObjectLocked(o))return;selectObject(o.id,e.ctrlKey||e.metaKey);if(e.ctrlKey||e.metaKey)return;capturePointer(e);const ids=selectedObjectIds.value.includes(o.id)?selectedObjectIds.value:[o.id];interaction.value={kind:'move',pointerId:e.pointerId,start:clientPoint(e),objects:view.value.objects.filter(x=>ids.includes(x.id)).map(cloneTwin2DState)}};
-const startResize=(e:PointerEvent)=>{if(e.button!==0||!selectedObject.value||isObjectLocked(selectedObject.value))return;capturePointer(e);interaction.value={kind:'resize',pointerId:e.pointerId,start:clientPoint(e),object:cloneTwin2DState(selectedObject.value)}}; const startRotate=(e:PointerEvent)=>{if(e.button!==0||!selectedObject.value||isObjectLocked(selectedObject.value))return;capturePointer(e);interaction.value={kind:'rotate',pointerId:e.pointerId,start:clientPoint(e),object:cloneTwin2DState(selectedObject.value)}};
-const onCanvasDown=(e:PointerEvent)=>{const p=clientPoint(e);if(e.button===1||spaceDown){capturePointer(e);interaction.value={kind:'pan',pointerId:e.pointerId,start:{x:e.clientX,y:e.clientY},originViewport:{x:viewport.x,y:viewport.y}};return}if(e.button!==0)return;if(mode.value==='runtime'){runtimeVisible.value=false;return}if(tool.value==='point'){ensureRoute();add2DRoutePoint(selectedRoute.value,view.value,routePointKind.value,snap2DValue(p.x,view.value),snap2DValue(p.y,view.value));commit();return}if(tool.value==='select'){capturePointer(e);selectedObjectIds.value=[];selectedRoutePointId.value='';selectedRouteEdgeId.value='';interaction.value={kind:'marquee',pointerId:e.pointerId,start:p};marquee.value={x:p.x,y:p.y,width:0,height:0}}};
-const onCanvasMove=(e:PointerEvent)=>{const i=interaction.value;if(!i||i.pointerId!==e.pointerId)return;if(i.kind==='pan'&&i.originViewport){const scale=viewport.w/(canvas.value?.clientWidth||1);viewport.x=i.originViewport.x-(e.clientX-i.start.x)*scale;viewport.y=i.originViewport.y-(e.clientY-i.start.y)*scale;return}const p=clientPoint(e);if(i.kind==='marquee'){marquee.value=normalizeRect(i.start,p);selectedObjectIds.value=objectsInMarquee(visibleObjects.value,marquee.value);return}if(i.kind==='move'&&i.objects){const dx=p.x-i.start.x,dy=p.y-i.start.y;const gridMoved=moveObjects(i.objects,dx,dy).map(o=>({...o,x:snap2DValue(o.x,view.value),y:snap2DValue(o.y,view.value)}));const movingIds=new Set(gridMoved.map(o=>o.id));const aligned=snapObjectsToAlignmentGuides(gridMoved,visibleObjects.value.filter(o=>!movingIds.has(o.id)),Math.max(4,viewport.w/(canvas.value?.clientWidth||1)*6));alignmentGuides.value=aligned.guides;view.value.objects=replaceObjectsById(view.value.objects,aligned.objects);i.changed=true;return}if(i.kind==='resize'&&i.object){const changed=resizeObjectFromCorner(i.object,p);changed.width=snap2DValue(changed.width,view.value);changed.height=snap2DValue(changed.height,view.value);view.value.objects=replaceObjectsById(view.value.objects,[changed]);i.changed=true;return}if(i.kind==='rotate'&&i.object){const changed={...i.object,rotation:rotationFromPointer(i.object,p)};view.value.objects=replaceObjectsById(view.value.objects,[changed]);i.changed=true;return}if(i.kind==='route-point'&&i.routePointId){move2DRoutePoint(view.value,i.routePointId,snap2DValue(p.x,view.value),snap2DValue(p.y,view.value));i.changed=true}};
-const tryAutoConnectSelection=()=>{if(!canLink.value||selectedObjectIds.value.length!==1)return;const moved=view.value.objects.find(o=>o.id===selectedObjectIds.value[0]);if(!moved?.businessObjectId)return;const sourcePorts=resolve2DPorts(manifest.value,moved,resourceFor(moved));const candidates=allPorts.value.filter(p=>p.objectId!==moved.businessObjectId);for(const source of sourcePorts){if(!source.type.includes('output')&&!source.type.includes('bidirectional'))continue;const nearest=nearestCompatiblePort(source,candidates,24);if(nearest){try{connectPorts2D(manifest.value,source,nearest.port)}catch{}break}}};
-const finishInteraction=(e?:PointerEvent)=>{if(e&&interaction.value?.pointerId!==e.pointerId)return;if(interaction.value?.changed){if(interaction.value.kind==='move')tryAutoConnectSelection();commit()}if(e)try{if(canvas.value?.hasPointerCapture(e.pointerId))canvas.value.releasePointerCapture(e.pointerId)}catch{}interaction.value=undefined;marquee.value=undefined;alignmentGuides.value={vertical:[],horizontal:[]}};
-const onRoutePointDown=(e:PointerEvent,routeId:string,pointId:string)=>{selectedRouteId.value=routeId;selectedRoutePointId.value=pointId;selectedRouteEdgeId.value='';if(tool.value==='edge'){if(!edgeFromPointId.value){edgeFromPointId.value=pointId;ElMessage.info('请选择路线终点')}else{add2DRouteEdge(selectedRoute.value,edgeFromPointId.value,pointId);edgeFromPointId.value='';commit()}return}if(e.button===0&&tool.value==='select'&&mode.value==='design'){capturePointer(e);const pv=routePointView(pointId);interaction.value={kind:'route-point',pointerId:e.pointerId,start:clientPoint(e),routePointId:pointId,originRoutePoint:{...pv}}}};
-const selectEdge=(routeId:string,edgeId:string)=>{selectedRouteId.value=routeId;selectedRouteEdgeId.value=edgeId;selectedRoutePointId.value='';rightTab.value='route'};
-const routePointView=(id:string)=>view.value.routePoints[id]||{x:0,y:0}; const edgeLine=(e:any)=>{const a=routePointView(e.fromPointId),b=routePointView(e.toPointId);return{x1:a.x,y1:a.y,x2:b.x,y2:b.y}}; const edgeClass=(e:any)=>({blocked:routeRuntimeStates.value[e.edgeId]?.blocked,stale:routeRuntimeStates.value[e.edgeId]?.stale,active:selectedRouteEdgeId.value===e.edgeId});
-const ensureRoute=()=>{if(selectedRoute.value)return;const r:any={routeId:`route-${crypto.randomUUID?.()||Date.now()}`,routeKey:`2d-${Date.now()}`,name:'2D Route',routeType:'material-flow',points:[],edges:[],decisionRules:[]};manifest.value.routes=[...(manifest.value.routes||[]),r];selectedRouteId.value=r.routeId};
-const deleteRoutePoint=()=>{if(!selectedRoute.value||!selectedRoutePointId.value)return;remove2DRoutePoint(selectedRoute.value,view.value,selectedRoutePointId.value);selectedRoutePointId.value='';commit()}; const deleteRouteEdge=()=>{if(!selectedRoute.value||!selectedRouteEdgeId.value)return;remove2DRouteEdge(selectedRoute.value,selectedRouteEdgeId.value);selectedRouteEdgeId.value='';commit()};
-const onPortClick=(p:Twin2DPortVisual)=>{if(!canLink.value||mode.value==='runtime')return;if(!selectedPort.value){selectedPort.value=p;return}try{connectPorts2D(manifest.value,selectedPort.value,p);selectedPort.value=undefined;commit();ElMessage.success('端口连接已创建')}catch(e:any){ElMessage.warning(e.message);selectedPort.value=undefined}}; const generateRoute=()=>{const r=generateRouteFrom2DConnections(manifest.value,view.value);if(r){selectedRouteId.value=r.routeId;commit();ElMessage.success('已从 2D Connection 生成路线')}};
-const deleteConnection=()=>{if(!selectedConnectionId.value)return;removeConnection2D(manifest.value,selectedConnectionId.value);selectedConnectionId.value='';commit()};
+const orderedObjects = computed(() => [...view.value.objects].sort((a, b) => a.zIndex - b.zIndex));
+const layerMap = computed(() => new Map((view.value.layers || []).map((l) => [l.id, l])));
+const visibleObjects = computed(() =>
+	orderedObjects.value.filter((o) => {
+		const l = layerMap.value.get(o.layerId || 'production');
+		return !o.hidden && l?.visible !== false;
+	})
+);
+const selectedObjects = computed(() => view.value.objects.filter((o) => selectedObjectIds.value.includes(o.id)));
+const selectedObject = computed(() => (selectedObjects.value.length === 1 ? selectedObjects.value[0] : undefined));
+const selectionRect = computed(() => selectionBounds(selectedObjects.value));
+const selectedRoute = computed<any>(
+	() => (manifest.value.routes || []).find((r: any) => r.routeId === selectedRouteId.value) || (manifest.value.routes || [])[0]
+);
+const selectedRoutePoint = computed<any>(() => selectedRoute.value?.points?.find((p: any) => p.pointId === selectedRoutePointId.value));
+const selectedRouteEdge = computed<any>(() => selectedRoute.value?.edges?.find((e: any) => e.edgeId === selectedRouteEdgeId.value));
+const runtimeStates = computed(() => resolveTwin2DRuntimeStates(view.value.objects, manifest.value, runtimeUpdates.value));
+const routingContext = computed(() => resolveTwin2DRoutingContext(manifest.value, runtimeUpdates.value));
+const routeSlotPallets = computed(() => mode.value === 'runtime' ? resolveTwin2DRouteSlotPallets(manifest.value, view.value, runtimeUpdates.value) : []);
+const routeRuntimeStates = computed(() => resolveTwin2DRouteRuntimeStates(manifest.value, runtimeUpdates.value, mode.value === 'runtime' ? 'live' : manifest.value.runtime.dataMode));
+const runtimeCounts = computed(() =>
+	Object.values(runtimeStates.value).reduce(
+		(a, s) => {
+			if (s.quality === 'stale') a.stale++;
+			else if (['bad', 'missing'].includes(s.quality)) a.bad++;
+			else a.good++;
+			if (s.blocked) a.blocked++;
+			return a;
+		},
+		{ good: 0, stale: 0, bad: 0, blocked: 0 }
+	)
+);
+const runtimeState = (o: Twin2DObjectView): Twin2DObjectRuntimeState =>
+	mode.value === 'runtime'
+		? runtimeStates.value[o.id] || {
+				quality: 'waiting',
+				running: false,
+				fault: false,
+				visible: true,
+				blocked: false,
+				waiting: false,
+				statusText: 'WAITING',
+				values: {},
+			}
+		: { quality: 'good', running: false, fault: false, visible: true, blocked: false, waiting: false, statusText: 'DESIGN', values: {} };
+const databaseLibrary = computed(() => models.value.map(mapModelResourceTo2DLibraryItem).filter(Boolean) as Twin2DLibraryItem[]);
+const allLibrary = computed(() => [...twin2DBuiltInLibrary, ...databaseLibrary.value, ...libraryState.custom]);
+const filteredLibrary = computed(() =>
+	allLibrary.value
+		.filter((item) => {
+			const q = libraryKeyword.value.trim().toLowerCase();
+			const match = !q || `${item.name} ${item.category} ${item.description}`.toLowerCase().includes(q);
+			if (!match) return false;
+			if (libraryScope.value === 'favorite') return libraryState.favorites.includes(item.resourceKey);
+			if (libraryScope.value === 'recent') return libraryState.recent.includes(item.resourceKey);
+			if (libraryScope.value === 'custom') return item.origin === 'custom' || item.origin === 'database';
+			return true;
+		})
+		.sort((a, b) => {
+			if (libraryScope.value === 'recent') return libraryState.recent.indexOf(a.resourceKey) - libraryState.recent.indexOf(b.resourceKey);
+			return a.category.localeCompare(b.category, 'zh-CN');
+		})
+);
+const selectedBindings = computed(() =>
+	selectedObject.value?.businessObjectId ? (manifest.value.bindings || []).filter((b) => b.objectId === selectedObject.value!.businessObjectId) : []
+);
+const canAddBinding = computed(() => Boolean(canEditScene.value && selectedObject.value?.businessObjectId && bindingForm.deviceId && bindingForm.key));
+const schemaProperties = computed<any[]>(() => selectedObject.value?.componentSchema?.properties || []);
+const resourceFor = (o: Twin2DObjectView) => models.value.find((m) => (m.modelMetadata?.resourceKey || m.resourceKey) === o.resourceKey);
+const allPorts = computed(() => visibleObjects.value.flatMap((o) => resolve2DPorts(manifest.value, o, resourceFor(o))));
+const connectionVisuals = computed(() => connectionVisuals2D(manifest.value, allPorts.value));
 
-const align=(m:Twin2DAlignMode)=>{const changed=alignObjects(selectedObjects.value,m);view.value.objects=replaceObjectsById(view.value.objects,changed);commit()}; const distribute=(m:Twin2DDistributeMode)=>{const changed=distributeObjects(selectedObjects.value,m);view.value.objects=replaceObjectsById(view.value.objects,changed);commit()};
-const copySelection=()=>{clipboard=selectedObjects.value.map(cloneTwin2DState)}; let clipboard:Twin2DObjectView[]=[];
-const pasteSelection=()=>{if(!clipboard.length||!canEdit.value)return;const copies=duplicateObjects(clipboard);view.value.objects.push(...copies);selectedObjectIds.value=copies.map(x=>x.id);commit()}; const duplicateSelection=()=>{clipboard=selectedObjects.value.map(cloneTwin2DState);pasteSelection()};
-const deleteSelection=()=>{if(!canDelete.value)return;const ids=new Set(selectedObjectIds.value);const removed=view.value.objects.filter(x=>ids.has(x.id));view.value.objects=view.value.objects.filter(x=>!ids.has(x.id));const remainingBusinessIds=new Set(view.value.objects.map(x=>x.businessObjectId).filter(Boolean));const removableBusinessIds=new Set(removed.map(x=>x.businessObjectId).filter((id):id is string=>Boolean(id)&&!remainingBusinessIds.has(id)&&manifest.value.objects.some(o=>o.objectId===id&&o.kind==='visual')));if(removableBusinessIds.size){manifest.value.objects=manifest.value.objects.filter(o=>!removableBusinessIds.has(o.objectId));manifest.value.bindings=manifest.value.bindings.filter(b=>!removableBusinessIds.has(b.objectId));manifest.value.connections=(manifest.value.connections||[]).filter(c=>!removableBusinessIds.has(c.from.objectId)&&!removableBusinessIds.has(c.to.objectId))}selectedObjectIds.value=[];commit()};
-const nudge=(dx:number,dy:number)=>{const changed=moveObjects(selectedObjects.value,dx,dy);view.value.objects=replaceObjectsById(view.value.objects,changed);commit()};
-const onKey=(e:KeyboardEvent)=>{const t=e.target as HTMLElement;if(['INPUT','TEXTAREA','SELECT'].includes(t?.tagName)||t?.isContentEditable)return;if(e.code==='Space'){spaceDown=true;e.preventDefault();return}const ctrl=e.ctrlKey||e.metaKey;if(ctrl&&e.key.toLowerCase()==='s'){e.preventDefault();saveDraft();return}if(mode.value==='runtime')return;if(ctrl&&(e.key.toLowerCase()==='y'||(e.shiftKey&&e.key.toLowerCase()==='z'))){e.preventDefault();e.stopPropagation();redo();return}if(ctrl&&!e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();e.stopPropagation();undo();return}if(ctrl&&e.key.toLowerCase()==='c'){copySelection();return}if(ctrl&&e.key.toLowerCase()==='v'){e.preventDefault();pasteSelection();return}if(ctrl&&e.key.toLowerCase()==='d'){e.preventDefault();duplicateSelection();return}if(ctrl&&e.key.toLowerCase()==='a'){e.preventDefault();selectedObjectIds.value=visibleObjects.value.filter(x=>!isObjectLocked(x)).map(x=>x.id);return}if(e.key==='Delete'){deleteSelection();return}const step=e.shiftKey?10:1;if(e.key==='ArrowLeft'){e.preventDefault();nudge(-step,0)}if(e.key==='ArrowRight'){e.preventDefault();nudge(step,0)}if(e.key==='ArrowUp'){e.preventDefault();nudge(0,-step)}if(e.key==='ArrowDown'){e.preventDefault();nudge(0,step)}}; const onKeyUp=(e:KeyboardEvent)=>{if(e.code==='Space')spaceDown=false};
+const clientPoint = (e: { clientX: number; clientY: number }): Twin2DPoint => {
+	if (!canvas.value) return { x: 0, y: 0 };
+	const p = canvas.value.createSVGPoint();
+	p.x = e.clientX;
+	p.y = e.clientY;
+	const m = canvas.value.getScreenCTM()?.inverse();
+	return m ? p.matrixTransform(m) : { x: 0, y: 0 };
+};
+const objectTransform = (o: Twin2DObjectView) => {
+	const state = runtimeState(o);
+	const moving =
+		['pallet', 'carton', 'agv'].includes(o.symbolKey) && state.routeProgress !== undefined
+			? interpolateTwin2DRoute(manifest.value, view.value.routePoints, state.routeProgress, state.routeId, routingContext.value)
+			: undefined;
+	const x = moving ? moving.x - o.width / 2 : o.x,
+		y = moving ? moving.y - o.height / 2 : o.y;
+	return `translate(${x} ${y}) rotate(${o.rotation} ${o.width / 2} ${o.height / 2})`;
+};
+const runtimePosition = (o: Twin2DObjectView) => {
+	const s = runtimeState(o);
+	const moving =
+		['pallet', 'carton', 'agv'].includes(o.symbolKey) && s.routeProgress !== undefined
+			? interpolateTwin2DRoute(manifest.value, view.value.routePoints, s.routeProgress, s.routeId, routingContext.value)
+			: undefined;
+	const x = moving?.x ?? o.x + o.width / 2,
+		y = moving?.y ?? o.y + o.height / 2;
+	return `X ${x.toFixed(1)} · Y ${y.toFixed(1)}`;
+};
+const runtimeSignalSummary = (o: Twin2DObjectView) => {
+	const count = o.businessObjectId
+		? (manifest.value.bindings || []).filter((b) => b.objectId === o.businessObjectId && b.enabled !== false).length
+		: 0;
+	const received = Object.keys(runtimeState(o).values).length;
+	return count ? `${received}/${count} 条已收到` : '未绑定信号';
+};
+const runtimeAnchorPoint = (o: Twin2DObjectView) => {
+	const s = runtimeState(o);
+	const moving =
+		['pallet', 'carton', 'agv'].includes(o.symbolKey) && s.routeProgress !== undefined
+			? interpolateTwin2DRoute(manifest.value, view.value.routePoints, s.routeProgress, s.routeId, routingContext.value)
+			: undefined;
+	return { x: moving?.x ?? o.x + o.width / 2, y: moving ? moving.y - o.height / 2 : o.y };
+};
+const runtimeCardPlacement = computed(() => buildRuntimeStatusCardPlacement(runtimeAnchor, 332, 16, 14));
+const runtimeStatusTone = (o: Twin2DObjectView) => {
+	const s = runtimeState(o);
+	return s.fault || ['bad', 'missing'].includes(s.quality)
+		? 'is-danger'
+		: s.quality === 'stale' || s.waiting
+			? 'is-warn'
+			: s.running || s.quality === 'good'
+				? 'is-good'
+				: 'is-info';
+};
+const updateRuntimeAnchor = () => {
+	if (mode.value === 'runtime' && runtimeVisible.value && runtimeObject.value && canvas.value && runtimeStage.value) {
+		const p = runtimeAnchorPoint(runtimeObject.value),
+			svgPoint = canvas.value.createSVGPoint();
+		svgPoint.x = p.x;
+		svgPoint.y = p.y;
+		const matrix = canvas.value.getScreenCTM();
+		if (matrix) {
+			const client = svgPoint.matrixTransform(matrix),
+				rect = runtimeStage.value.getBoundingClientRect();
+			Object.assign(runtimeAnchor, {
+				x: client.x - rect.left,
+				y: client.y - rect.top,
+				width: rect.width,
+				height: rect.height,
+				visible: client.x >= rect.left && client.x <= rect.right && client.y >= rect.top && client.y <= rect.bottom,
+			});
+		} else runtimeAnchor.visible = false;
+	} else runtimeAnchor.visible = false;
+	runtimeAnchorFrame = requestAnimationFrame(updateRuntimeAnchor);
+};
+const isObjectLocked = (o: Twin2DObjectView) => Boolean(o.locked || layerMap.value.get(o.layerId || 'production')?.locked);
+const symbolEmoji = (k: string) =>
+	(({ robot: '🤖', gantry: '🏗️', agv: '🚚', pallet: '▤', carton: '▣', 'custom-svg': '◇', turntable: '◉', buffer: '▥', label: 'T' }) as any)[k] || '▰';
+const toggleFavorite = (i: Twin2DLibraryItem) => toggleTwin2DFavorite(libraryState, i.resourceKey);
+const beginLibraryDrag = (e: DragEvent, i: Twin2DLibraryItem) => {
+	draggingLibraryItem = i;
+	e.dataTransfer?.setData('text/plain', i.resourceKey);
+};
+const createBusinessObject = (item: Twin2DLibraryItem, viewObject: Twin2DObjectView) => {
+	const objectId = `2d-object-${crypto.randomUUID?.() || Date.now()}`;
+	const transform = {
+		position: [0, 0, 0],
+		rotation: [0, 0, 0],
+		scale: [1, 1, 1],
+	};
+	if (item.modelResourceId) {
+		if (!manifest.value.resources.some((resource) => resource.resourceId === item.modelResourceId))
+			manifest.value.resources.push({ resourceId: item.modelResourceId, name: item.name, sourceFileName: item.name, status: 'ready' });
+		(manifest.value.objects as any[]).push({
+			objectId,
+			name: item.name,
+			kind: 'component',
+			resourceId: item.modelResourceId,
+			assetId: manifest.value.rootAssetId || undefined,
+			component: {
+				resourceKey: item.resourceKey,
+				componentType: item.componentType || 'twin2d-component',
+				generator: item.generator || 'twin2d-library',
+				generatorVersion: item.generatorVersion || 1,
+				properties: cloneTwin2DState(item.defaultProperties || {}),
+			},
+			transform,
+		});
+	} else {
+		manifest.value.objects.push({
+			objectId,
+			name: item.name,
+			kind: 'visual',
+			assetId: manifest.value.rootAssetId || undefined,
+			transform: transform as any,
+		});
+	}
+	viewObject.businessObjectId = objectId;
+};
+const addLibraryItem = (i: Twin2DLibraryItem, x = viewport.x + viewport.w / 2 - i.width / 2, y = viewport.y + viewport.h / 2 - i.height / 2) => {
+	if (!canEditScene.value) return;
+	tool.value = 'select';
+	const o = createTwin2DLibraryObject(
+		i,
+		snap2DValue(x, view.value),
+		snap2DValue(y, view.value),
+		Math.max(0, ...view.value.objects.map((x) => x.zIndex)) + 1
+	);
+	createBusinessObject(i, o);
+	view.value.objects.push(o);
+	selectedObjectIds.value = [o.id];
+	rememberTwin2DRecent(libraryState, i.resourceKey);
+	commit();
+};
+const onDrop = (e: DragEvent) => {
+	const key = e.dataTransfer?.getData('text/plain');
+	const i = draggingLibraryItem || allLibrary.value.find((x) => x.resourceKey === key);
+	if (!i) return;
+	const p = clientPoint(e);
+	addLibraryItem(i, p.x - i.width / 2, p.y - i.height / 2);
+	draggingLibraryItem = undefined;
+};
 
-const resetViewport=()=>Object.assign(viewport,{x:0,y:0,w:2400,h:1500}); const zoom=(f:number)=>{const cx=viewport.x+viewport.w/2,cy=viewport.y+viewport.h/2;viewport.w=Math.max(300,Math.min(view.value.canvas.width*1.2,viewport.w*f));viewport.h=viewport.w*(1500/2400);viewport.x=cx-viewport.w/2;viewport.y=cy-viewport.h/2}; const onWheel=(e:WheelEvent)=>zoom(e.deltaY<0?.9:1.1);
-const addLayer=()=>{const n=(view.value.layers?.length||0)+1;view.value.layers?.push({id:`layer-${Date.now()}`,name:`图层 ${n}`,visible:true,locked:false,zIndex:n*100});commit()};
-const bringFront=()=>{view.value.objects=bringSelectionToFront(view.value.objects,selectedObjectIds.value);commit()}; const sendBack=()=>{view.value.objects=sendSelectionToBack(view.value.objects,selectedObjectIds.value);commit()};
+interface Interaction {
+	kind: 'pan' | 'move' | 'resize' | 'rotate' | 'marquee' | 'route-point';
+	start: Twin2DPoint;
+	pointerId?: number;
+	originViewport?: { x: number; y: number };
+	objects?: Twin2DObjectView[];
+	object?: Twin2DObjectView;
+	routePointId?: string;
+	originRoutePoint?: Twin2DPoint;
+	changed?: boolean;
+}
+const interaction = ref<Interaction>();
+const marquee = ref<Twin2DRect>();
+let spaceDown = false;
+const alignmentGuides = ref<Twin2DAlignmentGuides>({ vertical: [], horizontal: [] });
+const selectFromTree = (e: MouseEvent, id: string) => selectObject(id, e.ctrlKey || e.metaKey);
+const selectObject = (id: string, toggle = false) => {
+	if (toggle) {
+		const set = new Set(selectedObjectIds.value);
+		set.has(id) ? set.delete(id) : set.add(id);
+		selectedObjectIds.value = [...set];
+	} else selectedObjectIds.value = [id];
+	selectedRoutePointId.value = '';
+	selectedRouteEdgeId.value = '';
+};
+const capturePointer = (e: PointerEvent) => {
+	e.preventDefault();
+	canvas.value?.focus();
+	try {
+		canvas.value?.setPointerCapture(e.pointerId);
+	} catch {}
+};
+const onObjectDown = (e: PointerEvent, o: Twin2DObjectView) => {
+	if (e.button !== 0 || tool.value !== 'select') return;
+	if (mode.value === 'runtime') {
+		selectObject(o.id);
+		openRuntime(o);
+		return;
+	}
+	if (isObjectLocked(o)) return;
+	if (e.ctrlKey || e.metaKey) {
+		selectObject(o.id, true);
+		return;
+	}
+	if (!selectedObjectIds.value.includes(o.id)) selectObject(o.id);
+	if (!canEditScene.value) return;
+	capturePointer(e);
+	const ids = new Set(selectedObjectIds.value);
+	const movable = view.value.objects.filter((x) => ids.has(x.id) && !isObjectLocked(x));
+	if (!movable.length) return;
+	interaction.value = { kind: 'move', pointerId: e.pointerId, start: clientPoint(e), objects: movable.map(cloneTwin2DState) };
+};
+const startResize = (e: PointerEvent) => {
+	if (e.button !== 0 || !canEditScene.value || !selectedObject.value || isObjectLocked(selectedObject.value)) return;
+	capturePointer(e);
+	interaction.value = { kind: 'resize', pointerId: e.pointerId, start: clientPoint(e), object: cloneTwin2DState(selectedObject.value) };
+};
+const startRotate = (e: PointerEvent) => {
+	if (e.button !== 0 || !canEditScene.value || !selectedObject.value || isObjectLocked(selectedObject.value)) return;
+	capturePointer(e);
+	interaction.value = { kind: 'rotate', pointerId: e.pointerId, start: clientPoint(e), object: cloneTwin2DState(selectedObject.value) };
+};
+const onCanvasDown = (e: PointerEvent) => {
+	const p = clientPoint(e);
+	if (e.button === 1 || spaceDown) {
+		capturePointer(e);
+		interaction.value = {
+			kind: 'pan',
+			pointerId: e.pointerId,
+			start: { x: e.clientX, y: e.clientY },
+			originViewport: { x: viewport.x, y: viewport.y },
+		};
+		return;
+	}
+	if (e.button !== 0) return;
+	if (mode.value === 'runtime') {
+		runtimeVisible.value = false;
+		return;
+	}
+	if (tool.value === 'point') {
+		if (!canEditScene.value) return;
+		ensureRoute();
+		add2DRoutePoint(selectedRoute.value, view.value, routePointKind.value, snap2DValue(p.x, view.value), snap2DValue(p.y, view.value));
+		commit();
+		return;
+	}
+	if (tool.value === 'select') {
+		capturePointer(e);
+		selectedObjectIds.value = [];
+		selectedRoutePointId.value = '';
+		selectedRouteEdgeId.value = '';
+		interaction.value = { kind: 'marquee', pointerId: e.pointerId, start: p };
+		marquee.value = { x: p.x, y: p.y, width: 0, height: 0 };
+	}
+};
+const onCanvasMove = (e: PointerEvent) => {
+	const i = interaction.value;
+	if (!i || i.pointerId !== e.pointerId) return;
+	if (i.kind === 'pan' && i.originViewport) {
+		const scale = viewport.w / (canvas.value?.clientWidth || 1);
+		viewport.x = i.originViewport.x - (e.clientX - i.start.x) * scale;
+		viewport.y = i.originViewport.y - (e.clientY - i.start.y) * scale;
+		return;
+	}
+	const p = clientPoint(e);
+	if (mode.value !== 'design') return;
+	if (i.kind === 'marquee') {
+		marquee.value = normalizeRect(i.start, p);
+		selectedObjectIds.value = objectsInMarquee(visibleObjects.value, marquee.value);
+		return;
+	}
+	if (!canEditScene.value) return;
+	if (i.kind === 'move' && i.objects) {
+		const dx = p.x - i.start.x,
+			dy = p.y - i.start.y;
+		const gridMoved = moveObjects(i.objects, dx, dy).map((o) => ({ ...o, x: snap2DValue(o.x, view.value), y: snap2DValue(o.y, view.value) }));
+		const movingIds = new Set(gridMoved.map((o) => o.id));
+		const aligned = snapObjectsToAlignmentGuides(
+			gridMoved,
+			visibleObjects.value.filter((o) => !movingIds.has(o.id)),
+			Math.max(4, (viewport.w / (canvas.value?.clientWidth || 1)) * 6)
+		);
+		alignmentGuides.value = aligned.guides;
+		view.value.objects = replaceObjectsById(view.value.objects, aligned.objects);
+		i.changed = true;
+		return;
+	}
+	if (i.kind === 'resize' && i.object) {
+		const changed = resizeObjectFromCorner(i.object, p);
+		changed.width = snap2DValue(changed.width, view.value);
+		changed.height = snap2DValue(changed.height, view.value);
+		view.value.objects = replaceObjectsById(view.value.objects, [changed]);
+		i.changed = true;
+		return;
+	}
+	if (i.kind === 'rotate' && i.object) {
+		const changed = { ...i.object, rotation: rotationFromPointer(i.object, p) };
+		view.value.objects = replaceObjectsById(view.value.objects, [changed]);
+		i.changed = true;
+		return;
+	}
+	if (i.kind === 'route-point' && i.routePointId) {
+		move2DRoutePoint(view.value, i.routePointId, snap2DValue(p.x, view.value), snap2DValue(p.y, view.value));
+		i.changed = true;
+	}
+};
+const tryAutoConnectSelection = () => {
+	if (!canLink.value || selectedObjectIds.value.length !== 1) return;
+	const moved = view.value.objects.find((o) => o.id === selectedObjectIds.value[0]);
+	if (!moved?.businessObjectId) return;
+	const sourcePorts = resolve2DPorts(manifest.value, moved, resourceFor(moved));
+	const candidates = allPorts.value.filter((p) => p.objectId !== moved.businessObjectId);
+	for (const source of sourcePorts) {
+		if (!source.type.includes('output') && !source.type.includes('bidirectional')) continue;
+		const nearest = nearestCompatiblePort(source, candidates, 24);
+		if (nearest) {
+			try {
+				connectPorts2D(manifest.value, source, nearest.port);
+			} catch {}
+			break;
+		}
+	}
+};
+const finishInteraction = (e?: PointerEvent) => {
+	if (e && interaction.value?.pointerId !== e.pointerId) return;
+	if (interaction.value?.changed) {
+		if (interaction.value.kind === 'move') tryAutoConnectSelection();
+		commit();
+	}
+	if (e)
+		try {
+			if (canvas.value?.hasPointerCapture(e.pointerId)) canvas.value.releasePointerCapture(e.pointerId);
+		} catch {}
+	interaction.value = undefined;
+	marquee.value = undefined;
+	alignmentGuides.value = { vertical: [], horizontal: [] };
+};
+const onRoutePointDown = (e: PointerEvent, routeId: string, pointId: string) => {
+	selectedRouteId.value = routeId;
+	selectedRoutePointId.value = pointId;
+	selectedRouteEdgeId.value = '';
+	if (!canEditScene.value) return;
+	if (tool.value === 'edge') {
+		if (!edgeFromPointId.value) {
+			edgeFromPointId.value = pointId;
+			ElMessage.info('请选择路线终点');
+		} else {
+			try {
+				add2DRouteEdge(selectedRoute.value, edgeFromPointId.value, pointId);
+				commit();
+			} catch (error: any) {
+				ElMessage.warning(error?.message || '路线连线失败');
+			} finally {
+				edgeFromPointId.value = '';
+			}
+		}
+		return;
+	}
+	if (e.button === 0 && tool.value === 'select') {
+		capturePointer(e);
+		const pv = routePointView(pointId);
+		interaction.value = { kind: 'route-point', pointerId: e.pointerId, start: clientPoint(e), routePointId: pointId, originRoutePoint: { ...pv } };
+	}
+};
+const selectEdge = (routeId: string, edgeId: string) => {
+	selectedRouteId.value = routeId;
+	selectedRouteEdgeId.value = edgeId;
+	selectedRoutePointId.value = '';
+	rightTab.value = 'route';
+};
+const routePointView = (id: string) => view.value.routePoints[id] || { x: 0, y: 0 };
+const edgeLine = (e: any) => {
+	const a = routePointView(e.fromPointId),
+		b = routePointView(e.toPointId);
+	return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+};
+const edgeClass = (e: any) => ({
+	blocked: routeRuntimeStates.value[e.edgeId]?.blocked,
+	stale: routeRuntimeStates.value[e.edgeId]?.stale,
+	active: selectedRouteEdgeId.value === e.edgeId,
+});
+const ensureRoute = () => {
+	if (selectedRoute.value) return;
+	const r: any = {
+		routeId: `route-${crypto.randomUUID?.() || Date.now()}`,
+		routeKey: `2d-${Date.now()}`,
+		name: '2D Route',
+		routeType: 'material-flow',
+		points: [],
+		edges: [],
+		decisionRules: [],
+	};
+	manifest.value.routes = [...(manifest.value.routes || []), r];
+	selectedRouteId.value = r.routeId;
+};
+const deleteRoutePoint = () => {
+	if (mode.value !== 'design' || !canDelete.value || !selectedRoute.value || !selectedRoutePointId.value) return;
+	remove2DRoutePoint(selectedRoute.value, view.value, selectedRoutePointId.value);
+	selectedRoutePointId.value = '';
+	commit();
+};
+const deleteRouteEdge = () => {
+	if (mode.value !== 'design' || !canDelete.value || !selectedRoute.value || !selectedRouteEdgeId.value) return;
+	remove2DRouteEdge(selectedRoute.value, selectedRouteEdgeId.value);
+	selectedRouteEdgeId.value = '';
+	commit();
+};
+const onPortClick = (p: Twin2DPortVisual) => {
+	if (!canLink.value || !canEdit.value || mode.value !== 'design') return;
+	if (!selectedPort.value) {
+		selectedPort.value = p;
+		return;
+	}
+	try {
+		connectPorts2D(manifest.value, selectedPort.value, p);
+		selectedPort.value = undefined;
+		commit();
+		ElMessage.success('端口连接已创建');
+	} catch (e: any) {
+		ElMessage.warning(e.message);
+		selectedPort.value = undefined;
+	}
+};
+const generateRoute = () => {
+	if (!canLink.value || !canEdit.value || mode.value !== 'design') return;
+	const r = generateRouteFrom2DConnections(manifest.value, view.value);
+	if (r) {
+		selectedRouteId.value = r.routeId;
+		commit();
+		ElMessage.success('已从 2D Connection 生成路线');
+	}
+};
+const deleteConnection = () => {
+	if (!canDelete.value || mode.value !== 'design' || !selectedConnectionId.value) return;
+	removeConnection2D(manifest.value, selectedConnectionId.value);
+	selectedConnectionId.value = '';
+	commit();
+};
 
-const onBusinessChanged=async()=>{if(!selectedObject.value)return;const bo:any=manifest.value.objects.find(o=>o.objectId===selectedObject.value!.businessObjectId);if(bo){selectedObject.value.resourceKey=bo.component?.resourceKey;selectedObject.value.componentType=bo.component?.componentType;const model=models.value.find(m=>(m.modelMetadata?.resourceKey||m.resourceKey)===bo.component?.resourceKey);if(model){selectedObject.value.componentSchema=model.modelMetadata.componentSchema;selectedObject.value.ports=model.modelMetadata.ports;selectedObject.value.bindingSlots=model.modelMetadata.bindingSlots;selectedObject.value.properties={...(model.modelMetadata.defaultProperties||{}),...(selectedObject.value.properties||{})}}}commit()};
-const refreshBindingKeys=()=>{const d=assetDevices.value.find(x=>x.id===bindingForm.deviceId);bindingKeys.value=(d?.temps||[]).map((x:any)=>({label:x.name?`${x.name} (${x.keyName})`:x.keyName,value:x.keyName}))};
-const addBinding=()=>{if(!selectedObject.value?.businessObjectId||!canAddBinding.value)return;const target=bindingForm.targetKind;const transform=target==='animation'?'booleanAnimation':target==='visible'?'booleanVisibility':target==='text'?'formatText':target==='customProperty'?'routeEvent':'identity';const b:TwinObjectBindingDefinition={bindingId:`2d-binding-${crypto.randomUUID?.()||Date.now()}`,objectId:selectedObject.value.businessObjectId,source:{kind:'telemetry',assetId:manifest.value.rootAssetId||undefined,deviceId:bindingForm.deviceId,key:bindingForm.key},target:{kind:target,property:target==='customProperty'?bindingForm.key:undefined},transform:{kind:transform as any},staleAfterMs:3000,enabled:true};manifest.value.bindings.push(b);commit();bindingForm.key=''}; const removeBinding=(id:string)=>{manifest.value.bindings=manifest.value.bindings.filter(b=>b.bindingId!==id);commit()}; const useBindingSlot=(s:any)=>{bindingForm.key=String(s.semantic||s.slotId||'');bindingForm.targetKind=s.semantic==='running'?'animation':'customProperty';rightTab.value='binding'};
-const schemaKey=(p:any)=>String(p.key||p.name||p.property||'value'),schemaLabel=(p:any)=>String(p.label||p.title||schemaKey(p)),schemaType=(p:any)=>String(p.type||typeof p.defaultValue||'string').toLowerCase(),schemaMin=(p:any)=>Number.isFinite(Number(p.min))?Number(p.min):undefined,schemaMax=(p:any)=>Number.isFinite(Number(p.max))?Number(p.max):undefined; const schemaOptions=(p:any)=>(p.options||p.enum||[]).map((x:any)=>typeof x==='object'?{label:String(x.label??x.value),value:x.value}:{label:String(x),value:x}); const isDecisionPoint=(p:any)=>['junction','diverter','merger'].includes(p?.kind);
+const align = (m: Twin2DAlignMode) => {
+	if (!canEditScene.value) return;
+	const changed = alignObjects(
+		selectedObjects.value.filter((o) => !isObjectLocked(o)),
+		m
+	);
+	view.value.objects = replaceObjectsById(view.value.objects, changed);
+	commit();
+};
+const distribute = (m: Twin2DDistributeMode) => {
+	if (!canEditScene.value) return;
+	const changed = distributeObjects(
+		selectedObjects.value.filter((o) => !isObjectLocked(o)),
+		m
+	);
+	view.value.objects = replaceObjectsById(view.value.objects, changed);
+	commit();
+};
+const copySelection = () => {
+	clipboard = selectedObjects.value.map(cloneTwin2DState);
+};
+let clipboard: Twin2DObjectView[] = [];
+const pasteSelection = () => {
+	if (!clipboard.length || !canEdit.value || mode.value !== 'design') return;
+	try {
+		const copies = duplicateTwin2DSelection(manifest.value, clipboard);
+		manifest.value.objects.push(...copies.businessObjects);
+		view.value.objects.push(...copies.views);
+		selectedObjectIds.value = copies.views.map((x) => x.id);
+		commit();
+	} catch (e: any) {
+		ElMessage.error(e?.message || '复制失败');
+	}
+};
+const duplicateSelection = () => {
+	clipboard = selectedObjects.value.map(cloneTwin2DState);
+	pasteSelection();
+};
+const deleteSelection = () => {
+	if (!canDelete.value || !canEditScene.value) return;
+	const ids = new Set(selectedObjects.value.filter(o => !isObjectLocked(o)).map(o => o.id));
+	const removed = view.value.objects.filter((x) => ids.has(x.id));
+	view.value.objects = view.value.objects.filter((x) => !ids.has(x.id));
+	const remainingBusinessIds = new Set(view.value.objects.map((x) => x.businessObjectId).filter(Boolean));
+	const removableBusinessIds = new Set(
+		removed
+			.map((x) => x.businessObjectId)
+			.filter(
+				(id): id is string =>
+					Boolean(id) && !remainingBusinessIds.has(id) && manifest.value.objects.some((o) => o.objectId === id && o.kind === 'visual')
+			)
+	);
+	if (removableBusinessIds.size) {
+		manifest.value.objects = manifest.value.objects.filter((o) => !removableBusinessIds.has(o.objectId));
+		manifest.value.bindings = manifest.value.bindings.filter((b) => !removableBusinessIds.has(b.objectId));
+		manifest.value.connections = (manifest.value.connections || []).filter(
+			(c) => !removableBusinessIds.has(c.from.objectId) && !removableBusinessIds.has(c.to.objectId)
+		);
+	}
+	selectedObjectIds.value = [];
+	commit();
+};
+const nudge = (dx: number, dy: number) => {
+	if (!canEditScene.value) return;
+	const changed = moveObjects(
+		selectedObjects.value.filter((o) => !isObjectLocked(o)),
+		dx,
+		dy
+	);
+	view.value.objects = replaceObjectsById(view.value.objects, changed);
+	commit();
+};
+const onKey = (e: KeyboardEvent) => {
+	if (e.defaultPrevented || sceneBusy.value || flowDesignerVisible.value || createVisible.value || customVisible.value || versionsVisible.value || validationVisible.value) return;
+	const t = e.target as HTMLElement;
+	if (!designerRoot.value?.contains(t) || t?.closest?.('[role="dialog"],.el-overlay,.af-designer')) return;
+	if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t?.tagName) || t?.isContentEditable) return;
+	if (e.code === 'Space') {
+		spaceDown = true;
+		e.preventDefault();
+		return;
+	}
+	const ctrl = e.ctrlKey || e.metaKey;
+	if (ctrl && e.key.toLowerCase() === 's') {
+		e.preventDefault();
+		saveDraft();
+		return;
+	}
+	if (mode.value === 'runtime') return;
+	if (ctrl && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+		e.preventDefault();
+		e.stopPropagation();
+		redo();
+		return;
+	}
+	if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'z') {
+		e.preventDefault();
+		e.stopPropagation();
+		undo();
+		return;
+	}
+	if (ctrl && e.key.toLowerCase() === 'c') {
+		copySelection();
+		return;
+	}
+	if (ctrl && e.key.toLowerCase() === 'v') {
+		e.preventDefault();
+		pasteSelection();
+		return;
+	}
+	if (ctrl && e.key.toLowerCase() === 'd') {
+		e.preventDefault();
+		duplicateSelection();
+		return;
+	}
+	if (ctrl && e.key.toLowerCase() === 'a') {
+		e.preventDefault();
+		selectedObjectIds.value = visibleObjects.value.filter((x) => !isObjectLocked(x)).map((x) => x.id);
+		return;
+	}
+	if (e.key === 'Delete') {
+		deleteSelection();
+		return;
+	}
+	const step = e.shiftKey ? 10 : 1;
+	if (e.key === 'ArrowLeft') {
+		e.preventDefault();
+		nudge(-step, 0);
+	}
+	if (e.key === 'ArrowRight') {
+		e.preventDefault();
+		nudge(step, 0);
+	}
+	if (e.key === 'ArrowUp') {
+		e.preventDefault();
+		nudge(0, -step);
+	}
+	if (e.key === 'ArrowDown') {
+		e.preventDefault();
+		nudge(0, step);
+	}
+};
+const onKeyUp = (e: KeyboardEvent) => {
+	if (e.code === 'Space') spaceDown = false;
+};
 
-const loadAssets=async()=>{try{assets.value=(await assetApi().assetList({offset:0,limit:500,name:''})).data?.rows||[]}catch{assets.value=[]}}; const loadAssetDevices=async(id?:string)=>{assetDevices.value=[];if(!id)return;try{assetDevices.value=(await assetApi().relations({assetId:id})).data?.rows||[]}catch{}}; const loadModels=async()=>{try{models.value=apiData<TwinModelResource[]>(await digitalTwinApi.listModels({}))||[]}catch{models.value=[]}};
-const loadScenes=async(loadRequestedScene=false)=>{scenes.value=apiData<DigitalTwinSceneSummary[]>(await digitalTwinApi.listScenes())||[];if(!loadRequestedScene)return;const q=typeof route.query.sceneId==='string'?route.query.sceneId:'';if(q&&scenes.value.some(item=>item.id===q)){selectedSceneId.value=q;await loadScene()}};
-const requestSceneChange=async(id:string)=>{if(dirty.value&&currentScene.value?.id!==id){const discard=await ElMessageBox.confirm('当前 2D 草稿有未保存修改，切换场景将丢失这些修改。','切换场景',{type:'warning',confirmButtonText:'放弃修改并切换',cancelButtonText:'留在当前场景'}).then(()=>true).catch(()=>false);if(!discard){selectedSceneId.value=currentScene.value?.id||'';return}}await loadScene()};
-const loadScene=async()=>{if(!selectedSceneId.value)return;stopPolling();loading.value=true;try{const d=apiData<DigitalTwinSceneDetail>(await digitalTwinApi.getScene(selectedSceneId.value));currentScene.value=d;manifest.value=cloneTwin2DState(d.draftPayload);view.value=ensureTwin2DView(manifest.value as TwinSceneManifestWith2D);await loadAssetDevices(d.rootAssetId);selectedObjectIds.value=[];selectedRouteId.value=manifest.value.routes?.[0]?.routeId||'';dirty.value=false;resetHistory()}finally{loading.value=false}};
-const createScene=async()=>{if(!canAdd.value||!createForm.name.trim()||!createForm.rootAssetId)return;creating.value=true;try{const m=createDefaultTwinSceneManifest();m.name=createForm.name.trim();m.description=createForm.description;m.rootAssetId=createForm.rootAssetId;m.resources=[];m.objects=[];m.bindings=[];m.routes=[];m.connections=[];(m as TwinSceneManifestWith2D).view2d=createDefaultTwin2DView();const d=apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({name:m.name,description:m.description,rootAssetId:m.rootAssetId,draftPayload:m}));createVisible.value=false;scenes.value=apiData<DigitalTwinSceneSummary[]>(await digitalTwinApi.listScenes())||[];selectedSceneId.value=d.id;await loadScene();ElMessage.success('2D 空白场景已创建')}finally{creating.value=false}};
-const saveDraft=async()=>{if(!currentScene.value||!canEdit.value)return;saving.value=true;try{const p=cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;p.view2d=cloneTwin2DState(view.value);await digitalTwinApi.saveDraft(currentScene.value.id,currentScene.value.revision,p);dirty.value=false;await loadScene();ElMessage.success('2D 草稿已保存')}catch(e:any){ElMessage.error(e?.msg||e?.message||'保存失败')}finally{saving.value=false}};
-const validateScene=async()=>{diagnostics.value=validateTwin2DView(view.value,manifest.value);if(currentScene.value)try{const r=apiData<any>(await digitalTwinApi.validateScene(currentScene.value.id,false));diagnostics.value.push(...(r?.diagnostics||[]))}catch(e:any){diagnostics.value.push({severity:'error',code:'server.validate',message:e?.msg||e?.message||'后端校验失败'})}validationVisible.value=true;return !diagnostics.value.some(x=>x.severity==='error')};
-const publishScene=async()=>{if(!currentScene.value||!canEdit.value)return;if(dirty.value){ElMessage.warning('请先保存草稿');return}if(!(await validateScene()))return;const ok=await ElMessageBox.confirm('发布后生成不可变版本，2D Viewer 将读取该版本并轮询 Telemetry。','确认发布',{type:'warning'}).then(()=>true).catch(()=>false);if(!ok)return;publishing.value=true;try{await digitalTwinApi.publishScene(currentScene.value.id,currentScene.value.revision,'2D Professional Designer 发布');await loadScene();ElMessage.success('发布成功')}finally{publishing.value=false}};
-const openVersions=async()=>{if(!currentScene.value)return;versions.value=apiData<TwinSceneVersion[]>(await digitalTwinApi.listVersions(currentScene.value.id))||[];versionsVisible.value=true}; const rollbackVersion=async(v:number)=>{if(!currentScene.value||!canEdit.value)return;await ElMessageBox.confirm(`从 v${v} 创建回退草稿？不会直接改变线上版本。`,'版本回滚');await digitalTwinApi.rollback(currentScene.value.id,v);versionsVisible.value=false;await loadScene()};
-const openPublishedViewer=()=>{if(!currentScene.value)return;router.push({path:'/iot/digital-twin/2d-viewer',query:{sceneId:currentScene.value.id,version:currentScene.value.publishedVersion||undefined}})};
-const duplicateScene=async()=>{if(!currentScene.value||!canAdd.value)return;const clone=cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;clone.name=`${manifest.value.name} - 副本`;clone.view2d=cloneTwin2DState(view.value);const rootAssetId=clone.rootAssetId||currentScene.value.rootAssetId;if(!rootAssetId){ElMessage.error('场景缺少根 Asset，请先绑定资产再复制');return}const d=apiData<DigitalTwinSceneDetail>(await digitalTwinApi.createScene({name:clone.name,description:`复制自 ${currentScene.value.name}`,rootAssetId,draftPayload:clone}));await loadScenes();selectedSceneId.value=d.id;await loadScene();ElMessage.success('场景副本已创建')};
-const exportManifest=()=>{const p=cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;p.view2d=cloneTwin2DState(view.value);const blob=new Blob([JSON.stringify(p,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${currentScene.value?.sceneKey||'twin-2d'}.json`;a.click();URL.revokeObjectURL(url)};
-const importManifest=async(e:Event)=>{const input=e.target as HTMLInputElement,file=input.files?.[0];input.value='';if(!file||!canEdit.value)return;try{const parsed=JSON.parse(await file.text()) as TwinSceneManifestWith2D;manifest.value=parsed;view.value=ensureTwin2DView(parsed);dirty.value=true;resetHistory();ElMessage.success('Manifest 已导入草稿内存，请校验后保存')}catch(err:any){ElMessage.error(`导入失败：${err.message}`)}};
-const saveCustomComponent=async()=>{if(!canEdit.value)return;const safe=sanitizeTwin2DSvg(customForm.svg);if(!isSafeTwin2DSvg(safe)){ElMessage.error('SVG 内容无效或清洗后为空');return}customSaving.value=true;try{const key=`user-2d-${Date.now()}`;const slots=customForm.bindingSlots.split(',').map(x=>x.trim()).filter(Boolean).map(x=>({slotId:x,semantic:x,direction:'input'}));const item:Twin2DLibraryItem={resourceKey:key,name:customForm.name,category:customForm.category,symbolKey:'custom-svg',width:customForm.width,height:customForm.height,description:'用户自定义 SVG 组件',origin:'custom',componentType:'twin2d-custom-svg',customSvg:safe,defaultProperties:{customSvg:safe},componentSchema:{properties:[]},ports:[{portId:'input',name:'IN',type:'material-input',localPosition:[-1,0,0]},{portId:'output',name:'OUT',type:'material-output',localPosition:[1,0,0]}],bindingSlots:slots};upsertTwin2DCustomResource(libraryState,item);const payload:TwinComponentResourceRegistrationPayload={resourceKey:key,name:item.name,resourceType:'smart-model',componentType:'twin2d-custom-svg',generator:'twin2d-svg-v1',generatorVersion:1,category:item.category,tags:['2d','svg','custom'],capabilities:['2d-render'],bindingSlots:slots,defaultProperties:{width:item.width,height:item.height,customSvg:safe},componentSchema:{properties:[]},ports:[{portId:'input',name:'IN',type:'material-input',localPosition:[-1,0,0],localDirection:[-1,0,0]},{portId:'output',name:'OUT',type:'material-output',localPosition:[1,0,0],localDirection:[1,0,0]}]};try{await digitalTwinApi.upsertComponentResource(payload);await loadModels()}catch{ElMessage.warning('组件已保存到本地模型库；服务器组件资源注册未完成')}customVisible.value=false;ElMessage.success('自定义 SVG 已安全清洗并加入模型库')}finally{customSaving.value=false}};
+const resetViewport = () => Object.assign(viewport, { x: 0, y: 0, w: 2400, h: 1500 });
+const zoom = (f: number) => {
+	const cx = viewport.x + viewport.w / 2,
+		cy = viewport.y + viewport.h / 2;
+	viewport.w = Math.max(300, Math.min(view.value.canvas.width * 1.2, viewport.w * f));
+	viewport.h = viewport.w * (1500 / 2400);
+	viewport.x = cx - viewport.w / 2;
+	viewport.y = cy - viewport.h / 2;
+};
+const onWheel = (e: WheelEvent) => zoom(e.deltaY < 0 ? 0.9 : 1.1);
+const addLayer = () => {
+	if (!canEditScene.value) return;
+	const n = (view.value.layers?.length || 0) + 1;
+	view.value.layers?.push({ id: `layer-${Date.now()}`, name: `图层 ${n}`, visible: true, locked: false, zIndex: n * 100 });
+	commit();
+};
+const bringFront = () => {
+	if (!canEditScene.value) return;
+	view.value.objects = bringSelectionToFront(view.value.objects, selectedObjectIds.value);
+	commit();
+};
+const sendBack = () => {
+	if (!canEditScene.value) return;
+	view.value.objects = sendSelectionToBack(view.value.objects, selectedObjectIds.value);
+	commit();
+};
 
-let pollTimer:number|undefined,lastRuntimeSignature=''; const pollSnapshot=async()=>{if(!currentScene.value?.publishedVersion)return;try{const s=apiData<TwinRuntimeSnapshot>(await digitalTwinApi.snapshot(currentScene.value.id,currentScene.value.publishedVersion));const next=s?.updates||[];const sig=JSON.stringify(next.map((x:any)=>[x.bindingId,x.value,x.quality,x.stale]));if(sig!==lastRuntimeSignature){runtimeUpdates.value=next;lastRuntimeSignature=sig}}catch(e:any){ElMessage.warning(e?.msg||e?.message||'Telemetry Snapshot 获取失败');stopPolling()}}; const startPolling=()=>{stopPolling();if(!currentScene.value?.publishedVersion){ElMessage.info('当前场景未发布，无法读取生产 Telemetry 快照');return}polling.value=true;pollSnapshot();pollTimer=window.setInterval(pollSnapshot,1000)}; const stopPolling=()=>{polling.value=false;if(pollTimer)window.clearInterval(pollTimer);pollTimer=undefined};
-const openRuntime=(o:Twin2DObjectView)=>{runtimeObject.value=o;runtimeVisible.value=true}; const formatDate=(v:string)=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'-';
-const warnBeforeUnload=(event:BeforeUnloadEvent)=>{if(!dirty.value)return;event.preventDefault();event.returnValue=''};
-onBeforeRouteLeave(()=>dirty.value?ElMessageBox.confirm('当前 2D 草稿尚未保存，确定离开吗？','未保存修改',{type:'warning'}).then(()=>true).catch(()=>false):true);
-watch(mode,v=>{if(v==='runtime'){rightTab.value='runtime';startPolling()}else stopPolling()});
-onMounted(async()=>{runtimeAnchorFrame=requestAnimationFrame(updateRuntimeAnchor);window.addEventListener('keydown',onKey);window.addEventListener('keyup',onKeyUp);window.addEventListener('beforeunload',warnBeforeUnload);await Promise.all([loadAssets(),loadModels()]);await loadScenes(true)}); onBeforeUnmount(()=>{if(runtimeAnchorFrame)cancelAnimationFrame(runtimeAnchorFrame);stopPolling();window.removeEventListener('keydown',onKey);window.removeEventListener('keyup',onKeyUp);window.removeEventListener('beforeunload',warnBeforeUnload)});
+const onBusinessChanged = async () => {
+	if (!selectedObject.value) return;
+	const bo: any = manifest.value.objects.find((o) => o.objectId === selectedObject.value!.businessObjectId);
+	if (bo) {
+		selectedObject.value.resourceKey = bo.component?.resourceKey;
+		selectedObject.value.componentType = bo.component?.componentType;
+		const model = models.value.find((m) => (m.modelMetadata?.resourceKey || m.resourceKey) === bo.component?.resourceKey);
+		if (model) {
+			selectedObject.value.componentSchema = model.modelMetadata.componentSchema;
+			selectedObject.value.ports = model.modelMetadata.ports;
+			selectedObject.value.bindingSlots = model.modelMetadata.bindingSlots;
+			selectedObject.value.properties = { ...(model.modelMetadata.defaultProperties || {}), ...(selectedObject.value.properties || {}) };
+		}
+	}
+	commit();
+};
+const refreshBindingKeys = () => {
+	const d = assetDevices.value.find((x) => x.id === bindingForm.deviceId);
+	bindingKeys.value = (d?.temps || []).map((x: any) => ({ label: x.name ? `${x.name} (${x.keyName})` : x.keyName, value: x.keyName }));
+};
+const addBinding = () => {
+	if (!selectedObject.value?.businessObjectId || !canAddBinding.value) return;
+	const target = bindingForm.targetKind;
+	const transform =
+		target === 'animation'
+			? 'booleanAnimation'
+			: target === 'visible'
+				? 'booleanVisibility'
+				: target === 'text'
+					? 'formatText'
+					: target === 'customProperty'
+						? 'routeEvent'
+						: 'identity';
+	const b: TwinObjectBindingDefinition = {
+		bindingId: `2d-binding-${crypto.randomUUID?.() || Date.now()}`,
+		objectId: selectedObject.value.businessObjectId,
+		source: { kind: 'telemetry', assetId: manifest.value.rootAssetId || undefined, deviceId: bindingForm.deviceId, key: bindingForm.key },
+		target: { kind: target, property: target === 'customProperty' ? bindingForm.key : undefined },
+		transform: { kind: transform as any },
+		staleAfterMs: 3000,
+		enabled: true,
+	};
+	manifest.value.bindings.push(b);
+	commit();
+	bindingForm.key = '';
+};
+const removeBinding = (id: string) => {
+	if (!canEditScene.value || !canDelete.value) return;
+	manifest.value.bindings = manifest.value.bindings.filter((b) => b.bindingId !== id);
+	commit();
+};
+const useBindingSlot = (s: any) => {
+	bindingForm.key = String(s.semantic || s.slotId || '');
+	bindingForm.targetKind = s.semantic === 'running' ? 'animation' : 'customProperty';
+	rightTab.value = 'binding';
+};
+const schemaKey = (p: any) => String(p.key || p.name || p.property || 'value'),
+	schemaLabel = (p: any) => String(p.label || p.title || schemaKey(p)),
+	schemaType = (p: any) => String(p.type || typeof p.defaultValue || 'string').toLowerCase(),
+	schemaMin = (p: any) => (Number.isFinite(Number(p.min)) ? Number(p.min) : undefined),
+	schemaMax = (p: any) => (Number.isFinite(Number(p.max)) ? Number(p.max) : undefined);
+const schemaOptions = (p: any) =>
+	(p.options || p.enum || []).map((x: any) =>
+		typeof x === 'object' ? { label: String(x.label ?? x.value), value: x.value } : { label: String(x), value: x }
+	);
+const isDecisionPoint = (p: any) => ['junction', 'diverter', 'merger'].includes(p?.kind);
+
+const loadAssets = async () => {
+	try {
+		assets.value = (await assetApi().assetList({ offset: 0, limit: 500, name: '' })).data?.rows || [];
+	} catch {
+		assets.value = [];
+	}
+};
+const loadAssetDevices = async (id?: string) => {
+	assetDevices.value = [];
+	if (!id) return;
+	try {
+		const rows = (await assetApi().relations({ assetId: id })).data?.rows || [];
+		if (currentScene.value?.rootAssetId === id) assetDevices.value = rows;
+	} catch {}
+};
+const loadModels = async () => {
+	try {
+		models.value = apiData<TwinModelResource[]>(await digitalTwinApi.listModels({})) || [];
+	} catch {
+		models.value = [];
+	}
+};
+const loadScenes = async (loadRequestedScene = false) => {
+	scenes.value = apiData<DigitalTwinSceneSummary[]>(await digitalTwinApi.listScenes()) || [];
+	if (!loadRequestedScene) return;
+	const q = typeof route.query.sceneId === 'string' ? route.query.sceneId : '';
+	if (q && scenes.value.some((item) => item.id === q)) {
+		selectedSceneId.value = q;
+		await loadScene();
+	}
+};
+const requestSceneChange = async (id: string) => {
+	if (sceneBusy.value) { selectedSceneId.value = currentScene.value?.id || ''; return; }
+	if (dirty.value && currentScene.value?.id !== id) {
+		const discard = await ElMessageBox.confirm('当前 2D 草稿有未保存修改，切换场景将丢失这些修改。', '切换场景', {
+			type: 'warning',
+			confirmButtonText: '放弃修改并切换',
+			cancelButtonText: '留在当前场景',
+		})
+			.then(() => true)
+			.catch(() => false);
+		if (!discard) {
+			selectedSceneId.value = currentScene.value?.id || '';
+			return;
+		}
+	}
+	await loadScene();
+};
+let sceneLoadGeneration = 0;
+const loadScene = async () => {
+	if (!selectedSceneId.value) return;
+	const sceneId = selectedSceneId.value, generation = ++sceneLoadGeneration;
+	if (mode.value === 'runtime') {
+		runtimeModeGeneration++;
+		runtimeDraftSnapshot = undefined;
+		mode.value = 'design';
+	}
+	stopPolling();
+	loading.value = true;
+	try {
+		const d = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.getScene(sceneId));
+		if (generation !== sceneLoadGeneration || selectedSceneId.value !== sceneId) return;
+		currentScene.value = d;
+		manifest.value = cloneTwin2DState(d.draftPayload);
+		view.value = ensureTwin2DView(manifest.value as TwinSceneManifestWith2D);
+		void loadAssetDevices(d.rootAssetId);
+		selectedObjectIds.value = [];
+		selectedRouteId.value = manifest.value.routes?.[0]?.routeId || '';
+		clipboard = [];
+		dirty.value = false;
+		resetHistory();
+	} catch (error: any) {
+		if (generation === sceneLoadGeneration) {
+			selectedSceneId.value = currentScene.value?.id || '';
+			ElMessage.error(error?.msg || error?.message || '场景加载失败');
+		}
+	} finally {
+		if (generation === sceneLoadGeneration) loading.value = false;
+	}
+};
+const createScene = async () => {
+	if (!canAdd.value || sceneBusy.value || mode.value !== 'design' || !createForm.name.trim() || !createForm.rootAssetId) return;
+	creating.value = true;
+	try {
+		if (dirty.value && !(await ElMessageBox.confirm('新建并切换会放弃当前未保存修改，是否继续？', '未保存修改', { type: 'warning' }).then(() => true).catch(() => false))) return;
+		const m = createDefaultTwinSceneManifest();
+		m.name = createForm.name.trim();
+		m.description = createForm.description;
+		m.rootAssetId = createForm.rootAssetId;
+		m.resources = [];
+		m.objects = [];
+		m.bindings = [];
+		m.routes = [];
+		m.connections = [];
+		(m as TwinSceneManifestWith2D).view2d = createDefaultTwin2DView();
+		const d = apiData<DigitalTwinSceneDetail>(
+			await digitalTwinApi.createScene({ name: m.name, description: m.description, rootAssetId: m.rootAssetId, draftPayload: m })
+		);
+		createVisible.value = false;
+		scenes.value = apiData<DigitalTwinSceneSummary[]>(await digitalTwinApi.listScenes()) || [];
+		selectedSceneId.value = d.id;
+		await loadScene();
+		ElMessage.success('2D 空白场景已创建');
+	} catch (error: any) {
+		ElMessage.error(error?.msg || error?.message || '创建场景失败');
+	} finally {
+		creating.value = false;
+	}
+};
+const saveDraft = async () => {
+	if (!currentScene.value || !canEditScene.value || sceneBusy.value) return;
+	const sceneId = currentScene.value.id, revision = currentScene.value.revision;
+	const beforeSave = historyKey(snapshot());
+	saving.value = true;
+	try {
+		const p = cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;
+		p.view2d = cloneTwin2DState(view.value);
+		const saved = apiData<DigitalTwinSceneDetail>(await digitalTwinApi.saveDraft(sceneId, revision, p));
+		if (currentScene.value?.id !== sceneId || selectedSceneId.value !== sceneId) return;
+		const changedWhileSaving = beforeSave !== historyKey(snapshot());
+		currentScene.value = saved;
+		if (changedWhileSaving) {
+			dirty.value = true;
+			ElMessage.warning('草稿已保存，但保存期间又有新修改，请再次保存');
+		} else {
+			manifest.value = cloneTwin2DState(saved.draftPayload);
+			view.value = ensureTwin2DView(manifest.value as TwinSceneManifestWith2D);
+			dirty.value = false;
+			resetHistory();
+			ElMessage.success('2D 草稿已保存');
+		}
+	} catch (e: any) {
+		ElMessage.error(e?.msg || e?.message || '保存失败');
+	} finally {
+		saving.value = false;
+	}
+};
+const validateScene = async (forPublish = false) => {
+	const sceneId = currentScene.value?.id;
+	diagnostics.value = [...validateTwin2DView(view.value, manifest.value), ...validateTwinSceneManifest(manifest.value)];
+	if (sceneId && !dirty.value)
+		try {
+			const r = apiData<any>(await digitalTwinApi.validateScene(sceneId, forPublish === true));
+			if (currentScene.value?.id !== sceneId) return false;
+			diagnostics.value.push(...(r?.diagnostics || []));
+		} catch (e: any) {
+			diagnostics.value.push({ severity: 'error', code: 'server.validate', message: e?.msg || e?.message || '后端校验失败' });
+		}
+	validationVisible.value = true;
+	return !diagnostics.value.some((x) => x.severity === 'error');
+};
+const publishScene = async () => {
+	if (!currentScene.value || !canEditScene.value || sceneBusy.value) return;
+	if (dirty.value) {
+		ElMessage.warning('请先保存草稿');
+		return;
+	}
+	const sceneId = currentScene.value.id, revision = currentScene.value.revision, beforePublish = historyKey(snapshot());
+	publishing.value = true;
+	try {
+		if (!(await validateScene(true))) return;
+		const ok = await ElMessageBox.confirm('发布后生成不可变版本，2D Viewer 将读取该版本并轮询 Telemetry。', '确认发布', { type: 'warning' }).then(() => true).catch(() => false);
+		if (!ok) return;
+		if (currentScene.value?.id !== sceneId || selectedSceneId.value !== sceneId || currentScene.value.revision !== revision || beforePublish !== historyKey(snapshot()) || dirty.value) {
+			ElMessage.warning('场景在校验后发生修改，请保存并重新发布'); return;
+		}
+		await digitalTwinApi.publishScene(sceneId, revision, '2D Professional Designer 发布');
+		await loadScene();
+		ElMessage.success('发布成功');
+	} catch (error: any) {
+		ElMessage.error(error?.msg || error?.message || '发布失败');
+	} finally {
+		publishing.value = false;
+	}
+};
+const openVersions = async () => {
+	if (!currentScene.value) return;
+	versions.value = apiData<TwinSceneVersion[]>(await digitalTwinApi.listVersions(currentScene.value.id)) || [];
+	versionsVisible.value = true;
+};
+const rollbackVersion = async (v: number) => {
+	if (!currentScene.value || !canEditScene.value || sceneBusy.value) return;
+	const sceneId = currentScene.value.id;
+	publishing.value = true;
+	try {
+		const ok = await ElMessageBox.confirm(`从 v${v} 创建回退草稿？${dirty.value ? '当前未保存修改将被放弃。' : ''}不会直接改变线上版本。`, '版本回滚', { type: 'warning' }).then(() => true).catch(() => false);
+		if (!ok || currentScene.value?.id !== sceneId || selectedSceneId.value !== sceneId) return;
+		await digitalTwinApi.rollback(sceneId, v);
+		versionsVisible.value = false;
+		await loadScene();
+		ElMessage.success('版本已恢复为草稿，线上版本未改变');
+	} catch (error: any) {
+		ElMessage.error(error?.msg || error?.message || '恢复版本失败');
+	} finally { publishing.value = false; }
+};
+const openPublishedViewer = () => {
+	if (!currentScene.value) return;
+	router.push({
+		path: '/iot/digital-twin/2d-viewer',
+		query: { sceneId: currentScene.value.id, version: currentScene.value.publishedVersion || undefined },
+	});
+};
+const duplicateScene = async () => {
+	if (!currentScene.value || !canAdd.value || sceneBusy.value || mode.value !== 'design') return;
+	const clone = cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;
+	clone.name = `${manifest.value.name} - 副本`;
+	clone.view2d = cloneTwin2DState(view.value);
+	const rootAssetId = clone.rootAssetId || currentScene.value.rootAssetId;
+	if (!rootAssetId) {
+		ElMessage.error('场景缺少根 Asset，请先绑定资产再复制');
+		return;
+	}
+	creating.value = true;
+	try {
+		const d = apiData<DigitalTwinSceneDetail>(
+			await digitalTwinApi.createScene({ name: clone.name, description: `复制自 ${currentScene.value.name}`, rootAssetId, draftPayload: clone })
+		);
+		await loadScenes();
+		selectedSceneId.value = d.id;
+		await loadScene();
+		ElMessage.success('场景副本已创建');
+	} catch (error: any) { ElMessage.error(error?.msg || error?.message || '复制场景失败'); }
+	finally { creating.value = false; }
+};
+const exportManifest = () => {
+	const p = cloneTwin2DState(manifest.value) as TwinSceneManifestWith2D;
+	p.view2d = cloneTwin2DState(view.value);
+	const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `${currentScene.value?.sceneKey || 'twin-2d'}.json`;
+	a.click();
+	URL.revokeObjectURL(url);
+};
+const importManifest = async (e: Event) => {
+	const input = e.target as HTMLInputElement,
+		file = input.files?.[0];
+	input.value = '';
+	if (!file || !canEditScene.value || sceneBusy.value) return;
+	const sceneId = currentScene.value?.id, beforeImport = historyKey(snapshot());
+	try {
+		const parsed = JSON.parse(await file.text()) as TwinSceneManifestWith2D;
+		if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.objects) || !Array.isArray(parsed.bindings) || !Array.isArray(parsed.routes)) throw new Error('不是有效的场景 Manifest');
+		const importedView = ensureTwin2DView(parsed);
+		const errors = [...validateTwinSceneManifest(parsed), ...validateTwin2DView(importedView, parsed)].filter(item => item.severity === 'error');
+		if (errors.length) throw new Error(errors.map(item => item.message).join('；'));
+		if (!canEditScene.value || sceneBusy.value || currentScene.value?.id !== sceneId || beforeImport !== historyKey(snapshot())) throw new Error('读取文件期间场景已变化，请重新导入');
+		manifest.value = parsed;
+		view.value = importedView;
+		dirty.value = true;
+		resetHistory();
+		ElMessage.success('Manifest 已导入草稿内存，请校验后保存');
+	} catch (err: any) {
+		ElMessage.error(`导入失败：${err.message}`);
+	}
+};
+const saveCustomComponent = async () => {
+	if (!canEditScene.value) return;
+	const safe = sanitizeTwin2DSvg(customForm.svg);
+	if (!isSafeTwin2DSvg(safe)) {
+		ElMessage.error('SVG 内容无效或清洗后为空');
+		return;
+	}
+	customSaving.value = true;
+	try {
+		const key = `user-2d-${Date.now()}`;
+		const slots = customForm.bindingSlots
+			.split(',')
+			.map((x) => x.trim())
+			.filter(Boolean)
+			.map((x) => ({ slotId: x, semantic: x, direction: 'input' }));
+		const item: Twin2DLibraryItem = {
+			resourceKey: key,
+			name: customForm.name,
+			category: customForm.category,
+			symbolKey: 'custom-svg',
+			width: customForm.width,
+			height: customForm.height,
+			description: '用户自定义 SVG 组件',
+			origin: 'custom',
+			componentType: 'twin2d-custom-svg',
+			customSvg: safe,
+			defaultProperties: { customSvg: safe },
+			componentSchema: { properties: [] },
+			ports: [
+				{ portId: 'input', name: 'IN', type: 'material-input', localPosition: [-1, 0, 0] },
+				{ portId: 'output', name: 'OUT', type: 'material-output', localPosition: [1, 0, 0] },
+			],
+			bindingSlots: slots,
+		};
+		upsertTwin2DCustomResource(libraryState, item);
+		const payload: TwinComponentResourceRegistrationPayload = {
+			resourceKey: key,
+			name: item.name,
+			resourceType: 'smart-model',
+			componentType: 'twin2d-custom-svg',
+			generator: 'twin2d-svg-v1',
+			generatorVersion: 1,
+			category: item.category,
+			tags: ['2d', 'svg', 'custom'],
+			capabilities: ['2d-render'],
+			bindingSlots: slots,
+			defaultProperties: { width: item.width, height: item.height, customSvg: safe },
+			componentSchema: { properties: [] },
+			ports: [
+				{ portId: 'input', name: 'IN', type: 'material-input', localPosition: [-1, 0, 0], localDirection: [-1, 0, 0] },
+				{ portId: 'output', name: 'OUT', type: 'material-output', localPosition: [1, 0, 0], localDirection: [1, 0, 0] },
+			],
+		};
+		try {
+			await digitalTwinApi.upsertComponentResource(payload);
+			await loadModels();
+		} catch {
+			ElMessage.warning('组件已保存到本地模型库；服务器组件资源注册未完成');
+		}
+		customVisible.value = false;
+		ElMessage.success('自定义 SVG 已安全清洗并加入模型库');
+	} finally {
+		customSaving.value = false;
+	}
+};
+
+let pollTimer: number | undefined,
+	pollGeneration = 0,
+	pollInFlight = false;
+const stopPolling = () => {
+	pollGeneration++;
+	polling.value = false;
+	if (pollTimer) window.clearInterval(pollTimer);
+	pollTimer = undefined;
+};
+const pollSnapshot = async () => {
+	if (!polling.value || pollInFlight || !currentScene.value?.publishedVersion) return;
+	const generation = pollGeneration;
+	pollInFlight = true;
+	try {
+		const s = apiData<TwinRuntimeSnapshot>(await digitalTwinApi.snapshot(currentScene.value.id, currentScene.value.publishedVersion));
+		if (generation !== pollGeneration) return;
+		runtimeUpdates.value = s?.updates || [];
+		pollError.value = '';
+	} catch (e: any) {
+		if (generation !== pollGeneration) return;
+		pollError.value = e?.msg || e?.message || 'Telemetry Snapshot 获取失败';
+		runtimeUpdates.value = runtimeUpdates.value.map((update) => ({ ...update, quality: 'stale' as const, stale: true }));
+	} finally {
+		pollInFlight = false;
+	}
+};
+const startPolling = () => {
+	stopPolling();
+	if (!currentScene.value?.publishedVersion) return;
+	runtimeUpdates.value = [];
+	pollError.value = '';
+	polling.value = true;
+	void pollSnapshot();
+	pollTimer = window.setInterval(() => void pollSnapshot(), 1000);
+};
+const openRuntime = (o: Twin2DObjectView) => {
+	runtimeObject.value = o;
+	runtimeVisible.value = true;
+};
+const formatDate = (v: string) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-');
+const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+	if (!dirty.value) return;
+	event.preventDefault();
+	event.returnValue = '';
+};
+onBeforeRouteLeave(() =>
+	dirty.value
+		? ElMessageBox.confirm('当前 2D 草稿尚未保存，确定离开吗？', '未保存修改', { type: 'warning' })
+				.then(() => true)
+				.catch(() => false)
+		: true
+);
+let runtimeDraftSnapshot: HistorySnapshot | undefined,
+	runtimeModeGeneration = 0;
+const enterRuntime = async () => {
+	finishInteraction();
+	const scene = currentScene.value,
+		request = ++runtimeModeGeneration;
+	if (!scene?.publishedVersion) {
+		ElMessage.warning('当前场景尚未发布，无法预览线上运行态');
+		mode.value = 'design';
+		return;
+	}
+	try {
+		runtimeLoading.value = true;
+		const version: any = apiData(await digitalTwinApi.getVersion(scene.id, scene.publishedVersion));
+		if (request !== runtimeModeGeneration || mode.value !== 'runtime' || currentScene.value?.id !== scene.id) return;
+		const published = (version?.manifest || version?.manifestSnapshot || version?.payload) as TwinSceneManifestWith2D | undefined;
+		if (!published) throw new Error('发布版本缺少 Manifest 快照');
+		runtimeDraftSnapshot = snapshot();
+		manifest.value = cloneTwin2DState(published);
+		view.value = ensureTwin2DView(manifest.value as TwinSceneManifestWith2D);
+		selectedObjectIds.value = [];
+		rightTab.value = 'runtime';
+		startPolling();
+	} catch (e: any) {
+		if (request === runtimeModeGeneration) {
+			ElMessage.error(e?.msg || e?.message || '加载发布版本失败');
+			mode.value = 'design';
+		}
+	} finally {
+		if (request === runtimeModeGeneration) runtimeLoading.value = false;
+	}
+};
+const leaveRuntime = () => {
+	runtimeModeGeneration++;
+	runtimeLoading.value = false;
+	stopPolling();
+	runtimeUpdates.value = [];
+	runtimeVisible.value = false;
+	if (runtimeDraftSnapshot) {
+		restore(runtimeDraftSnapshot);
+		runtimeDraftSnapshot = undefined;
+	}
+	selectedObjectIds.value = [];
+};
+watch(mode, (v) => {
+	if (v === 'runtime') void enterRuntime();
+	else leaveRuntime();
+});
+onMounted(async () => {
+	runtimeAnchorFrame = requestAnimationFrame(updateRuntimeAnchor);
+	window.addEventListener('keydown', onKey);
+	window.addEventListener('keyup', onKeyUp);
+	window.addEventListener('beforeunload', warnBeforeUnload);
+	await Promise.all([loadAssets(), loadModels()]);
+	await loadScenes(true);
+});
+onBeforeUnmount(() => {
+	sceneLoadGeneration++;
+	runtimeModeGeneration++;
+	if (runtimeAnchorFrame) cancelAnimationFrame(runtimeAnchorFrame);
+	stopPolling();
+	window.removeEventListener('keydown', onKey);
+	window.removeEventListener('keyup', onKeyUp);
+	window.removeEventListener('beforeunload', warnBeforeUnload);
+});
 </script>
 
 <style scoped lang="scss">
-.pro{height:calc(100vh - 132px);min-height:720px;margin:-15px;display:flex;flex-direction:column;background:#07111f;color:#dbeafe;overflow:hidden}.topbar{height:64px;display:flex;align-items:center;gap:9px;padding:8px 14px;border-bottom:1px solid rgba(148,163,184,.18);background:#0a1626}.brand{display:flex;flex-direction:column;min-width:210px}.brand small{font-size:9px;letter-spacing:.12em;color:#38bdf8}.brand strong{font-size:15px;color:#f8fafc}.scene-select{width:190px}.grow{flex:1}.hidden{display:none}.runtime-strip{height:30px;display:flex;align-items:center;gap:18px;padding:0 15px;background:#071b2b;border-bottom:1px solid #164e63;font-size:11px}.good{color:#4ade80}.warn{color:#facc15}.danger{color:#f87171}.workspace{flex:1;min-width:0;min-height:0;display:flex;overflow:hidden}.panel{min-height:0;overflow:auto;background:#0b1728;border-color:rgba(148,163,184,.15);border-style:solid}.left{width:270px;flex:0 0 270px;border-width:0 1px 0 0;padding:9px}.right{width:320px;flex:0 0 320px;border-width:0 0 0 1px;padding:10px}.library-filters{display:grid;gap:8px}.library-list{display:grid;gap:8px;margin-top:9px}.lib-card{display:grid;grid-template-columns:42px 1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid rgba(96,165,250,.18);border-radius:9px;background:#0f2034;cursor:grab}.lib-card:hover{border-color:#38bdf8}.lib-preview{display:grid;place-items:center;height:38px;border-radius:7px;background:#162b42;font-size:22px}.lib-info{display:flex;min-width:0;flex-direction:column}.lib-info strong{font-size:12px}.lib-info small,.lib-info span{font-size:9px;color:#8ea6bf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lib-actions{display:flex}.full{width:100%;margin-top:10px}.tree-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:6px;padding:7px;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px}.tree-row.active{background:#12375c;color:#7dd3fc}.tree-row small{color:#64748b}.layer-row{display:grid;grid-template-columns:minmax(0,1fr) 46px;align-items:center;gap:10px;min-width:0;padding:8px 4px;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px}.layer-visible{min-width:0;overflow:hidden}.layer-visible :deep(.el-checkbox__label){min-width:0;max-width:100%;overflow:hidden;padding-right:0;text-overflow:ellipsis;white-space:nowrap}.layer-name{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.layer-lock{justify-self:end;min-width:40px}.layer-add{width:100%;margin-top:10px}.stage-shell{position:relative;min-width:0;flex:1 1 0;display:flex;flex-direction:column}.stage-tools{height:42px;display:flex;align-items:center;gap:8px;padding:5px 8px;background:#0a1626;border-bottom:1px solid rgba(148,163,184,.14)}.canvas-wrap{position:relative;flex:1;min-height:0}.canvas{width:100%;height:100%;display:block;outline:none;touch-action:none;user-select:none}.scene-object{cursor:move}.scene-object.selected{filter:drop-shadow(0 0 5px #38bdf8)}.scene-object.locked{cursor:not-allowed}.route-edge{stroke:#38bdf8;stroke-width:4;opacity:.72;cursor:pointer}.route-edge.blocked{stroke:#f97316}.route-edge.stale{stroke:#8b5cf6;stroke-dasharray:12 8}.route-edge.active{stroke:#facc15;stroke-width:7}.route-point-group circle{fill:#0ea5e9;stroke:#bae6fd;stroke-width:2;cursor:move}.route-point-group circle.active{fill:#facc15}.route-point-group text,.ports text{fill:#bae6fd;font-size:11px}.connection-line{stroke:#a78bfa;stroke-width:3;stroke-dasharray:8 5;cursor:pointer}.ports circle{fill:#111827;stroke:#fbbf24;stroke-width:3;cursor:crosshair}.ports circle.active{fill:#fbbf24}.selection-box{fill:none;stroke:#38bdf8;stroke-width:2;stroke-dasharray:8 4}.handle{stroke:#e0f2fe;stroke-width:2;cursor:pointer}.handle.resize{fill:#0ea5e9}.handle.rotate{fill:#f59e0b}.handle-line{stroke:#38bdf8;stroke-width:2}.marquee{fill:rgba(56,189,248,.13);stroke:#38bdf8;stroke-width:2;stroke-dasharray:8 5}.minimap{position:absolute;right:12px;bottom:12px;width:220px;height:135px;border:1px solid #365b7c;background:#07111f;box-shadow:0 8px 24px rgba(0,0,0,.35)}.minimap svg{width:100%;height:100%}.statusbar{height:25px;display:flex;align-items:center;gap:14px;padding:0 10px;background:#07111f;border-top:1px solid rgba(148,163,184,.13);font-size:9px;color:#8ea6bf}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.binding-list{display:grid;gap:6px;margin-top:10px}.binding-list>div{display:grid;grid-template-columns:1fr 1fr auto;gap:5px;padding:6px;background:#101f32}.binding-list span{font-size:9px;color:#94a3b8}.slot-list{margin-top:12px}.slot{margin:3px;cursor:pointer}.runtime-card pre,.right pre{max-height:280px;overflow:auto;padding:8px;background:#050c16;color:#86efac;font-size:10px}.version{display:grid;gap:6px}.version span{font-size:11px;color:#94a3b8}:deep(.el-tabs__item){color:#94a3b8}:deep(.el-tabs__item.is-active){color:#38bdf8}:deep(.el-form-item__label){color:#94a3b8}
-.grid-size{width:68px}.order-actions{display:flex;gap:8px;margin:2px 0 10px}.stage-tools{overflow-x:auto;overflow-y:hidden}.topbar{flex-wrap:nowrap;overflow-x:auto}.statusbar{overflow-x:auto;white-space:nowrap}
-.panel-handle{position:absolute;top:50%;z-index:30;width:24px;height:64px;padding:0;border:1px solid #2d5b7c;background:rgba(8,27,46,.94);color:#7dd3fc;font-size:24px;line-height:62px;cursor:pointer;transform:translateY(-50%);box-shadow:0 4px 16px rgba(0,0,0,.35)}.panel-handle:hover{border-color:#38bdf8;background:#12375c;color:#fff}.left-handle{left:0;border-left:0;border-radius:0 10px 10px 0}.right-handle{right:0;border-right:0;border-radius:10px 0 0 10px}
-.alignment-guides line{stroke:#f472b6;stroke-width:1.5;stroke-dasharray:8 5;pointer-events:none}
-.runtime-popover{position:absolute;z-index:35;width:332px;padding:11px;border:1px solid rgba(56,189,248,.42);border-radius:11px;background:rgba(5,16,29,.94);box-shadow:0 15px 38px rgba(0,0,0,.46);color:#dbeafe;backdrop-filter:blur(9px)}.runtime-popover__arrow{position:absolute;width:12px;height:12px;background:#07111f}.runtime-popover.is-above .runtime-popover__arrow{bottom:-6px;border-right:1px solid rgba(56,189,248,.42);border-bottom:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.runtime-popover.is-below .runtime-popover__arrow{top:-6px;border-left:1px solid rgba(56,189,248,.42);border-top:1px solid rgba(56,189,248,.42);transform:translateX(-50%) rotate(45deg)}.runtime-popover__head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding-bottom:8px;border-bottom:1px solid rgba(148,163,184,.15)}.runtime-popover__head>div{display:flex;min-width:0;align-items:center;gap:6px}.runtime-popover__head>div:first-child{align-items:flex-start;flex-direction:column;gap:2px}.runtime-popover__head small{font-size:8px;letter-spacing:.13em;color:#38bdf8}.runtime-popover__head strong{max-width:190px;overflow:hidden;color:#f8fafc;text-overflow:ellipsis;white-space:nowrap}.runtime-popover__head span{max-width:190px;overflow:hidden;font-size:9px;color:#64748b;text-overflow:ellipsis;white-space:nowrap}.runtime-popover__head em{padding:3px 6px;border-radius:10px;font-size:8px;font-style:normal}.runtime-popover__head em.is-good{background:rgba(34,197,94,.18);color:#86efac}.runtime-popover__head em.is-warn{background:rgba(245,158,11,.18);color:#fcd34d}.runtime-popover__head em.is-danger{background:rgba(239,68,68,.18);color:#fca5a5}.runtime-popover__head em.is-info{background:rgba(148,163,184,.15);color:#cbd5e1}.runtime-popover__head button{width:21px;height:21px;padding:0;border:0;border-radius:6px;background:rgba(148,163,184,.12);color:#94a3b8;font-size:16px;cursor:pointer}.runtime-popover__grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.runtime-popover__grid>div{display:flex;min-width:0;flex-direction:column;gap:2px;padding:5px 6px;border-radius:6px;background:rgba(15,31,52,.68)}.runtime-popover__grid label{font-size:8px;color:#64748b}.runtime-popover__grid b{overflow:hidden;font-size:9px;font-weight:500;color:#cbd5e1;text-overflow:ellipsis;white-space:nowrap}.runtime-popover__signals{display:grid;gap:3px;margin-top:7px}.runtime-popover__signals>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;padding:4px 6px;border-radius:5px;background:rgba(15,31,52,.5);font-size:9px}.runtime-popover__signals span{overflow:hidden;color:#94a3b8;text-overflow:ellipsis;white-space:nowrap}.runtime-popover__signals code{color:#f8fafc}.runtime-popover__empty{margin-top:7px;font-size:9px;color:#64748b}
+.flow-editor-body { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 10px; }
+.flow-editor-body :deep(.af-designer) { flex: 1; height: auto; min-height: 0; }
+.route-slot-pallet { pointer-events: none; }
+.route-slot-pallet rect { fill: #f59e0b; stroke: #78350f; stroke-width: 2; }
+.route-slot-pallet text { fill: #111827; font-size: 11px; font-weight: 700; }
+.pro {
+	height: calc(100vh - 132px);
+	min-height: 720px;
+	margin: -15px;
+	display: flex;
+	flex-direction: column;
+	background: #07111f;
+	color: #dbeafe;
+	overflow: hidden;
+}
+.topbar {
+	height: 64px;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 8px 14px;
+	border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+	background: #0a1626;
+}
+.brand {
+	display: flex;
+	flex-direction: column;
+	min-width: 210px;
+}
+.brand small {
+	font-size: 9px;
+	letter-spacing: 0.12em;
+	color: #38bdf8;
+}
+.brand strong {
+	font-size: 15px;
+	color: #f8fafc;
+}
+.scene-select {
+	width: 190px;
+}
+.grow {
+	flex: 1;
+}
+.hidden {
+	display: none;
+}
+.runtime-strip {
+	height: 30px;
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	padding: 0 15px;
+	background: #071b2b;
+	border-bottom: 1px solid #164e63;
+	font-size: 11px;
+}
+.good {
+	color: #4ade80;
+}
+.warn {
+	color: #facc15;
+}
+.danger {
+	color: #f87171;
+}
+.workspace {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	overflow: hidden;
+}
+.panel {
+	min-height: 0;
+	overflow: auto;
+	background: #0b1728;
+	border-color: rgba(148, 163, 184, 0.15);
+	border-style: solid;
+}
+.left {
+	width: 270px;
+	flex: 0 0 270px;
+	border-width: 0 1px 0 0;
+	padding: 9px;
+}
+.right {
+	width: 320px;
+	flex: 0 0 320px;
+	border-width: 0 0 0 1px;
+	padding: 10px;
+}
+.library-filters {
+	display: grid;
+	gap: 8px;
+}
+.library-list {
+	display: grid;
+	gap: 8px;
+	margin-top: 9px;
+}
+.lib-card {
+	display: grid;
+	grid-template-columns: 42px 1fr auto;
+	gap: 8px;
+	align-items: center;
+	padding: 8px;
+	border: 1px solid rgba(96, 165, 250, 0.18);
+	border-radius: 9px;
+	background: #0f2034;
+	cursor: grab;
+}
+.lib-card:hover {
+	border-color: #38bdf8;
+}
+.lib-preview {
+	display: grid;
+	place-items: center;
+	height: 38px;
+	border-radius: 7px;
+	background: #162b42;
+	font-size: 22px;
+}
+.lib-info {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+.lib-info strong {
+	font-size: 12px;
+}
+.lib-info small,
+.lib-info span {
+	font-size: 9px;
+	color: #8ea6bf;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.lib-actions {
+	display: flex;
+}
+.full {
+	width: 100%;
+	margin-top: 10px;
+}
+.tree-row {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 6px;
+	padding: 7px;
+	border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+	font-size: 11px;
+}
+.tree-row.active {
+	background: #12375c;
+	color: #7dd3fc;
+}
+.tree-row small {
+	color: #64748b;
+}
+.layer-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 46px;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+	padding: 8px 4px;
+	border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+	font-size: 11px;
+}
+.layer-visible {
+	min-width: 0;
+	overflow: hidden;
+}
+.layer-visible :deep(.el-checkbox__label) {
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	padding-right: 0;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.layer-name {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.layer-lock {
+	justify-self: end;
+	min-width: 40px;
+}
+.layer-add {
+	width: 100%;
+	margin-top: 10px;
+}
+.stage-shell {
+	position: relative;
+	min-width: 0;
+	flex: 1 1 0;
+	display: flex;
+	flex-direction: column;
+}
+.stage-tools {
+	height: 42px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 8px;
+	background: #0a1626;
+	border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+.canvas-wrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+}
+.canvas {
+	width: 100%;
+	height: 100%;
+	display: block;
+	outline: none;
+	touch-action: none;
+	user-select: none;
+}
+.scene-object {
+	cursor: move;
+}
+.scene-object.selected {
+	filter: drop-shadow(0 0 5px #38bdf8);
+}
+.scene-object.locked {
+	cursor: not-allowed;
+}
+.route-edge {
+	stroke: #38bdf8;
+	stroke-width: 4;
+	opacity: 0.72;
+	cursor: pointer;
+}
+.route-edge.blocked {
+	stroke: #f97316;
+}
+.route-edge.stale {
+	stroke: #8b5cf6;
+	stroke-dasharray: 12 8;
+}
+.route-edge.active {
+	stroke: #facc15;
+	stroke-width: 7;
+}
+.route-point-group circle {
+	fill: #0ea5e9;
+	stroke: #bae6fd;
+	stroke-width: 2;
+	cursor: move;
+}
+.route-point-group circle.active {
+	fill: #facc15;
+}
+.route-point-group text,
+.ports text {
+	fill: #bae6fd;
+	font-size: 11px;
+}
+.connection-line {
+	stroke: #a78bfa;
+	stroke-width: 3;
+	stroke-dasharray: 8 5;
+	cursor: pointer;
+}
+.ports circle {
+	fill: #111827;
+	stroke: #fbbf24;
+	stroke-width: 3;
+	cursor: crosshair;
+}
+.ports circle.active {
+	fill: #fbbf24;
+}
+.selection-box {
+	fill: none;
+	stroke: #38bdf8;
+	stroke-width: 2;
+	stroke-dasharray: 8 4;
+}
+.handle {
+	stroke: #e0f2fe;
+	stroke-width: 2;
+	cursor: pointer;
+}
+.handle.resize {
+	fill: #0ea5e9;
+}
+.handle.rotate {
+	fill: #f59e0b;
+}
+.handle-line {
+	stroke: #38bdf8;
+	stroke-width: 2;
+}
+.marquee {
+	fill: rgba(56, 189, 248, 0.13);
+	stroke: #38bdf8;
+	stroke-width: 2;
+	stroke-dasharray: 8 5;
+}
+.minimap {
+	position: absolute;
+	right: 12px;
+	bottom: 12px;
+	width: 220px;
+	height: 135px;
+	border: 1px solid #365b7c;
+	background: #07111f;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.minimap svg {
+	width: 100%;
+	height: 100%;
+}
+.statusbar {
+	height: 25px;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 0 10px;
+	background: #07111f;
+	border-top: 1px solid rgba(148, 163, 184, 0.13);
+	font-size: 9px;
+	color: #8ea6bf;
+}
+.grid2 {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+.binding-list {
+	display: grid;
+	gap: 6px;
+	margin-top: 10px;
+}
+.binding-list > div {
+	display: grid;
+	grid-template-columns: 1fr 1fr auto;
+	gap: 5px;
+	padding: 6px;
+	background: #101f32;
+}
+.binding-list span {
+	font-size: 9px;
+	color: #94a3b8;
+}
+.slot-list {
+	margin-top: 12px;
+}
+.slot {
+	margin: 3px;
+	cursor: pointer;
+}
+.runtime-card pre,
+.right pre {
+	max-height: 280px;
+	overflow: auto;
+	padding: 8px;
+	background: #050c16;
+	color: #86efac;
+	font-size: 10px;
+}
+.version {
+	display: grid;
+	gap: 6px;
+}
+.version span {
+	font-size: 11px;
+	color: #94a3b8;
+}
+:deep(.el-tabs__item) {
+	color: #94a3b8;
+}
+:deep(.el-tabs__item.is-active) {
+	color: #38bdf8;
+}
+:deep(.el-form-item__label) {
+	color: #94a3b8;
+}
+.grid-size {
+	width: 68px;
+}
+.order-actions {
+	display: flex;
+	gap: 8px;
+	margin: 2px 0 10px;
+}
+.stage-tools {
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+.topbar {
+	flex-wrap: nowrap;
+	overflow-x: auto;
+}
+.statusbar {
+	overflow-x: auto;
+	white-space: nowrap;
+}
+.panel-handle {
+	position: absolute;
+	top: 50%;
+	z-index: 30;
+	width: 24px;
+	height: 64px;
+	padding: 0;
+	border: 1px solid #2d5b7c;
+	background: rgba(8, 27, 46, 0.94);
+	color: #7dd3fc;
+	font-size: 24px;
+	line-height: 62px;
+	cursor: pointer;
+	transform: translateY(-50%);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.panel-handle:hover {
+	border-color: #38bdf8;
+	background: #12375c;
+	color: #fff;
+}
+.left-handle {
+	left: 0;
+	border-left: 0;
+	border-radius: 0 10px 10px 0;
+}
+.right-handle {
+	right: 0;
+	border-right: 0;
+	border-radius: 10px 0 0 10px;
+}
+.alignment-guides line {
+	stroke: #f472b6;
+	stroke-width: 1.5;
+	stroke-dasharray: 8 5;
+	pointer-events: none;
+}
+.runtime-popover {
+	position: absolute;
+	z-index: 35;
+	width: 332px;
+	padding: 11px;
+	border: 1px solid rgba(56, 189, 248, 0.42);
+	border-radius: 11px;
+	background: rgba(5, 16, 29, 0.94);
+	box-shadow: 0 15px 38px rgba(0, 0, 0, 0.46);
+	color: #dbeafe;
+	backdrop-filter: blur(9px);
+}
+.runtime-popover__arrow {
+	position: absolute;
+	width: 12px;
+	height: 12px;
+	background: #07111f;
+}
+.runtime-popover.is-above .runtime-popover__arrow {
+	bottom: -6px;
+	border-right: 1px solid rgba(56, 189, 248, 0.42);
+	border-bottom: 1px solid rgba(56, 189, 248, 0.42);
+	transform: translateX(-50%) rotate(45deg);
+}
+.runtime-popover.is-below .runtime-popover__arrow {
+	top: -6px;
+	border-left: 1px solid rgba(56, 189, 248, 0.42);
+	border-top: 1px solid rgba(56, 189, 248, 0.42);
+	transform: translateX(-50%) rotate(45deg);
+}
+.runtime-popover__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+.runtime-popover__head > div {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+}
+.runtime-popover__head > div:first-child {
+	align-items: flex-start;
+	flex-direction: column;
+	gap: 2px;
+}
+.runtime-popover__head small {
+	font-size: 8px;
+	letter-spacing: 0.13em;
+	color: #38bdf8;
+}
+.runtime-popover__head strong {
+	max-width: 190px;
+	overflow: hidden;
+	color: #f8fafc;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.runtime-popover__head span {
+	max-width: 190px;
+	overflow: hidden;
+	font-size: 9px;
+	color: #64748b;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.runtime-popover__head em {
+	padding: 3px 6px;
+	border-radius: 10px;
+	font-size: 8px;
+	font-style: normal;
+}
+.runtime-popover__head em.is-good {
+	background: rgba(34, 197, 94, 0.18);
+	color: #86efac;
+}
+.runtime-popover__head em.is-warn {
+	background: rgba(245, 158, 11, 0.18);
+	color: #fcd34d;
+}
+.runtime-popover__head em.is-danger {
+	background: rgba(239, 68, 68, 0.18);
+	color: #fca5a5;
+}
+.runtime-popover__head em.is-info {
+	background: rgba(148, 163, 184, 0.15);
+	color: #cbd5e1;
+}
+.runtime-popover__head button {
+	width: 21px;
+	height: 21px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: rgba(148, 163, 184, 0.12);
+	color: #94a3b8;
+	font-size: 16px;
+	cursor: pointer;
+}
+.runtime-popover__grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+	margin-top: 8px;
+}
+.runtime-popover__grid > div {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+	padding: 5px 6px;
+	border-radius: 6px;
+	background: rgba(15, 31, 52, 0.68);
+}
+.runtime-popover__grid label {
+	font-size: 8px;
+	color: #64748b;
+}
+.runtime-popover__grid b {
+	overflow: hidden;
+	font-size: 9px;
+	font-weight: 500;
+	color: #cbd5e1;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.runtime-popover__signals {
+	display: grid;
+	gap: 3px;
+	margin-top: 7px;
+}
+.runtime-popover__signals > div {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 7px;
+	padding: 4px 6px;
+	border-radius: 5px;
+	background: rgba(15, 31, 52, 0.5);
+	font-size: 9px;
+}
+.runtime-popover__signals span {
+	overflow: hidden;
+	color: #94a3b8;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.runtime-popover__signals code {
+	color: #f8fafc;
+}
+.runtime-popover__empty {
+	margin-top: 7px;
+	font-size: 9px;
+	color: #64748b;
+}
 </style>

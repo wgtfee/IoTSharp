@@ -9,7 +9,7 @@
 		"build": "vite build",
 		"typecheck": "vue-tsc --noEmit --pretty false",
 		"verify:frontend-errors": "node scripts/verify-frontend-errors.mjs",
-		"verify:2d-designer": "node scripts/run-2d-designer-smoke.mjs",
+		"verify:2d-designer": "node scripts/run-2d-designer-smoke.mjs && node scripts/verify-2d-designer-component.mjs",
 		"verify:v7-components": "node scripts/run-v7-components-smoke.mjs",
 		"verify:twin-snapshot-perf": "node scripts/verify-twin-runtime-snapshot-performance.mjs",
 		"verify:packaging-line": "node scripts/run-packaging-line-smoke.mjs",

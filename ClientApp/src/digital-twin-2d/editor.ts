@@ -1,5 +1,6 @@
 import type { Twin2DObjectView } from './types';
 import { cloneTwin2DState } from './clone';
+import type { TwinSceneManifest, TwinSceneObjectDefinition } from '/@/digital-twin/contracts';
 
 export interface Twin2DPoint { x: number; y: number }
 export interface Twin2DRect { x: number; y: number; width: number; height: number }
@@ -135,6 +136,30 @@ export const duplicateObjects = (objects: Twin2DObjectView[], offset = 30): Twin
 	zIndex: item.zIndex + 1,
 	businessObjectId: undefined,
 }));
+
+/** 复制视图时为副本建立独立业务身份；设备遥测绑定由操作员单独选择。 */
+export const duplicateTwin2DSelection = (manifest: TwinSceneManifest, objects: Twin2DObjectView[]) => {
+	const views = duplicateObjects(objects);
+	const identities = new Map<string, string>();
+	const businessObjects: TwinSceneObjectDefinition[] = [];
+	for (let index = 0; index < views.length; index++) {
+		const original = objects[index];
+		const existing = manifest.objects.find(item => item.objectId === original.businessObjectId);
+		if (original.businessObjectId && !existing) throw new Error(`业务对象 ${original.businessObjectId} 不存在，无法复制。`);
+		const key = original.businessObjectId || original.id;
+		let newId = identities.get(key);
+		if (!newId) {
+			newId = `2d-object-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${index}`}`;
+			identities.set(key, newId);
+			businessObjects.push(existing ? { ...clone(existing), objectId: newId, name: views[index].name } : {
+				objectId: newId, name: views[index].name, kind: 'visual', assetId: manifest.rootAssetId || undefined,
+				transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+			});
+		}
+		views[index].businessObjectId = newId;
+	}
+	return { views, businessObjects };
+};
 
 export const replaceObjectsById = (all: Twin2DObjectView[], changed: Twin2DObjectView[]) => {
 	const map = new Map(changed.map((item) => [item.id, item]));

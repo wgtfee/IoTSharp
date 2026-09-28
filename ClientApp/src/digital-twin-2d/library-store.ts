@@ -1,5 +1,6 @@
 import type { TwinModelResource } from '/@/api/digital-twin';
 import type { Twin2DLibraryItem } from './library';
+import { cloneTwin2DState } from './clone';
 
 export interface Twin2DLibraryState {
 	favorites: string[];
@@ -21,7 +22,7 @@ export const loadTwin2DLibraryState = (): Twin2DLibraryState => {
 };
 
 export const saveTwin2DLibraryState = (state: Twin2DLibraryState) => {
-	memory.favorites = [...state.favorites]; memory.recent = [...state.recent]; memory.custom = structuredClone(state.custom);
+	memory.favorites = [...state.favorites]; memory.recent = [...state.recent]; memory.custom = cloneTwin2DState(state.custom);
 	try { storage()?.setItem(KEY, JSON.stringify(state)); } catch { /* localStorage may be disabled */ }
 };
 

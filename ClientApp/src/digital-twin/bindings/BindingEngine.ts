@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { TwinDataUpdate } from '/@/api/digital-twin';
 import type { TwinObjectBindingDefinition, TwinSceneManifest } from '/@/digital-twin/contracts';
+import { telemetryBoolean, transformTwinBindingValue } from './BindingValueTransform';
 
 interface MaterialSnapshot {
 	color?: number;
@@ -48,7 +49,7 @@ export class BindingEngine {
 			const timestamp = Date.parse(update.sourceTimestamp || '') || 0;
 			if (timestamp < (this.lastTimestamps.get(binding.bindingId) ?? 0)) continue;
 			this.lastTimestamps.set(binding.bindingId, timestamp);
-			const stale = Boolean(update.stale || update.quality === 'bad' || update.quality === 'missing');
+			const stale = Boolean(update.stale || update.quality !== 'good');
 			this.bindingValues.set(binding.bindingId, update.value);
 			if (stale) this.staleBindingIds.add(binding.bindingId);
 			else this.staleBindingIds.delete(binding.bindingId);
@@ -81,11 +82,11 @@ export class BindingEngine {
 
 	private applyBinding(binding: TwinObjectBindingDefinition, update: TwinDataUpdate) {
 		if (binding.transform.kind === 'routeSlotArray') {
-			this.applyRouteSlotArray?.(binding, update.value, update.stale || update.quality === 'bad' || update.quality === 'missing');
+			this.applyRouteSlotArray?.(binding, update.value, update.stale || update.quality !== 'good');
 			return;
 		}
 		if (binding.transform.kind === 'routeEvent') {
-			this.applyRouteSignal?.(binding.bindingId, update.value, update.stale || update.quality === 'bad' || update.quality === 'missing');
+			this.applyRouteSignal?.(binding.bindingId, update.value, update.stale || update.quality !== 'good');
 			return;
 		}
 		if (binding.target.kind === 'actuator') {
@@ -95,7 +96,7 @@ export class BindingEngine {
 		const root = this.resolveObject(binding.objectId);
 		if (!root) return;
 		if (binding.transform.kind === 'routeDistance' || binding.target.kind === 'routeDistance') {
-			if (update.stale || update.quality === 'bad' || update.quality === 'missing') {
+			if (update.stale || update.quality !== 'good') {
 				this.applyStaleStyle(root);
 				return;
 			}
@@ -104,7 +105,8 @@ export class BindingEngine {
 			return;
 		}
 		const target = this.resolveNode(root, binding.nodePath) ?? root;
-		if (update.stale || update.quality === 'bad' || update.quality === 'missing') {
+		if (update.stale || update.quality !== 'good') {
+			if (binding.target.kind === 'animation') this.animatedObjects.delete(target);
 			this.applyStaleStyle(target);
 			return;
 		}
@@ -112,7 +114,7 @@ export class BindingEngine {
 		const transformed = this.transform(binding, update.value);
 		switch (binding.target.kind) {
 			case 'visible':
-				target.visible = Boolean(transformed);
+				target.visible = telemetryBoolean(transformed);
 				break;
 			case 'color':
 			case 'emissive':
@@ -129,7 +131,7 @@ export class BindingEngine {
 			case 'animation': {
 				const config = binding.transform as Record<string, unknown>;
 				const axis = this.axisFromProperty(binding.target.property);
-				const speedConfig = (Boolean(update.value) ? config.trueValue : config.falseValue) as { speed?: unknown } | undefined;
+				const speedConfig = (telemetryBoolean(update.value) ? config.trueValue : config.falseValue) as { speed?: unknown } | undefined;
 				const configuredSpeed = Number(speedConfig?.speed);
 				const speed = Number.isFinite(configuredSpeed) ? configuredSpeed : Number(transformed) || 0;
 				if (speed === 0) this.animatedObjects.delete(target);
@@ -148,36 +150,7 @@ export class BindingEngine {
 	}
 
 	private transform(binding: TwinObjectBindingDefinition, value: unknown): unknown {
-		const config = binding.transform as Record<string, any>;
-		switch (binding.transform.kind) {
-			case 'booleanVisibility':
-				return Boolean(value);
-			case 'booleanColor':
-				return Boolean(value) ? config.trueColor || '#22c55e' : config.falseColor || '#ef4444';
-			case 'rangeColor': {
-				const number = Number(value);
-				const stops = Array.isArray(config.stops) ? [...config.stops].sort((left, right) => Number(left.max) - Number(right.max)) : [];
-				return stops.find((stop) => number <= Number(stop.max))?.color || config.defaultColor || '#38bdf8';
-			}
-			case 'numberScale':
-			case 'numberRotation':
-				return Math.min(Number(config.max ?? Number.POSITIVE_INFINITY), Math.max(Number(config.min ?? Number.NEGATIVE_INFINITY), Number(value) * Number(config.factor ?? 1)));
-			case 'enumMap':
-				return config.map?.[String(value)] ?? config.defaultValue ?? value;
-			case 'formatText':
-				return String(config.template || '{value}').replace('{value}', String(value ?? ''));
-			case 'alarmSeverityStyle': {
-				const severity = typeof value === 'object' && value ? String((value as Record<string, unknown>).severity ?? '') : String(value ?? '');
-				return config.map?.[severity] ?? config.defaultColor ?? '#f59e0b';
-			}
-			case 'booleanAnimation':
-				return Boolean(value) ? Number(config.trueValue?.speed ?? 1) : Number(config.falseValue?.speed ?? 0);
-			case 'routeProgress':
-			case 'routeDistance':
-				return Number(value) * Number(config.factor ?? 1) + Number(config.offset ?? 0);
-			default:
-				return value;
-		}
+		return transformTwinBindingValue(binding, value);
 	}
 
 	private resolveNode(root: any, path?: string) {
@@ -213,12 +186,12 @@ export class BindingEngine {
 			material.opacity = snapshot.opacity;
 			material.transparent = snapshot.transparent;
 			material.needsUpdate = true;
+			this.materialSnapshots.delete(material);
 		});
 	}
 
 	private applyMaterialColor(target: any, color: string, kind: 'color' | 'emissive') {
 		this.forEachMaterial(target, (material) => {
-			this.captureMaterial(material);
 			material[kind]?.set?.(new THREE.Color(color));
 			material.needsUpdate = true;
 		});
@@ -227,7 +200,6 @@ export class BindingEngine {
 	private applyOpacity(target: any, value: number) {
 		const opacity = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 1));
 		this.forEachMaterial(target, (material) => {
-			this.captureMaterial(material);
 			material.opacity = opacity;
 			material.transparent = opacity < 1;
 			material.needsUpdate = true;

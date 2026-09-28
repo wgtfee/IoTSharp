@@ -34,7 +34,7 @@
 		</template>
 		<template v-else-if="item.symbolKey === 'label'">
 			<rect x="0" y="0" :width="item.width" :height="item.height" rx="6" fill="rgba(15,23,42,.65)" :stroke="stroke" stroke-width="1.5" />
-			<text x="10" :y="Math.max(20,item.height/2+5)" class="label-text">{{ item.name }}</text>
+			<text x="10" :y="Math.max(20,item.height/2+5)" class="label-text">{{ runtime.text ?? item.name }}</text>
 		</template>
 		<template v-else-if="item.symbolKey === 'custom-svg' && customSvgBody">
 			<svg x="0" y="0" :width="item.width" :height="item.height" viewBox="0 0 100 100" preserveAspectRatio="none"><g v-html="customSvgBody" /></svg>
@@ -43,8 +43,8 @@
 			<rect x="0" y="0" :width="item.width" :height="item.height" rx="12" :fill="fill" :stroke="stroke" stroke-width="3" />
 			<circle :cx="item.width/2" :cy="item.height*.38" :r="Math.min(item.width,item.height)*.16" fill="none" stroke="#e0f2fe" stroke-width="4" />
 		</template>
-		<text v-if="item.symbolKey !== 'label'" :x="item.width/2" :y="item.height-10" text-anchor="middle" class="name-text">{{ item.name }}</text>
-		<g v-if="runtime.fault || runtime.blocked || runtime.waiting || runtime.quality==='stale'" class="status-badge" :transform="`translate(${Math.max(2,item.width-70)} 4)`">
+		<text v-if="item.symbolKey !== 'label'" :x="item.width/2" :y="item.height-10" text-anchor="middle" class="name-text">{{ runtime.text ?? item.name }}</text>
+		<g v-if="runtime.fault || runtime.blocked || runtime.waiting || ['waiting','stale','bad','missing'].includes(runtime.quality)" class="status-badge" :transform="`translate(${Math.max(2,item.width-70)} 4)`">
 			<rect width="66" height="20" rx="8" :fill="badgeColor" />
 			<text x="33" y="14" text-anchor="middle">{{ runtime.statusText }}</text>
 		</g>
@@ -65,11 +65,12 @@ const fill = computed(() => {
 	if (runtime.value.blocked) return '#9a3412';
 	if (runtime.value.waiting) return '#0e7490';
 	if (runtime.value.quality === 'stale') return '#4c1d95';
+	if (runtime.value.color) return runtime.value.color;
 	if (runtime.value.running) return props.item.fill || '#166534';
 	return props.item.fill || '#1e3a5f';
 });
 const stroke = computed(() => props.item.stroke || (runtime.value.fault ? '#f87171' : runtime.value.blocked ? '#fb923c' : runtime.value.running ? '#4ade80' : '#60a5fa'));
-const badgeColor = computed(() => runtime.value.fault ? '#dc2626' : runtime.value.blocked ? '#ea580c' : runtime.value.waiting ? '#0891b2' : '#7c3aed');
+const badgeColor = computed(() => runtime.value.fault || ['bad','missing'].includes(runtime.value.quality) ? '#dc2626' : runtime.value.blocked ? '#ea580c' : runtime.value.waiting ? '#0891b2' : '#7c3aed');
 const stateClasses = computed(() => ({ 'is-running': runtime.value.running, 'is-fault': runtime.value.fault, 'is-blocked': runtime.value.blocked, 'is-waiting': runtime.value.waiting, 'is-stale': runtime.value.quality === 'stale' }));
 const customSvgBody = computed(() => props.item.customSvg ? extractTwin2DSvgBody(props.item.customSvg) : '');
 </script>

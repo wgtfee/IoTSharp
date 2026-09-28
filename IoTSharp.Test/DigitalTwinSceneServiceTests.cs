@@ -49,7 +49,7 @@ public sealed class DigitalTwinSceneServiceTests
             Tenant = tenant.Id, Customer = customer.Id, Roles = ["SystemAdmin"]
         };
 
-        JsonElement CreateManifest(string sourceKey)
+        JsonElement CreateManifest(string sourceKey, int viewX = 100)
         {
             using var document = JsonDocument.Parse($$"""
             {
@@ -75,7 +75,14 @@ public sealed class DigitalTwinSceneServiceTests
                 "points":[{"pointId":"p1","name":"P1","position":[0,0,0]},{"pointId":"p2","name":"P2","position":[10,0,0]}],
                 "edges":[{"edgeId":"e1","fromPointId":"p1","toPointId":"p2","enabled":true}]
               }],
-              "runtime":{"dataMode":"live"}
+              "runtime":{"dataMode":"live"},
+              "view2d":{
+                "version":1,
+                "canvas":{"width":4800,"height":3000,"background":"#07111f","gridSize":20,"showGrid":true,"snapToGrid":true},
+                "objects":[{"id":"view-rgv","name":"RGV","symbolKey":"agv","businessObjectId":"rgv-1","x":{{viewX}},"y":200,"width":100,"height":80,"rotation":0,"zIndex":1}],
+                "routePoints":{"p1":{"x":0,"y":200},"p2":{"x":1000,"y":200}},
+                "layers":[{"id":"production","name":"产线","visible":true,"locked":false,"zIndex":0}]
+              }
             }
             """);
             return document.RootElement.Clone();
@@ -103,7 +110,7 @@ public sealed class DigitalTwinSceneServiceTests
             Name = afterPublish.Name,
             Description = afterPublish.Description,
             RootAssetId = afterPublish.RootAssetId,
-            Payload = CreateManifest("PositionMm")
+            Payload = CreateManifest("PositionMm", 350)
         }, profile, CancellationToken.None);
 
         Assert.Equal(afterPublish.Revision + 1, saved.Revision);
@@ -111,6 +118,15 @@ public sealed class DigitalTwinSceneServiceTests
         Assert.Equal(published.Version, saved.PublishedVersion);
         Assert.Contains(saved.Bindings, item => item.BindingKey == "rgv-position" && item.SourceKey == "PositionMm" && item.SceneVersionId == null);
         Assert.Single(await context.TwinObjectBindings.Where(item => item.SceneId == created.Id && item.SceneVersionId == published.Id).ToListAsync());
+        Assert.Equal(350, saved.DraftPayload.GetProperty("view2d").GetProperty("objects")[0].GetProperty("x").GetInt32());
+        Assert.Equal(0, saved.DraftPayload.GetProperty("objects")[0].GetProperty("transform").GetProperty("position")[0].GetInt32());
+
+        // 2D 像素坐标随草稿保存，但不得覆盖已发布版本或 3D 世界坐标。
+        var publishedSnapshot = await service.GetVersionAsync(created.Id, published.Version, profile, CancellationToken.None);
+        Assert.Equal(100, publishedSnapshot.Manifest!.Value.GetProperty("view2d").GetProperty("objects")[0].GetProperty("x").GetInt32());
+        var restored = await service.RollbackAsync(created.Id, published.Version, profile, CancellationToken.None);
+        Assert.Equal(100, restored.DraftPayload.GetProperty("view2d").GetProperty("objects")[0].GetProperty("x").GetInt32());
+        Assert.Equal(published.Version, restored.PublishedVersion);
     }
 
     [Fact]

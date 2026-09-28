@@ -3,7 +3,7 @@
 		<div class="af-debugger__controls">
 			<el-radio-group :model-value="mode" size="small" @change="$emit('mode', $event as RuntimeMode)">
 				<el-radio-button value="simulation">Simulation</el-radio-button>
-				<el-radio-button value="live">Live</el-radio-button>
+				<el-radio-button v-if="liveAvailable" value="live">Live</el-radio-button>
 			</el-radio-group>
 			<el-button size="small" type="success" @click="$emit('start')">{{ mode === 'live' ? '启动 Live Run' : '开始模拟' }}</el-button>
 			<el-button size="small" :disabled="!snapshot" @click="snapshot?.state === 'Paused' ? $emit('resume') : $emit('pause')">{{ snapshot?.state === 'Paused' ? '继续' : '暂停' }}</el-button>
@@ -31,7 +31,7 @@ import type { LiveFlowRuntimeSnapshot } from '../runtime/LiveFlowRuntimeClient';
 export type RuntimeMode = 'simulation' | 'live';
 export interface RuntimeStepChoice { stepInstanceId: string; nodeId: string; label: string }
 
-const props = withDefaults(defineProps<{ snapshot?: SimulationFlowRuntimeSnapshot | LiveFlowRuntimeSnapshot; mode?: RuntimeMode; connectionState?: string; manualSteps?: RuntimeStepChoice[]; failedSteps?: RuntimeStepChoice[] }>(), { mode: 'simulation', connectionState: 'disconnected', manualSteps: () => [], failedSteps: () => [] });
+const props = withDefaults(defineProps<{ liveAvailable?: boolean; snapshot?: SimulationFlowRuntimeSnapshot | LiveFlowRuntimeSnapshot; mode?: RuntimeMode; connectionState?: string; manualSteps?: RuntimeStepChoice[]; failedSteps?: RuntimeStepChoice[] }>(), { liveAvailable: true, mode: 'simulation', connectionState: 'disconnected', manualSteps: () => [], failedSteps: () => [] });
 const emit = defineEmits<{ (e:'mode',v:RuntimeMode):void; (e:'start'):void; (e:'pause'):void; (e:'resume'):void; (e:'step'):void; (e:'stop'):void; (e:'speed',v:number):void; (e:'signal',key:string,value:unknown):void; (e:'manual-confirm',stepInstanceId:string,reason:string):void; (e:'retry',stepInstanceId:string,reason:string):void }>();
 const signalKey = ref(''), signalValue = ref('true');
 const manualStepId = ref(''), manualReason = ref('');
