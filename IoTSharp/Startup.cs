@@ -473,6 +473,7 @@ namespace IoTSharp
             if ((env.IsDevelopment() || !env.IsEnvironment("Production")) && !env.IsEnvironment("Test"))
             {
                 app.UseRin();
+                app.UseMiddleware<IoTSharp.Diagnostics.DiagnosticResponseBodyMiddleware>();
                 app.UseRinMvcSupport();
                 app.UseDeveloperExceptionPage();
                 app.UseRinDiagnosticsHandler();
