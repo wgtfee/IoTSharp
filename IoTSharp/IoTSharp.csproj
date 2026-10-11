@@ -47,6 +47,7 @@
 	</PropertyGroup>
   <ItemGroup>
     <Content Update="appsettings.Shadow.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="appsettings.Federated.json" CopyToOutputDirectory="PreserveNewest" />
 		<Content Update="appsettings.Centralized.json" CopyToOutputDirectory="PreserveNewest" />
 		<Content Update="permission-manifest.json" CopyToOutputDirectory="PreserveNewest" />
 		<InternalsVisibleTo Include="IoTSharp.Test" />

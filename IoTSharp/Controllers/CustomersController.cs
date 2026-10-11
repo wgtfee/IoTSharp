@@ -41,9 +41,15 @@ namespace IoTSharp.Controllers
         [Authorize(Roles = nameof(UserRole.NormalUser))]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesDefaultResponseType]
-        public async Task<ApiResult<List<Customer>>> GetAllCustomers([FromRoute] Guid tenantId)
+        public async Task<ActionResult<ApiResult<List<Customer>>>> GetAllCustomers([FromRoute] Guid tenantId)
         {
+            // 租户范围由本地账号绑定决定，调用者不能通过 URL 切换到其他租户。
+            var profile = this.GetUserProfile();
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin))
+                && (profile.Tenant == Guid.Empty || tenantId != profile.Tenant))
+                return Forbid();
             return new ApiResult<List<Customer>>(ApiCode.Success, "OK", await _context.Customer.Where(c => c.Tenant.Id == tenantId && c.Deleted == false).ToListAsync());
         }
 
@@ -56,9 +62,12 @@ namespace IoTSharp.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
-        public async Task<ApiResult<PagedData<Customer>>> GetCustomers([FromBody] CustomerParam m)
+        public async Task<ActionResult<ApiResult<PagedData<Customer>>>> GetCustomers([FromBody] CustomerParam m)
         {
             var profile = this.GetUserProfile();
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin))
+                && (profile.Tenant == Guid.Empty || m.tenantId != profile.Tenant))
+                return Forbid();
             if (m.tenantId != Guid.Empty)
             {
                 var querym = _context.Customer.Include(c => c.Tenant).Where(c => !c.Deleted && c.Tenant.Id == m.tenantId);

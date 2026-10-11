@@ -41,16 +41,16 @@ namespace IoTSharp
                     configuration.AddJsonFile("appsettings.Installer.json", optional: true, reloadOnChange: false);
                     configuration.AddJsonFile($"appsettings.{environmentName}.Installer.json", optional: true, reloadOnChange: false);
 
-                    // IAM migration is independent from ASPNETCORE_ENVIRONMENT. This lets
-                    // operators switch Local -> IamPrepare -> Shadow without changing
-                    // database, diagnostics or other environment-specific behavior.
+                    // 安全配置独立于运行环境；Federated 使用 IAM 身份与本地业务授权。
                     var profile = Environment.GetEnvironmentVariable("INDUSTRIAL_SECURITY_PROFILE")?.Trim();
                     if (!string.IsNullOrWhiteSpace(profile))
                     {
-                        if (!new[] { "IamPrepare", "Shadow", "Centralized" }.Contains(profile, StringComparer.OrdinalIgnoreCase))
+                        var canonical = new[] { "IamPrepare", "Shadow", "Federated", "Centralized" }
+                            .FirstOrDefault(value => value.Equals(profile, StringComparison.OrdinalIgnoreCase));
+                        if (canonical is null)
                             throw new InvalidOperationException($"Unsupported INDUSTRIAL_SECURITY_PROFILE '{profile}'.");
 
-                        configuration.AddJsonFile($"appsettings.{profile}.json", optional: false, reloadOnChange: true);
+                        configuration.AddJsonFile($"appsettings.{canonical}.json", optional: false, reloadOnChange: true);
                     }
 
                     // Environment variables stay highest priority so secrets and emergency

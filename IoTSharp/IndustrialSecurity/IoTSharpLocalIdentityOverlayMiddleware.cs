@@ -16,10 +16,11 @@ namespace IoTSharp.IndustrialSecurity;
 /// re-hydrate the bound IoTSharp IdentityUser roles and Customer/Tenant claims into the
 /// current request. The local overlay is made the first identity so legacy
 /// UserManager.GetUserAsync(User) resolves the existing IoTSharp user id, while the
-/// original IAM identity remains attached and continues to own global_user_id.
+/// IAM 身份保留全局用户、会话和令牌信息；原生角色检查只使用绑定的本地角色。
 /// </summary>
 public sealed class IoTSharpLocalIdentityOverlayMiddleware(RequestDelegate next)
 {
+    /// <summary>加载明确绑定账号的本地角色和数据范围，保留 IAM 身份及会话信息。</summary>
     public async Task InvokeAsync(
         HttpContext context,
         IConfiguration configuration,
@@ -80,7 +81,18 @@ public sealed class IoTSharpLocalIdentityOverlayMiddleware(RequestDelegate next)
             ClaimTypes.Role);
 
         var identities = new List<ClaimsIdentity> { overlayIdentity };
-        identities.AddRange(context.User.Identities);
+        // ClaimsPrincipal.IsInRole 会遍历所有身份，不能让 IAM 的同名角色越过本地授权。
+        foreach (var identity in context.User.Identities)
+        {
+            var platformIdentity = identity.Clone();
+            foreach (var claim in platformIdentity.Claims.Where(c =>
+                string.Equals(c.Type, platformIdentity.RoleClaimType, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Type, ClaimTypes.Role, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Type, "role", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Type, "roles", StringComparison.OrdinalIgnoreCase)).ToArray())
+                platformIdentity.RemoveClaim(claim);
+            identities.Add(platformIdentity);
+        }
         context.User = new ClaimsPrincipal(identities);
 
         await next(context);
