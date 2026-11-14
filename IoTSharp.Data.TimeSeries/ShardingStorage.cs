@@ -12,7 +12,7 @@ using System.Collections.Generic;
 
 namespace IoTSharp.Storage
 {
-    public class ShardingStorage : IStorage, ISplitTelemetryBatchStorage
+    public partial class ShardingStorage : IStorage, ISplitTelemetryBatchStorage, IBoundedTelemetryHistoryStorage
     {
         // Durable row replay is a provider capability, not a generic property of the
         // sharding wrapper. Only provider paths with a materialized-row writer that is

@@ -1,0 +1,8 @@
+设备族,ProductId,AssetId,DeviceId,模板PointKey,实际TelemetryKey,显示名称,数据类型,候选单位,候选采样秒,用途,真实数据,现场状态,说明
+industrial_motor_example,待确认,待确认,待确认,bearing_temperature,待核对,轴承温度,double,°C,60,温度和上升速率,未知,未确认,纯合成样例
+industrial_motor_example,待确认,待确认,待确认,motor_current,待核对,电机电流,double,A,60,负载偏移,未知,未确认,需区分空载带载
+industrial_motor_example,待确认,待确认,待确认,vibration_rms,待核对,振动RMS,double,mm/s,60,振动趋势,未知,未确认,无法由RMS推导频域
+industrial_motor_example,待确认,待确认,待确认,motor_speed,待核对,电机转速,double,rpm,60,工况归一化,未知,未确认,需识别变频工况
+industrial_motor_example,待确认,待确认,待确认,run_state,待核对,运行状态,bool,0/1,60,区分运行与停机,未知,未确认,缺少工况时质量Unknown
+industrial_motor_example,待确认,待确认,待确认,run_hours,待核对,累计运行小时,double,h,300,维护上下文,未知,未确认,需核对计数器重置
+

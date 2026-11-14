@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "provenance": "synthetic-only",
+  "deviceFamily": "industrial_motor_example",
+  "deviceId": "synthetic-motor-001",
+  "clockUtc": "2026-11-12T08:15:00.000Z",
+  "note": "仅用于 P0 接口与数据质量验证；绝非真实点位或生产数据。默认每分钟一条，15 分钟观测窗口。",
+  "scenarios": [
+    {
+      "id": "DQ-01",
+      "description": "15min normal motor temperature",
+      "input": {
+        "base": 52,
+        "slopePerMinute": 0.02
+      }
+    },
+    {
+      "id": "DQ-02",
+      "description": "invalid low data coverage",
+      "input": {
+        "base": 52,
+        "slopePerMinute": 0.02,
+        "missingIndices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    {
+      "id": "DQ-03",
+      "description": "duplicate + out-of-order",
+      "input": {
+        "base": 52,
+        "slopePerMinute": 0.02,
+        "duplicate": true
+      }
+    },
+    {
+      "id": "DQ-04",
+      "description": "stopped equipment",
+      "input": {
+        "base": 52,
+        "slopePerMinute": 0.02,
+        "stopped": true
+      }
+    },
+    {
+      "id": "ALG-01",
+      "description": "sustained rising temperature",
+      "input": {
+        "base": 50,
+        "slopePerMinute": 0.82
+      }
+    },
+    {
+      "id": "EVT-01",
+      "description": "same event across attempts",
+      "input": {
+        "base": 50,
+        "slopePerMinute": 0.82,
+        "duplicate": true
+      }
+    }
+  ]
+}

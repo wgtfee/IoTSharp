@@ -1,4 +1,4 @@
-﻿using InfluxDB.Client;
+using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
 using InfluxDB.Client.Core.Flux.Domain;
 using InfluxDB.Client.Writes;
@@ -19,7 +19,7 @@ using System.Web;
 namespace IoTSharp.Storage
 {
 
-    public class InfluxDBStorage : IStorage, ISplitTelemetryBatchStorage
+    public partial class InfluxDBStorage : IStorage, ISplitTelemetryBatchStorage, IBoundedTelemetryHistoryStorage
     {
         private const int BatchTelemetryValueChunkSize = 5000;
         private readonly AppSettings _appSettings;

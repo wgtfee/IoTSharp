@@ -23,7 +23,7 @@ public interface IRelationalTelemetryLatestStore
 /// in the business relational database. There is intentionally no distributed transaction
 /// across the two stores; latest is written first because it is idempotent and safe to retry.
 /// </summary>
-public sealed class CompositeTelemetryStorage : IStorage, ISplitTelemetryBatchStorage
+public sealed partial class CompositeTelemetryStorage : IStorage, ISplitTelemetryBatchStorage, IBoundedTelemetryHistoryStorage
 {
     private readonly IStorage _historyStorage;
     private readonly IRelationalTelemetryLatestStore _latestStore;

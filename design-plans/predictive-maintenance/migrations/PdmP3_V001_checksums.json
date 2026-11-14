@@ -1,0 +1,29 @@
+[
+  {
+    "schemaVersion": "P3-V001",
+    "provider": "sqlite",
+    "file": "PdmP3_V001_InitialSchema_sqlite.sql",
+    "sha256": "57db1d926b81d36088e184d955d4a9ed7f9203ea7cc17ff08f0bbcafb50613e5",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-initial-schema-dba-review"
+  },
+  {
+    "schemaVersion": "P3-V001",
+    "provider": "sqlserver",
+    "file": "PdmP3_V001_InitialSchema_sqlserver.sql",
+    "sha256": "653e9cd242d6b2fe8e65d8ef576033057e054685e7fc964cec01bc1326c82de9",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-initial-schema-dba-review"
+  },
+  {
+    "schemaVersion": "P3-V001",
+    "provider": "postgresql",
+    "file": "PdmP3_V001_InitialSchema_postgresql.sql",
+    "sha256": "af670dc3a504580feae999cd50e5ff8dd15d7a684812f4abb275823712da3676",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-initial-schema-dba-review"
+  }
+]

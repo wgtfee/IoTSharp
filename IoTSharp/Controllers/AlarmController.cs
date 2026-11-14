@@ -1,9 +1,10 @@
-﻿using IoTSharp.Contracts;
+using IoTSharp.Contracts;
 using IoTSharp.Controllers.Models;
 using IoTSharp.Data;
 using IoTSharp.Data.Extensions;
 using IoTSharp.Extensions;
 using IoTSharp.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -223,10 +224,13 @@ namespace IoTSharp.Controllers
         /// <param name="m"></param>
         /// <returns></returns>
         [HttpPost]
+        [Authorize]
         public async Task<ApiResult<bool>> AckAlarm([FromBody] AlarmStatusDto m)
         {
 
-            var alarm = await _context.Alarms.SingleOrDefaultAsync(c => c.Id == m.Id);
+            var profile = this.GetUserProfile();
+            var alarm = await _context.Alarms.SingleOrDefaultAsync(c => c.Id == m.Id
+                && c.Customer.Id == profile.Customer && c.Tenant.Id == profile.Tenant);
             if (alarm != null)
             {
                 if (alarm.AlarmStatus == AlarmStatus.Active_UnAck)
@@ -259,10 +263,13 @@ namespace IoTSharp.Controllers
         /// <param name="m"></param>
         /// <returns></returns>
         [HttpPost]
+        [Authorize]
         public async Task<ApiResult<bool>> ClearAlarm([FromBody] AlarmStatusDto m)
         {
 
-            var alarm = await _context.Alarms.SingleOrDefaultAsync(c => c.Id == m.Id);
+            var profile = this.GetUserProfile();
+            var alarm = await _context.Alarms.SingleOrDefaultAsync(c => c.Id == m.Id
+                && c.Customer.Id == profile.Customer && c.Tenant.Id == profile.Tenant);
             if (alarm != null)
             {
                 if (alarm.AlarmStatus == AlarmStatus.Active_Ack)

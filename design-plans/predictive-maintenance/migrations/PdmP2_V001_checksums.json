@@ -1,0 +1,29 @@
+[
+  {
+    "schemaVersion": "P2-V001",
+    "provider": "sqlite",
+    "file": "PdmP2_V001_InitialSchema_sqlite.sql",
+    "sha256": "8d0395e7a9ddca8ee995826344bfe2086e1d83a62094e0da0c7025b25fe2655e",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-generated-initial-schema-review"
+  },
+  {
+    "schemaVersion": "P2-V001",
+    "provider": "sqlserver",
+    "file": "PdmP2_V001_InitialSchema_sqlserver.sql",
+    "sha256": "992facd03bd21f905961c5528fc010eed956bb52398d60ef44b24604b00a2f18",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-generated-initial-schema-review"
+  },
+  {
+    "schemaVersion": "P2-V001",
+    "provider": "postgresql",
+    "file": "PdmP2_V001_InitialSchema_postgresql.sql",
+    "sha256": "0a9cbfa41c265b1f5eea14464dae9156fd593adea54d6a19ebf643a21ee13540",
+    "tables": 4,
+    "applied": false,
+    "kind": "offline-generated-initial-schema-review"
+  }
+]

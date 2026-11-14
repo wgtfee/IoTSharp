@@ -1,0 +1,17 @@
+{
+  "kind": "isolated_sqlite_contract_smoke_not_production_or_1h_4h_soak",
+  "startedUtc": "2026-11-13T00:08:47.3708538Z",
+  "elapsedSeconds": 12,
+  "telemetryRowsSeeded": 755,
+  "iterations": 4777,
+  "complete": 2389,
+  "overBudgetRejected": 2388,
+  "failures": 0,
+  "cpuMilliseconds": 7031.25,
+  "managedBytesBefore": 1873264,
+  "managedBytesMax": 9122768,
+  "managedBytesAfter": 6428360,
+  "database": "SQLite :memory:",
+  "queriedProvider": "EF Core relational Take(maxRows\u002B1)",
+  "note": "Read-only isolated synthetic contract smoke; cannot represent ShardingCore routing, Influx execution, 1h/4h long stability or ingestion throughput."
+}

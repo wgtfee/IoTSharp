@@ -27,6 +27,7 @@ using IoTSharp.Services.TelemetryIngest;
 using IoTSharp.Services.RuleDispatch;
 using IoTSharp.Services.RuleAudit;
 using IoTSharp.Services.Ingestion;
+using IoTSharp.Services.PredictiveMaintenance;
 using Jdenticon.AspNetCore;
 using Jdenticon.Rendering;
 using LettuceEncrypt;
@@ -348,6 +349,8 @@ namespace IoTSharp
                 }
             });
             services.AddTelemetryStorage(settings, healthChecks);
+            services.AddPredictiveMaintenanceP1(Configuration);
+            IoTSharp.Services.PredictiveMaintenance.P2.PdmInternalWorkOrderRegistration.AddPdmInternalWorkOrders(services, Configuration);
             var zmqSection = Configuration.GetSection(nameof(ZMQOption));
             if (zmqSection.Exists())
             {

@@ -174,6 +174,20 @@ namespace IoTSharp.Controllers
             }
             _user_menu.Add(new()
             {
+                text = "预测性维护",
+                i18n = "",
+                vi18n = "",
+                routename = "pdm",
+                vpath = "/iot/pdm",
+                icon = "anticon-heart",
+                children = new MenuItem[]
+                {
+                    new() { text = "设备健康监测", i18n = "", vi18n = "", routename = "pdmworkbench", link = "/iot/pdm/workbench", vpath = "/iot/pdm/workbench", },
+                    new() { text = "风险事件", i18n = "", vi18n = "", routename = "pdmevents", link = "/iot/pdm/risk-events", vpath = "/iot/pdm/risk-events", },
+                }
+            });
+            _user_menu.Add(new()
+            {
                 text = "系统管理",
                 i18n = "",
                 vi18n = "iot.settingsmnt",

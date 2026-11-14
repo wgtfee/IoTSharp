@@ -14,7 +14,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace IoTSharp.Storage
 {
-    public class EFStorage : IStorage
+    public partial class EFStorage : IStorage, IBoundedTelemetryHistoryStorage
     {
         private readonly AppSettings _appSettings;
         private readonly ILogger _logger;

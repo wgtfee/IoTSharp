@@ -1,0 +1,20 @@
+[
+  {
+    "provider": "sqlite",
+    "file": "PdmInitialSchema_sqlite.sql",
+    "sha256": "b1581c0898328cdd459ba3e25fef0e67ac6b8008be642bbf192687100d4c32ca",
+    "tables": 4
+  },
+  {
+    "provider": "sqlserver",
+    "file": "PdmInitialSchema_sqlserver.sql",
+    "sha256": "95d9164665cc9e0a2f3bdf0d6e90b6856a0b7951a026ebce7fac426c6309a9d1",
+    "tables": 4
+  },
+  {
+    "provider": "postgresql",
+    "file": "PdmInitialSchema_postgresql.sql",
+    "sha256": "dacf4479b52f6572269af625c3506b26cf26d0c5fc242bdec23850e8b5f6dabd",
+    "tables": 4
+  }
+]
