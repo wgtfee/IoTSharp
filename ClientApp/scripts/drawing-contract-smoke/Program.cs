@@ -83,4 +83,87 @@ foreach (var (code, change) in invalidCases)
     var inspection = TwinManifestInspector.Inspect(input.RootElement, Guid.NewGuid(), assetId);
     if (inspection.Valid || !inspection.Diagnostics.Any(d => d.Code == code)) throw new Exception($"未拒绝错误配置：{code}");
 }
-Console.WriteLine(JsonSerializer.Serialize(new { passed = true, productionInspector = true, resources = result.ResourceIds.Count, componentBindings = result.Components.Count, routes = result.Routes.Count, actionFlows = result.ActionFlows.Count, rejectedInvalidCases = invalidCases.Length, databaseWritten = false }));
+// 与前端共用声明反例，验证生产保存/发布检查器的错误码和归一化往返。
+JsonNode TargetSlot(JsonObject scene) => scene["materialSlots"]!.AsArray().First(s => s!["slotId"]!.GetValue<string>() == "drawing-cart-left")!;
+JsonNode TargetTool(JsonObject scene) => scene["toolFrames"]!.AsArray().First(f => f!["objectId"]!.GetValue<string>() == "drawing-loading-robot")!;
+TwinManifestInspection InspectTarget(JsonObject scene)
+{
+    using var input = JsonDocument.Parse(scene.ToJsonString());
+    return TwinManifestInspector.Inspect(input.RootElement, Guid.NewGuid(), assetId);
+}
+var declared = (JsonObject)root.DeepClone();
+TargetSlot(declared)["contactNormalLocal"] = new JsonArray(0, 1, 0);
+TargetTool(declared)["approachDirectionLocal"] = new JsonArray(0, -1, 0);
+TargetTool(declared)["payloadTypes"] = new JsonArray("silk-cake");
+TargetSlot(declared)["toolTargets"] = new JsonArray(new JsonObject
+{
+    ["contractVersion"] = "slot-tool-target/1", ["templateId"] = "top",
+    ["toolFrameId"] = TargetTool(declared)["toolFrameId"]!.DeepClone(), ["payloadType"] = "silk-cake",
+    ["tcpOffset"] = new JsonArray(0.2, 0, 0), ["tcpRotation"] = new JsonArray(0, 0, 0),
+    ["approachDistance"] = 0.3, ["retreatDistance"] = 0.4
+});
+var inspectedTarget = InspectTarget(declared);
+if (!inspectedTarget.Valid) throw new Exception("有效派生声明被拒绝：" + string.Join("; ", inspectedTarget.Diagnostics.Select(d => d.Code)));
+var restoredTarget = JsonNode.Parse(inspectedTarget.NormalizedPayload)!.AsObject();
+if (!JsonNode.DeepEquals(TargetSlot(restoredTarget)["toolTargets"], TargetSlot(declared)["toolTargets"])) throw new Exception("归一化丢失槽位派生声明");
+var sharedTargetCases = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "slot-tool-target-cases.json")))!.AsArray();
+foreach (var test in sharedTargetCases)
+{
+    var changed = (JsonObject)declared.DeepClone();
+    var steps = test!["path"]!.AsArray();
+    var parent = TargetSlot(changed);
+    foreach (var step in steps.Take(steps.Count - 1)) parent = step!.GetValueKind() == JsonValueKind.Number ? parent[step.GetValue<int>()]! : parent[step.GetValue<string>()]!;
+    var last = steps.Last()!;
+    if (last.GetValueKind() == JsonValueKind.Number) parent[last.GetValue<int>()] = test["value"]?.DeepClone();
+    else parent[last.GetValue<string>()] = test["value"]?.DeepClone();
+    var inspected = InspectTarget(changed);
+    var expected = "twin.motion.target." + test["code"]!.GetValue<string>();
+    if (inspected.Valid || !inspected.Diagnostics.Any(d => d.Code == expected)) throw new Exception($"声明反例未拒绝：{test["name"]}，预期 {expected}");
+}
+var trajectoryRoundtrip = false;
+var rejectedTrajectories = 0;
+if (args.Length > 1)
+{
+    var motion = JsonNode.Parse(File.ReadAllText(args[1]))!.AsObject();
+    var inspectedMotion = InspectTarget(motion);
+    if (!inspectedMotion.Valid) throw new Exception("前端实际轨迹未通过服务端检查：" + string.Join("; ", inspectedMotion.Diagnostics.Select(d => d.Code + ":" + d.Message)));
+    var reopened = JsonNode.Parse(inspectedMotion.NormalizedPayload)!.AsObject();
+    if (!JsonNode.DeepEquals(motion["motionTrajectories"], reopened["motionTrajectories"]) || !InspectTarget(reopened).Valid) throw new Exception("轨迹保存重开不一致");
+    using var motionDocument = JsonDocument.Parse(reopened.ToJsonString());
+    var publishDiagnostics = new List<IoTSharp.Contracts.TwinValidationDiagnosticDto>();
+    TwinJointTrajectoryInspector.Inspect(motionDocument.RootElement, publishDiagnostics, forPublish: true);
+    if (!publishDiagnostics.Any(d => d.Message.Contains("不能正式发布"))) throw new Exception("未拦截仿真产物正式发布");
+    Action<JsonNode>[] mutations = [
+        t => t["contractVersion"] = "unknown", t => t["validation"] = "passed", t => t["axisIds"] = new JsonArray("x", "x", "z"),
+        t => t["points"]![0]!["time"] = 1, t => t["points"]![1]!["time"] = 0, t => t["points"]![1]!["time"] = .00001,
+        t => t["points"]![1]!["positions"]![0] = 5, t => t["points"]![1]!["positions"]![0] = "1",
+        t => t["limits"]![0]!["velocity"] = 2, t => t["limits"]![0]!["jerk"] = 0, t => t["limits"] = null,
+        t => t["points"] = null, t => t["dependencySnapshot"] = "{}"
+    ];
+    foreach (var mutate in mutations)
+    {
+        var changed = motion.DeepClone().AsObject(); mutate(changed["motionTrajectories"]![0]!);
+        if (!InspectTarget(changed).Diagnostics.Any(d => d.Code == "twin.motion.trajectory.invalid")) throw new Exception("无效轨迹未拒绝");
+        rejectedTrajectories++;
+    }
+    var wrongActor = motion.DeepClone().AsObject(); wrongActor["actionFlows"]![0]!["nodes"]![1]!["actorObjectId"] = "source";
+    if (!InspectTarget(wrongActor).Diagnostics.Any(d => d.Code == "AF1501")) throw new Exception("错误执行对象未拒绝");
+    trajectoryRoundtrip = true;
+}
+var batchPlanningRoundtrips = 0;
+foreach (var batchPath in args.Skip(2))
+{
+    var batch = JsonNode.Parse(File.ReadAllText(batchPath))!.AsObject();
+    var inspection = InspectTarget(batch);
+    if (!inspection.Valid) throw new Exception("批次/整托工艺合同无效：" + string.Join("; ", inspection.Diagnostics.Select(d => d.Code + ":" + d.Message)));
+    if (!InspectTarget(JsonNode.Parse(inspection.NormalizedPayload)!.AsObject()).Valid) throw new Exception("批次工艺重开失败");
+    using var doc = JsonDocument.Parse(inspection.NormalizedPayload);
+    var publishDiagnostics = new List<IoTSharp.Contracts.TwinValidationDiagnosticDto>();
+    TwinJointTrajectoryInspector.Inspect(doc.RootElement, publishDiagnostics, forPublish: true);
+    if (!publishDiagnostics.Any(d => d.Message.Contains("不能正式发布"))) throw new Exception("批次工艺绕过正式发布验证");
+    var plan = batch["actionFlows"]!.AsArray().SelectMany(f => f!["nodes"]!.AsArray()).First(n => n!["type"]!.GetValue<string>() == "PlanPickPlace")!;
+    plan["config"]!["request"]!["payloadCount"] = 0;
+    if (!InspectTarget(batch).Diagnostics.Any(d => d.Code == "AF1502")) throw new Exception("非法批次配置未拒绝");
+    batchPlanningRoundtrips++;
+}
+Console.WriteLine(JsonSerializer.Serialize(new { passed = true, productionInspector = true, resources = result.ResourceIds.Count, componentBindings = result.Components.Count, routes = result.Routes.Count, actionFlows = result.ActionFlows.Count, rejectedInvalidCases = invalidCases.Length, sharedTargetCases = sharedTargetCases.Count, targetContractRoundtrip = true, trajectoryRoundtrip, rejectedTrajectories, batchPlanningRoundtrips, databaseWritten = false }));

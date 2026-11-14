@@ -1,0 +1,22 @@
+[
+  { "name": "unknown version", "path": ["toolTargets", 0, "contractVersion"], "value": "slot-tool-target/2", "code": "version.invalid" },
+  { "name": "blank template", "path": ["toolTargets", 0, "templateId"], "value": " ", "code": "id.invalid" },
+  { "name": "unknown tool", "path": ["toolTargets", 0, "toolFrameId"], "value": "missing", "code": "tool.invalid" },
+  { "name": "incompatible material", "path": ["toolTargets", 0, "payloadType"], "value": "separator", "code": "payload.invalid" },
+  { "name": "empty material", "path": ["toolTargets", 0, "payloadType"], "value": "", "code": "payload.invalid" },
+  { "name": "position string", "path": ["toolTargets", 0, "tcpOffset"], "value": ["1", 0, 0], "code": "tcpOffset.invalid" },
+  { "name": "missing coordinate", "path": ["toolTargets", 0, "tcpOffset"], "value": [0, 0], "code": "tcpOffset.invalid" },
+  { "name": "null orientation", "path": ["toolTargets", 0, "tcpRotation"], "value": null, "code": "tcpRotation.invalid" },
+  { "name": "orientation object", "path": ["toolTargets", 0, "tcpRotation"], "value": {}, "code": "tcpRotation.invalid" },
+  { "name": "zero approach", "path": ["toolTargets", 0, "approachDistance"], "value": 0, "code": "approachDistance.invalid" },
+  { "name": "negative retreat", "path": ["toolTargets", 0, "retreatDistance"], "value": -1, "code": "retreatDistance.invalid" },
+  { "name": "distance string", "path": ["toolTargets", 0, "approachDistance"], "value": "0.1", "code": "approachDistance.invalid" },
+  { "name": "distance boolean", "path": ["toolTargets", 0, "retreatDistance"], "value": true, "code": "retreatDistance.invalid" },
+  { "name": "null candidate", "path": ["toolTargets", 0], "value": null, "code": "definition.invalid" },
+  { "name": "candidate array", "path": ["toolTargets", 0], "value": [], "code": "definition.invalid" },
+  { "name": "invalid list", "path": ["toolTargets"], "value": {}, "code": "list.invalid" },
+  { "name": "null list", "path": ["toolTargets"], "value": null, "code": "list.invalid" },
+  { "name": "zero normal", "path": ["contactNormalLocal"], "value": [0, 0, 0], "code": "normal.invalid" },
+  { "name": "normal string", "path": ["contactNormalLocal"], "value": [0, "1", 0], "code": "normal.invalid" },
+  { "name": "null normal", "path": ["contactNormalLocal"], "value": null, "code": "normal.invalid" }
+]

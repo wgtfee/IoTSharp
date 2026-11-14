@@ -1,5 +1,8 @@
 ﻿import type { TwinActionFlowDefinitionV2 } from '../action-flow/contracts/action-flow-v2';
 import { validateActionFlows } from '../action-flow/validation/ActionFlowValidator';
+import { validateSlotToolTargets, type TwinSlotToolTargetDefinition } from './slot-tool-targets';
+import { validateJointTrajectories, type TwinJointTrajectory } from '../motion/JointTrajectory';
+export type { TwinSlotToolTargetDefinition } from './slot-tool-targets';
 
 export const twinSceneSchemaVersion = 'iotsharp-twin-scene/v1' as const;
 
@@ -329,12 +332,16 @@ export interface TwinStackPatternDefinition {
 	separatorThickness?: number;
 	/** 是否要求每层主物料完成后再放置一层辅助物料（隔板、垫片等）。 */
 	layerMaterialRequired?: boolean;
+	/** 隔板策略；未声明时沿用 layerMaterialRequired 的历史每层语义。 */
+	separatorMode?: 'none' | 'between-layers' | 'every-layer';
 	/** 层间辅助物料相对当前层主物料基准的 Y 偏移。 */
 	layerMaterialOffsetY?: number;
 }
 
 export interface TwinMaterialSlotDefinition {
 	slotId: string;
+	/** 版本化的槽位 TCP 候选声明；本字段本身不授权执行或证明碰撞通过。 */
+	toolTargets?: TwinSlotToolTargetDefinition[];
 	name: string;
 	objectId: string;
 	role: TwinMaterialSlotRole;
@@ -481,6 +488,10 @@ export interface TwinBehaviorActionDefinition {
 	actorNodePath?: string;
 	payloadType?: string;
 	payloadEntityId?: string;
+	/** 规划器冻结的具体物料及交接位姿；只读快照，禁止更换身份或瞬移补位。 */
+	expectedPayloads?: Array<{ entityId: string; worldMatrix: number[] }>;
+	/** 明确引用槽位的 TCP 模板，接触检查使用同一派生规则。 */
+	targetTemplateId?: string;
 	payloadCount?: number;
 	/** 允许实际抓取数量少于 payloadCount；常用于满夹具后的尾批。 */
 	allowPartialPayload?: boolean;
@@ -698,6 +709,8 @@ export interface TwinSceneManifest {
 	behaviors?: TwinBehaviorDefinition[];
 	/** Action Flow V2 图定义；Behavior V1 长期保留兼容读取和一键迁移。 */
 	actionFlows?: TwinActionFlowDefinitionV2[];
+	/** 定时轴轨迹与动作图一起保存；当前仅允许仿真试运行。 */
+	motionTrajectories?: TwinJointTrajectory[];
 	interlocks?: TwinInterlockDefinition[];
 	runtime: TwinRuntimeDefinition;
 	editorExtension?: {
@@ -1118,6 +1131,8 @@ export const validateTwinSceneManifest = (manifest: TwinSceneManifest): TwinVali
 		if (frame.cartesianActuatorIds !== undefined && (!Array.isArray(frame.cartesianActuatorIds) || frame.cartesianActuatorIds.length > 3 || new Set(frame.cartesianActuatorIds).size !== frame.cartesianActuatorIds.length || frame.cartesianActuatorIds.some(id => !manifest.actuators?.some(axis => axis.actuatorId === id && axis.objectId === frame.objectId && axis.kind === 'linear-axis')))) diagnostics.push({ severity: 'error', code: 'twin.behavior.tool-frame.cartesian.invalid', message: 'TCP 驱动轴必须是所属设备的最多三个、不重复的直线轴。', path: `toolFrames[${index}].cartesianActuatorIds` });
 	}
 
+	diagnostics.push(...validateSlotToolTargets(manifest));
+	diagnostics.push(...validateJointTrajectories(manifest));
 	const workPointIds = new Set<string>();
 	for (const [index, workPoint] of (manifest.workPoints || []).entries()) {
 		if (!workPoint.workPointId?.trim() || workPointIds.has(workPoint.workPointId)) diagnostics.push({ severity: 'error', code: 'twin.behavior.workpoint.id.invalid', message: '工作点 ID 为空或重复。', path: `workPoints[${index}].workPointId` });

@@ -1,0 +1,246 @@
+{
+  "schemaVersion": "iotsharp-twin-scene/v1",
+  "sceneId": "motion-browser-fixture",
+  "name": "未命名 3D 场景",
+  "description": "",
+  "rootAssetId": null,
+  "world": {
+    "unit": "meter",
+    "upAxis": "Y",
+    "background": "#07111f"
+  },
+  "resources": [],
+  "workPoints": [],
+  "materialSlots": [
+    {
+      "slotId": "source",
+      "name": "source",
+      "objectId": "source",
+      "role": "source",
+      "localPosition": [
+        0.4,
+        0.2,
+        0
+      ],
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "payloadType": "box",
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "top",
+          "toolFrameId": "tcp",
+          "payloadType": "box",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.15
+        }
+      ]
+    },
+    {
+      "slotId": "target",
+      "name": "target",
+      "objectId": "target",
+      "role": "target",
+      "localPosition": [
+        -0.4,
+        0.2,
+        0
+      ],
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "payloadType": "box",
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "top",
+          "toolFrameId": "tcp",
+          "payloadType": "box",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.15
+        }
+      ]
+    }
+  ],
+  "toolFrames": [
+    {
+      "toolFrameId": "tcp",
+      "name": "工具",
+      "objectId": "actor",
+      "nodePath": "z",
+      "localPosition": [
+        0,
+        0,
+        0
+      ],
+      "localRotation": [
+        0,
+        0,
+        0
+      ],
+      "approachDirectionLocal": [
+        0,
+        -1,
+        0
+      ],
+      "payloadTypes": [
+        "box"
+      ],
+      "cartesianActuatorIds": [
+        "x",
+        "y",
+        "z"
+      ]
+    }
+  ],
+  "actuators": [
+    {
+      "actuatorId": "x",
+      "objectId": "actor",
+      "name": "x",
+      "nodePath": "x",
+      "kind": "linear-axis",
+      "motionAxis": "x",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "y",
+      "objectId": "actor",
+      "name": "y",
+      "nodePath": "y",
+      "kind": "linear-axis",
+      "motionAxis": "y",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "z",
+      "objectId": "actor",
+      "name": "z",
+      "nodePath": "z",
+      "kind": "linear-axis",
+      "motionAxis": "z",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    }
+  ],
+  "poses": [],
+  "behaviors": [],
+  "interlocks": [],
+  "objects": [
+    {
+      "objectId": "actor",
+      "name": "actor",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "objectId": "source",
+      "name": "source",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "objectId": "target",
+      "name": "target",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "bindings": [],
+  "routes": [],
+  "runtime": {
+    "dataMode": "simulation",
+    "maxPixelRatio": 2,
+    "showGrid": true
+  },
+  "editorExtension": {
+    "source": "threejs-editor",
+    "payloadVersion": 2
+  },
+  "actionFlows": [],
+  "motionTrajectories": []
+}

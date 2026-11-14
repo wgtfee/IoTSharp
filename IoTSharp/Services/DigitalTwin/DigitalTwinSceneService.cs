@@ -347,6 +347,7 @@ public sealed class DigitalTwinSceneService
         using var document = JsonDocument.Parse(scene.DraftPayload);
         var inspection = TwinManifestInspector.Inspect(document.RootElement, scene.Id, scene.RootAssetId);
         await AppendReferenceDiagnosticsAsync(inspection, profile, true, cancellationToken);
+        TwinJointTrajectoryInspector.Inspect(document.RootElement, inspection.Diagnostics, forPublish: true);
         ThrowIfInvalid(inspection);
 
         // 发布同一个草稿 revision 是幂等操作。这样即使首次发布已经提交、响应在

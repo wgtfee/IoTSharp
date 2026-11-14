@@ -6,6 +6,11 @@
   <ItemGroup>
     <Compile Include="../../../IoTSharp.Contracts/DigitalTwinDtos.cs" Link="DigitalTwinDtos.cs" />
     <Compile Include="../../../IoTSharp/Services/DigitalTwin/TwinManifestInspector.cs" Link="TwinManifestInspector.cs" />
+    <Compile Include="../../../IoTSharp/Services/DigitalTwin/TwinSlotToolTargetInspector.cs" Link="TwinSlotToolTargetInspector.cs" />
+    <Compile Include="../../../IoTSharp/Services/DigitalTwin/TwinJointTrajectoryInspector.cs" Link="TwinJointTrajectoryInspector.cs" />
     <Compile Include="../../../IoTSharp/Services/DigitalTwin/ActionFlow/TwinActionFlowServerCompiler.cs" Link="TwinActionFlowServerCompiler.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../fixtures/slot-tool-target-cases.json" Link="slot-tool-target-cases.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

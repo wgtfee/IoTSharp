@@ -4,7 +4,7 @@ export type TwinActionFlowNodeType =
 	| 'Start' | 'End' | 'Merge'
 	| 'Condition' | 'Switch'
 	| 'ParallelFork' | 'ParallelJoin'
-	| 'MoveTo' | 'MovePose' | 'JointMove' | 'AxisMove' | 'Home'
+	| 'MoveTo' | 'MovePose' | 'JointMove' | 'AxisMove' | 'Home' | 'FollowTrajectory' | 'PlanPickPlace' | 'PlannedTransferStep'
 	| 'GripOpen' | 'GripClose' | 'Attach' | 'Detach'
 	| 'PrepareSlot' | 'ReserveSlot' | 'TransferMaterial' | 'ReleaseSlot'
 	| 'ReserveSection' | 'EnterSection' | 'LeaveSection' | 'SelectRoute'
@@ -17,6 +17,7 @@ export type TwinActionFlowNodeType =
 export type TwinActionFlowPort = 'success' | 'failure' | 'timeout' | 'true' | 'false' | string;
 /** 已接入真实场景执行器的节点；未适配的能力不能在三维中用计时模拟成功。 */
 export const sceneActionFlowNodeTypes = new Set<TwinActionFlowNodeType>([
+	'FollowTrajectory', 'PlanPickPlace', 'PlannedTransferStep',
 	'Start','End','Merge','Condition','Loop','Delay',
 	'WaitStation','CompleteStation','WaitInterlock','SetState','MarkMaterial','SelectRoute',
 	'MoveTo','MovePose','JointMove','AxisMove','Home','GripOpen','GripClose','Attach','Detach','Pick','Place','PrepareSlot','RaiseAlarm',
@@ -24,6 +25,7 @@ export const sceneActionFlowNodeTypes = new Set<TwinActionFlowNodeType>([
 export type TwinPredicateOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'changed' | 'risingEdge' | 'truthy' | 'falsy';
 /** 这些节点的中断可能遗留真实运动/物料，不允许跳过、自动重试或转成功绕行。 */
 export const sceneSafetyNodeTypes = new Set<TwinActionFlowNodeType>([
+	'FollowTrajectory', 'PlanPickPlace', 'PlannedTransferStep',
 	'MoveTo','MovePose','JointMove','AxisMove','Home','GripOpen','GripClose','Attach','Detach','Pick','Place','PrepareSlot',
 	'WaitInterlock','WaitStation','CompleteStation','MarkMaterial','SelectRoute',
 ]);
@@ -193,6 +195,7 @@ export interface TwinActionFlowProjection {
 }
 
 export const actionFlowNodeTypes: TwinActionFlowNodeType[] = [
+	'FollowTrajectory', 'PlanPickPlace', 'PlannedTransferStep',
 	'Start', 'End', 'Merge', 'Condition', 'Switch', 'ParallelFork', 'ParallelJoin',
 	'MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home', 'GripOpen', 'GripClose', 'Attach', 'Detach',
 	'PrepareSlot', 'ReserveSlot', 'TransferMaterial', 'ReleaseSlot', 'ReserveSection', 'EnterSection', 'LeaveSection', 'SelectRoute',

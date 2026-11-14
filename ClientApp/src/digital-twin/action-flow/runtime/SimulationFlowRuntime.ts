@@ -68,6 +68,7 @@ export interface SimulationFlowRuntimeSnapshot {
 
 const actionNodes = new Set(['MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home', 'GripOpen', 'GripClose', 'Attach', 'Detach', 'PrepareSlot', 'EnterSection', 'SelectRoute', 'Subflow', 'Compensate']);
 const actorLockNodes = new Set(['MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home', 'GripOpen', 'GripClose', 'Attach', 'Detach', 'WriteCommand']);
+const trajectoryNodes = new Set(['FollowTrajectory', 'PlanPickPlace', 'PlannedTransferStep']);
 
 const createRunId = () => `sim-run-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
 const asNumber = (value: unknown, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -117,6 +118,7 @@ export class SimulationFlowRuntime {
 	start(input: Record<string, unknown> = {}) {
 		if (!['Created', 'Ready'].includes(this.state)) return;
 		if (this.plan.policies.executionTarget === 'scene' && !this.options.executeNode) throw new Error('此流程必须在三维运行预览中执行，不能用计时器代替设备动作。');
+		if (this.plan.nodes.some(node => trajectoryNodes.has(node.type)) && (this.plan.policies.executionTarget !== 'scene' || !this.options.executeNode)) throw new Error('轨迹与批次规划必须接入三维执行适配器，不能以计时器模拟完成。');
 		this.state = 'Running';
 		for (const variable of this.plan.variables || []) this.variables[variable.name] = structuredClone(variable.initialValue);
 		for (const [key, value] of Object.entries(input)) this.variables[key] = value;

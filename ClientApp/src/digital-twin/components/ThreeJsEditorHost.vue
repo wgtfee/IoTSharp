@@ -268,6 +268,8 @@ const setObjectWorldPosition = (objectId: string, position: TwinVector3) => host
 const reloadProceduralReferences = () => host.value?.reloadProceduralReferences();
 
 defineExpose({
+	getMotionSceneAccess: () => host.value?.getMotionSceneAccess(),
+	showMotionPreview: (preview?: Parameters<ThreeEditorCoreHost['showMotionPreview']>[0]) => host.value?.showMotionPreview(preview),
 	loadGlbBuffer,
 	captureManifest,
 	focusSelected,

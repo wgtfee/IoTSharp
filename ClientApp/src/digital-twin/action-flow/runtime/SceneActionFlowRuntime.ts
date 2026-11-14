@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import type { TwinBehaviorActionDefinition, TwinSceneManifest } from '../../contracts';
 import { BehaviorRuntime } from '../../runtime/BehaviorRuntime';
+import { JointTrajectoryPlayer, type TrajectoryAxisPort } from '../../motion/JointTrajectory';
+import { applyPickPlacePreview, pickPlaceRequestErrors, plannedTransferSteps, previewPickPlace, type PickPlacePreview, type PickPlaceRequest } from '../../motion/PickPlacePlanner';
+import { createSlotTargetContext, type MotionSceneAccess } from '../../motion/SceneSlotResolver';
+import { deriveSlotToolTarget } from '../../motion/SlotToolTargetDeriver';
 import { compileActionFlow } from '../compiler/ActionFlowCompiler';
 import type { TwinActionFlowDefinitionV2, TwinActionFlowNode } from '../contracts/action-flow-v2';
 import { SimulationFlowRuntime, type FlowNodeExecutionContext, type FlowNodeExecutionResult } from './SimulationFlowRuntime';
@@ -11,6 +15,7 @@ const primitives: Record<string, TwinBehaviorActionDefinition['kind']> = {
 };
 interface StationLease { owner: string; actorId: string; group: string; palletIds: string[]; cycle: number }
 interface FlowEntry { definition: TwinActionFlowDefinitionV2; runtime: SimulationFlowRuntime; cycles: number }
+interface PlannedTransfer { planNodeId: string; preview: PickPlacePreview; program: TwinSceneManifest; steps: TwinActionFlowNode[]; nextStep: number }
 
 /**
  * 三维场景图执行桥。图解释器唯一决定下一节点；旧 Behavior 调度完全禁用。
@@ -24,12 +29,17 @@ export class SceneActionFlowRuntime {
 	private running = false;
 	private fault?: string;
 	private actorFilter?: string;
+	private readonly trajectoryPlayers = new Map<string, JointTrajectoryPlayer>();
+	private readonly plannedTransfers = new Map<string, PlannedTransfer>();
+	private readonly recipeOwners = new Map<string, string>();
+	private readonly planningRecords: Array<{ taskId: string; sourceBinding?: string; targetBinding?: string; trajectories: TwinSceneManifest['motionTrajectories']; review: unknown }> = [];
 	constructor(private readonly manifest: TwinSceneManifest, private readonly scene: THREE.Scene,
 		private readonly getRoot: (id: string) => THREE.Object3D | undefined,
 		private readonly reportError?: (message: string) => void,
 		applyActuatorCommand?: (id: string, value: number | boolean, speedRatio?: number) => boolean,
 		private readonly selectRoute?: (routeId: string, palletIds: string[], junctionId: string, edgeId: string) => void,
-		private readonly holdActor?: (actorId: string) => void) {
+		private readonly holdActor?: (actorId: string) => void,
+		private readonly trajectoryPort?: TrajectoryAxisPort) {
 		if (applyActuatorCommand && !holdActor) throw new Error('接入外部执行轴时必须提供保持/停止接口，禁止仅停止流程却继续运动');
 		this.motion = new BehaviorRuntime({ ...manifest, behaviors: [] }, scene, getRoot, reportError, applyActuatorCommand);
 		for (const definition of manifest.actionFlows || []) {
@@ -79,16 +89,40 @@ export class SceneActionFlowRuntime {
 		this.motion.updateFixed(dt);
 	}
 	reset(options: { restoreMaterials?: boolean } = {}) {
+		this.trajectoryPlayers.clear();
+		this.plannedTransfers.clear(); this.planningRecords.length = 0;
+		this.recipeOwners.clear();
 		this.motion.reset(options); this.leases.clear(); this.actorOwners.clear(); this.fault = undefined;
 		for (const entry of this.entries) { entry.runtime.reset(); entry.cycles = 0; }
 		this.setRunning(this.running);
 	}
 	getSnapshot(eventLimit = 0) {
-		return { ...this.motion.getSnapshot(), engine: 'action-flow-v2' as const, fault: this.fault,
+		return { ...this.motion.getSnapshot(), engine: 'action-flow-v2' as const, fault: this.fault, planningRecords: eventLimit > 0 ? JSON.parse(JSON.stringify(this.planningRecords)) : undefined,
 			flows: this.entries.map(entry => ({ ...entry.runtime.getSnapshot(eventLimit), name: entry.definition.name, cycles: entry.cycles })) };
 	}
 	getObjectDetail(id: string) { return { actionFlows: this.getSnapshot().flows.filter(f => this.entries.find(e => e.definition.flowId === f.flowId)?.definition.actorObjectIds.includes(id)) }; }
-	dispose() { this.setRunning(false); for (const entry of this.entries) entry.runtime.cancel(); this.motion.dispose(); this.leases.clear(); this.actorOwners.clear(); }
+	dispose() { this.setRunning(false); for (const entry of this.entries) entry.runtime.cancel(); this.motion.dispose(); this.leases.clear(); this.actorOwners.clear(); this.trajectoryPlayers.clear(); this.plannedTransfers.clear(); this.recipeOwners.clear(); this.planningRecords.length = 0; }
+
+	private motionScene(): MotionSceneAccess {
+		return { getRoot: this.getRoot, getCollisionRoots: () => { const inventory: THREE.Object3D[] = []; this.scene.traverse(node => { if (node.userData.materialEntity) inventory.push(node); }); return inventory; }, getRuntimeOwners: () => { const owners: THREE.Object3D[] = []; this.scene.traverse(node => { if (node.userData.transportUnitType && node.userData.twinEntityId) owners.push(node); }); return owners; } };
+	}
+	/** 每段运动前核对被冻结的目标；持料后不重新选择来源或自动追随新托盘。 */
+	private checkPlannedBinding(plan: PlannedTransfer, source = false) {
+		const expected = source ? plan.preview.pick : plan.preview.place;
+		const slot = this.manifest.materialSlots!.find(s => s.slotId === expected.slotId)!;
+		const current = deriveSlotToolTarget(this.manifest, slot.slotId, expected.templateId, createSlotTargetContext(this.manifest, slot, this.motionScene()));
+		if (current.inputSignature !== expected.inputSignature) throw new Error('本批来源/托盘身份、层位或位置已变化，必须停止并重新规划');
+		if (source && plan.preview.transfer) {
+			const access = this.motionScene(), binding = createSlotTargetContext(this.manifest, slot, access).resolvedSlotFrame;
+			const roots = slot.runtimeOwnerType ? access.getRuntimeOwners().filter(o => binding?.ownerIds?.includes(String(o.userData.twinEntityId))) : [this.getRoot(slot.objectId)].filter(Boolean) as THREE.Object3D[];
+			for (const payload of plan.preview.transfer.pickPayloads) {
+				const matches = new Set<THREE.Object3D>();
+				for (const root of roots) root.traverse(n => { if (n.userData.materialEntity && n.userData.twinEntityId === payload.entityId && !n.userData.materialAttachedBy) matches.add(n); });
+				const part = [...matches][0]; part?.updateWorldMatrix(true, false);
+				if (matches.size !== 1 || part.matrixWorld.elements.some((v, i) => Math.abs(v - payload.worldMatrix[i]) > 1e-7)) throw new Error('本批来源物料身份、归属或姿态已变化，必须停止并重新规划');
+			}
+		}
+	}
 
 	private pallet(id: string) {
 		let found: THREE.Object3D | undefined;
@@ -155,6 +189,59 @@ export class SceneActionFlowRuntime {
 			else this.motion.setSignal(String(config.ref), structuredClone(config.value));
 			return 'success';
 		}
+		if (node.type === 'PlanPickPlace') {
+			if (!root || !this.trajectoryPort) throw new Error('批次规划需要真实场景轴执行器');
+			if (this.actorOwners.has(actorId) && this.actorOwners.get(actorId) !== owner) return 'waiting-resource';
+			if (this.motion.hasHeldPayload(`${owner}/${actorId}`)) throw new Error('持料过程中禁止重新规划或更换目标');
+			let attachedPayload = false;
+			root.traverse(part => { if (part.userData.materialEntity && part.userData.materialAttachedBy) attachedPayload = true; });
+			if (attachedPayload) throw new Error('设备仍挂载上一工艺的物料，需先完成持料恢复，禁止启动新的批次规划');
+			const previous = this.plannedTransfers.get(owner);
+			if (previous && previous.nextStep !== plannedTransferSteps.length) throw new Error('上一批尚未完成撤离，禁止开始下一批规划');
+			const request = config.request as PickPlaceRequest, errors = pickPlaceRequestErrors(this.manifest, request);
+			if (errors.length) throw new Error(errors.join('；'));
+			this.actorOwners.set(actorId, owner);
+			const preview = previewPickPlace(this.manifest, request, this.motionScene(), true, true);
+			if (request.palletRecipeId) {
+				const key = `${owner}/${request.palletRecipeId}`, identity = preview.place.ownerId;
+				if (!identity || (this.recipeOwners.has(key) && this.recipeOwners.get(key) !== identity)) throw new Error('整托工艺中途更换了托盘身份，禁止继续码垛');
+				this.recipeOwners.set(key, identity);
+			}
+			const flowId = `pick-place/${request.taskId}`;
+			const program = applyPickPlacePreview({ ...this.manifest, actionFlows: this.manifest.actionFlows?.filter(f => f.flowId !== flowId) }, preview);
+			const generated = program.actionFlows!.find(f => f.flowId === flowId)!;
+			this.plannedTransfers.set(owner, { planNodeId: node.nodeId, preview, program, steps: generated.nodes.slice(1, -1), nextStep: 0 });
+			this.planningRecords.push({ taskId: request.taskId, sourceBinding: preview.pick.stateRevision, targetBinding: preview.place.stateRevision, trajectories: program.motionTrajectories?.filter(t => t.trajectoryId.startsWith(`${flowId}/`)), review: generated.nodes.find(n => n.type === 'FollowTrajectory')?.config.planningReview });
+			if (this.planningRecords.length > 128) this.planningRecords.shift();
+			return 'success';
+		}
+		if (node.type === 'PlannedTransferStep') {
+			const plan = this.plannedTransfers.get(owner);
+			if (!plan || plan.planNodeId !== config.planNodeId || config.step !== plannedTransferSteps[plan.nextStep]) throw new Error('批次尚未规划或工艺步骤顺序被改变，禁止执行');
+			if (plan.nextStep < 5) this.checkPlannedBinding(plan);
+			if (plan.nextStep < 3) this.checkPlannedBinding(plan, true);
+			const concrete = plan.steps[plan.nextStep];
+			if (!concrete || concrete.actorObjectId !== actorId) throw new Error('规划步骤与设备不匹配');
+			const result = this.execute(entry, { ...concrete, nodeId: node.nodeId, config: { ...concrete.config, interlockIds: guards } }, dt, context);
+			if (result === 'success') plan.nextStep++;
+			return result;
+		}
+		if (node.type === 'FollowTrajectory') {
+			if (!root || !this.trajectoryPort) throw new Error('定时轨迹执行器或设备未接入');
+			if (this.actorOwners.has(actorId) && this.actorOwners.get(actorId) !== owner) return 'waiting-resource';
+			this.actorOwners.set(actorId, owner);
+			const key = `${owner}/${context.executionId}`;
+			let player = this.trajectoryPlayers.get(key);
+			if (!player) {
+				const trajectory = this.plannedTransfers.get(owner)?.program.motionTrajectories?.find(t => t.trajectoryId === config.trajectoryId) || this.manifest.motionTrajectories?.find(t => t.trajectoryId === config.trajectoryId);
+				if (!trajectory || trajectory.actorObjectId !== actorId) throw new Error('轨迹引用或执行对象不匹配');
+				player = new JointTrajectoryPlayer(trajectory, this.manifest, this.trajectoryPort);
+				this.trajectoryPlayers.set(key, player);
+			}
+			if (!player.advance(dt)) return 'running';
+			this.trajectoryPlayers.delete(key);
+			return 'success';
+		}
 		if (primitives[node.type]) {
 			if (!root) throw new Error('机械动作节点缺少 Actor');
 			if (this.actorOwners.has(actorId) && this.actorOwners.get(actorId) !== owner) return 'waiting-resource';
@@ -163,11 +250,15 @@ export class SceneActionFlowRuntime {
 			return this.motion.executePrimitive(`${owner}/${actorId}`, actorId, context.executionId, action, dt) ? 'success' : 'running';
 		}
 		if (node.type === 'End') {
+			const planned = this.plannedTransfers.get(owner);
+			if (planned && planned.nextStep !== plannedTransferSteps.length) throw new Error('规划取放步骤尚未完整结束');
 			if ([...this.leases.values()].some(l => l.owner === owner)) throw new Error('流程结束前未释放工位；必须通过 CompleteStation');
 			for (const [id, current] of this.actorOwners) if (current === owner) {
 				if (this.motion.hasHeldPayload(`${owner}/${id}`)) throw new Error('结束节点不可遗留夹持物料');
 					this.actorOwners.delete(id);
 			}
+			this.plannedTransfers.delete(owner);
+			for (const key of this.recipeOwners.keys()) if (key.startsWith(`${owner}/`)) this.recipeOwners.delete(key);
 		}
 		return undefined;
 	}

@@ -769,6 +769,9 @@ internal static class TwinManifestInspector
             ValidateOptionalVector(frame, "approachDirectionLocal", path, "twin.behavior.tool-frame.approach.invalid", "TCP 接近方向必须是三个有限数值。", result);
         });
 
+        TwinSlotToolTargetInspector.Inspect(manifest, result.Diagnostics);
+        TwinJointTrajectoryInspector.Inspect(manifest, result.Diagnostics);
+
         InspectObjectArray(manifest, "workPoints", result, (workPoint, index) =>
         {
             var path = $"workPoints[{index}]";
@@ -1551,7 +1554,7 @@ internal static class TwinManifestInspector
     private static bool IsFiniteVector(JsonElement value)
     {
         if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 3) return false;
-        return value.EnumerateArray().All(component => component.TryGetDouble(out var number) && double.IsFinite(number));
+        return value.EnumerateArray().All(component => component.ValueKind == JsonValueKind.Number && component.TryGetDouble(out var number) && double.IsFinite(number));
     }
 
     private static bool TryGetGuid(JsonElement element, string propertyName, out Guid value)

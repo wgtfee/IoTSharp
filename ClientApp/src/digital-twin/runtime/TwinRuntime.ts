@@ -704,12 +704,15 @@ export class TwinRuntime {
 		if (this.disposed) return;
 		const deltaSeconds = Math.min(0.25, Math.max(0, (now - this.lastFrameAt) / 1000));
 		this.lastFrameAt = now;
-		// 执行机构使用实际渲染帧 delta 插值，Snapshot 可以 250~500ms 更新一次目标值，画面仍保持逐帧平滑。
-		if (this.behaviorRuntime instanceof SceneActionFlowRuntime) this.behaviorRuntime.prepareMotionTick();
-		this.actuatorRuntime.tick(deltaSeconds, this.runtimeRunning);
+		// 实时遥测保留渲染插值；仿真轴与动作流共用固定逻辑步，避免帧率改变执行结果。
+		if (this.manifest.runtime.dataMode === 'live') this.actuatorRuntime.tick(deltaSeconds, this.runtimeRunning);
 		this.accumulator += deltaSeconds;
 		while (this.accumulator >= this.fixedStep) {
 			this.bindingEngine.tick(this.fixedStep);
+			if (this.manifest.runtime.dataMode === 'simulation') {
+				if (this.behaviorRuntime instanceof SceneActionFlowRuntime) this.behaviorRuntime.prepareMotionTick();
+				this.actuatorRuntime.tick(this.fixedStep, this.runtimeRunning);
+			}
 			this.routeSlotArrayRuntime.tick(this.fixedStep);
 			const allowRouteStep = this.componentProcessRuntime?.updateFixed(this.fixedStep) ?? true;
 			if (allowRouteStep) this.routeEngine.updateFixed(this.fixedStep);
@@ -956,6 +959,8 @@ export class TwinRuntime {
 			},
 			(routeId: string, ids: string[], junctionId: string, edgeId: string) => this.routeSlotArrayRuntime.selectSimulationRoute(routeId, ids, junctionId, edgeId),
 			(actorId: string) => this.actuatorRuntime.holdActor(actorId),
+			{ read: (id: string) => { const state = this.actuatorRuntime.getState(id); return state && typeof state.currentValue === 'number' && !state.fault && !state.stale ? state.currentValue : undefined; },
+				write: (actorId: string, targets: Array<{ actuatorId: string; value: number }>) => this.actuatorRuntime.applyTrajectoryFrame(actorId, targets) },
 		);
 		} catch(error) {
 			if (!graphDriven) throw error;

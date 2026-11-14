@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 
-const entry = process.argv.includes('--flow-safety') ? 'scripts/verify-action-flow-safety.ts'
+const entry = process.argv.includes('--pick-place-planning') ? 'scripts/verify-pick-place-planning.ts'
+	: process.argv.includes('--slot-tool-targets') ? 'scripts/verify-slot-tool-targets.ts'
+	: process.argv.includes('--flow-safety') ? 'scripts/verify-action-flow-safety.ts'
 	: process.argv.includes('--motion-limits') ? 'scripts/verify-actuator-motion-limits.ts'
 	: process.argv.includes('--material-interactions') ? 'scripts/verify-material-interactions.ts'
 	: process.argv.includes('--action-flows') ? 'scripts/verify-scene-action-flows.ts'

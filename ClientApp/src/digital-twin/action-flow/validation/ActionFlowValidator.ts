@@ -1,4 +1,6 @@
 import type { TwinSceneManifest } from '../../contracts';
+import { trajectoryErrors } from '../../motion/JointTrajectory';
+import { pickPlaceRequestErrors, plannedTransferSteps } from '../../motion/PickPlacePlanner';
 import { validMaterialStateRef } from '../contracts/material-state';
 import { isReadOnlyStateRef } from '../contracts/signal-state';
 import {
@@ -15,7 +17,7 @@ import {
 } from '../contracts/action-flow-v2';
 
 const allowedNodeTypes = new Set(actionFlowNodeTypes);
-const motionNodeTypes = new Set(['MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home']);
+const motionNodeTypes = new Set(['MoveTo', 'MovePose', 'JointMove', 'AxisMove', 'Home', 'FollowTrajectory']);
 const actuatorNodeTypes = new Set(['JointMove', 'AxisMove', 'GripOpen', 'GripClose']);
 const credentialKeyPattern = /(password|passwd|pwd|token|secret|connectionstring|api[_-]?key|clientsecret)/i;
 const externalUrlPattern = /^(https?:|data:|javascript:|file:)/i;
@@ -153,6 +155,19 @@ export const validateActionFlow = (flow: TwinActionFlowDefinitionV2, manifest?: 
 			if (subflowId === flow.flowId) diagnostics.push(diag(flow, 'AF1105', 'error', 'Subflow 不允许直接递归调用自身。', { nodeId: node.nodeId }));
 		}
 		const guardIds = Array.isArray(node.config?.interlockIds) ? node.config.interlockIds.map(String) : [];
+		if (node.type === 'FollowTrajectory') {
+			const trajectories = manifest?.motionTrajectories?.filter(t => t.trajectoryId === configString(node, 'trajectoryId')) || [];
+			if (!sceneFlow || trajectories.length !== 1 || trajectories[0].actorObjectId !== node.actorObjectId || trajectoryErrors(trajectories[0], manifest!).length) diagnostics.push(diag(flow, 'AF1501', 'error', '定时轨迹必须属于当前设备、依赖有效且仅通过三维仿真执行。', { nodeId: node.nodeId, propertyPath: 'config.trajectoryId' }));
+		}
+		if (node.type === 'PlanPickPlace') {
+			const errors = manifest ? pickPlaceRequestErrors(manifest, node.config.request) : ['缺少场景'];
+			const tool = manifest?.toolFrames?.find(t => t.toolFrameId === (node.config.request as any)?.toolFrameId);
+			if (!sceneFlow || errors.length || !node.actorObjectId || tool?.objectId !== node.actorObjectId) diagnostics.push(diag(flow, 'AF1502', 'error', `批次取放配置无效：${errors.join('；')}`, { nodeId: node.nodeId }));
+		}
+		if (node.type === 'PlannedTransferStep') {
+			const plan = flow.nodes.find(n => n.nodeId === node.config.planNodeId && n.type === 'PlanPickPlace');
+			if (!sceneFlow || !node.actorObjectId || !plan || plan.actorObjectId !== node.actorObjectId || !plannedTransferSteps.includes(node.config.step as any)) diagnostics.push(diag(flow, 'AF1503', 'error', '规划步骤必须引用同一设备的批次规划节点及有效步骤。', { nodeId: node.nodeId }));
+		}
 		if (node.type === 'Condition') validatePredicate(node.config?.predicate, {nodeId:node.nodeId, propertyPath:`nodes[${index}].config.predicate`});
 		if (sceneFlow) {
 			if (sceneSafetyNodeTypes.has(node.type) && ((node.timeoutPolicy && (node.timeoutPolicy.onTimeout || 'fault') !== 'fault') || (node.retryPolicy?.maxAttempts || 1) > 1 || node.compensationNodeId || flow.edges.some(e=>e.sourceNodeId===node.nodeId && ['failure','timeout'].includes(e.sourcePort)))) diagnostics.push(diag(flow,'AF1414','error','安全动作只允许超时/失败停机，禁止跳过、自动重试或错误分支绕行。',{nodeId:node.nodeId}));

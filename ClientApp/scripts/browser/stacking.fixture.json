@@ -1,0 +1,458 @@
+{
+  "schemaVersion": "iotsharp-twin-scene/v1",
+  "sceneId": "motion-browser-fixture",
+  "name": "未命名 3D 场景",
+  "description": "",
+  "rootAssetId": null,
+  "world": {
+    "unit": "meter",
+    "upAxis": "Y",
+    "background": "#07111f"
+  },
+  "resources": [],
+  "workPoints": [],
+  "materialSlots": [
+    {
+      "slotId": "source",
+      "name": "source",
+      "objectId": "source",
+      "role": "source",
+      "localPosition": [
+        0.4,
+        0.2,
+        0
+      ],
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "payloadType": "box",
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "top",
+          "toolFrameId": "tcp",
+          "payloadType": "box",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.15
+        }
+      ],
+      "capacity": 6,
+      "metadata": {
+        "contactFromMaterials": true,
+        "contactBatchSize": 6,
+        "contactSurfaceOffset": 0,
+        "selectionOrder": "grid-row-major"
+      }
+    },
+    {
+      "slotId": "target",
+      "name": "target",
+      "objectId": "target",
+      "role": "stack",
+      "localPosition": [
+        -0.4,
+        0.2,
+        0
+      ],
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "payloadType": "box",
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "top",
+          "toolFrameId": "tcp",
+          "payloadType": "box",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.15
+        }
+      ],
+      "capacity": 48,
+      "runtimeOwnerType": "wooden-pallet",
+      "runtimeOwnerSelection": "station-batch",
+      "runtimeOwnerNodePath": "StackAnchor",
+      "metadata": {
+        "precisePlacement": true
+      },
+      "stackPattern": {
+        "rows": 2,
+        "columns": 3,
+        "layers": 8,
+        "spacingX": 0.1,
+        "spacingZ": 0.1,
+        "originX": -0.1,
+        "originZ": -0.05,
+        "firstLayerY": 0.2,
+        "layerPitch": 0.15,
+        "separatorMode": "every-layer",
+        "separatorThickness": 0.01,
+        "layerMaterialOffsetY": 0.07
+      }
+    },
+    {
+      "slotId": "board-source",
+      "name": "隔板来源",
+      "objectId": "board-source",
+      "role": "source",
+      "localPosition": [
+        0.6,
+        0.2,
+        0
+      ],
+      "payloadType": "separator",
+      "capacity": 1,
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "board-top",
+          "toolFrameId": "board-tcp",
+          "payloadType": "separator",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.1
+        }
+      ]
+    },
+    {
+      "slotId": "board-target",
+      "name": "层间隔板",
+      "objectId": "target",
+      "role": "target",
+      "localPosition": [
+        0,
+        0,
+        0
+      ],
+      "payloadType": "separator",
+      "capacity": 8,
+      "contactNormalLocal": [
+        0,
+        1,
+        0
+      ],
+      "runtimeOwnerType": "wooden-pallet",
+      "runtimeOwnerNodePath": "StackAnchor",
+      "runtimeOwnerSelection": "station-batch",
+      "stackPatternSlotId": "target",
+      "metadata": {
+        "precisePlacement": true
+      },
+      "toolTargets": [
+        {
+          "contractVersion": "slot-tool-target/1",
+          "templateId": "board-top",
+          "toolFrameId": "board-tcp",
+          "payloadType": "separator",
+          "tcpOffset": [
+            0,
+            0,
+            0
+          ],
+          "tcpRotation": [
+            0,
+            0,
+            0
+          ],
+          "approachDistance": 0.1,
+          "retreatDistance": 0.1
+        }
+      ]
+    }
+  ],
+  "toolFrames": [
+    {
+      "toolFrameId": "tcp",
+      "name": "工具",
+      "objectId": "actor",
+      "nodePath": "z",
+      "localPosition": [
+        0,
+        0,
+        0
+      ],
+      "localRotation": [
+        0,
+        0,
+        0
+      ],
+      "approachDirectionLocal": [
+        0,
+        -1,
+        0
+      ],
+      "payloadTypes": [
+        "box"
+      ],
+      "cartesianActuatorIds": [
+        "x",
+        "y",
+        "z"
+      ]
+    },
+    {
+      "toolFrameId": "board-tcp",
+      "name": "隔板 TCP",
+      "objectId": "actor",
+      "nodePath": "bz",
+      "localPosition": [
+        0,
+        0,
+        0
+      ],
+      "approachDirectionLocal": [
+        0,
+        -1,
+        0
+      ],
+      "payloadTypes": [
+        "separator"
+      ],
+      "cartesianActuatorIds": [
+        "bx",
+        "by",
+        "bz"
+      ]
+    }
+  ],
+  "actuators": [
+    {
+      "actuatorId": "x",
+      "objectId": "actor",
+      "name": "x",
+      "nodePath": "x",
+      "kind": "linear-axis",
+      "motionAxis": "x",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "y",
+      "objectId": "actor",
+      "name": "y",
+      "nodePath": "y",
+      "kind": "linear-axis",
+      "motionAxis": "y",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "z",
+      "objectId": "actor",
+      "name": "z",
+      "nodePath": "z",
+      "kind": "linear-axis",
+      "motionAxis": "z",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "grip",
+      "name": "夹具",
+      "objectId": "actor",
+      "nodePath": "grip",
+      "kind": "gripper",
+      "unit": "boolean"
+    },
+    {
+      "actuatorId": "bx",
+      "name": "bx",
+      "objectId": "actor",
+      "nodePath": "bx",
+      "kind": "linear-axis",
+      "motionAxis": "x",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "by",
+      "name": "by",
+      "objectId": "actor",
+      "nodePath": "by",
+      "kind": "linear-axis",
+      "motionAxis": "y",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "bz",
+      "name": "bz",
+      "objectId": "actor",
+      "nodePath": "bz",
+      "kind": "linear-axis",
+      "motionAxis": "z",
+      "unit": "meter",
+      "minValue": -2,
+      "maxValue": 2,
+      "speed": 1,
+      "homeValue": 0
+    },
+    {
+      "actuatorId": "board-grip",
+      "name": "隔板夹具",
+      "objectId": "actor",
+      "nodePath": "board-grip",
+      "kind": "gripper",
+      "unit": "boolean"
+    }
+  ],
+  "poses": [],
+  "behaviors": [],
+  "interlocks": [],
+  "objects": [
+    {
+      "objectId": "actor",
+      "name": "actor",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "objectId": "source",
+      "name": "source",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "objectId": "target",
+      "name": "target",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "objectId": "board-source",
+      "name": "隔板库",
+      "kind": "visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ],
+  "bindings": [],
+  "routes": [],
+  "runtime": {
+    "dataMode": "simulation",
+    "maxPixelRatio": 2,
+    "showGrid": true
+  },
+  "editorExtension": {
+    "source": "threejs-editor",
+    "payloadVersion": 2
+  },
+  "actionFlows": [],
+  "motionTrajectories": []
+}

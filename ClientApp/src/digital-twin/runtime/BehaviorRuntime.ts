@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { createSlotTargetContext } from '../motion/SceneSlotResolver';
+import { deriveSlotToolTarget } from '../motion/SlotToolTargetDeriver';
 import { parseMaterialStateRef } from '../action-flow/contracts/material-state';
 import { isKnownSignal, signalBoolean, isReadOnlyStateRef } from '../action-flow/contracts/signal-state';
 import { actuatorTargetError, readActuatorNodeValue, writeActuatorNodeValue } from './ActuatorRuntime';
@@ -1237,9 +1239,9 @@ export class BehaviorRuntime {
 			if (this.heldMaterials(toolFrameId!).length) throw new Error('工具已被其它动作占用，禁止重复抓取');
 			if (!this.isMaterialSlotPresent(sourceSlot)) { channel.status = 'waiting-station'; return false; }
 			if (!this.gripperClosed(this.toolGripper(toolFrame))) { channel.status = 'waiting-interlock'; return false; }
-			if (!this.materialContact(toolFrame, sourceSlot, workPoint)) { channel.status = 'waiting-contact'; return false; }
+			if (!this.plannedMaterialContact(action, toolFrame, sourceSlot, workPoint)) { channel.status = 'waiting-contact'; return false; }
 		}
-		if (sourceSlot && toolFrame && (sourceSlot.contactTolerance !== undefined || sourceSlot.contactNormalLocal) && !this.isToolFrameInContact(attachNode, toolFrame, sourceSlot)) {
+		if (!action.targetTemplateId && sourceSlot && toolFrame && (sourceSlot.contactTolerance !== undefined || sourceSlot.contactNormalLocal) && !this.isToolFrameInContact(attachNode, toolFrame, sourceSlot)) {
 			channel.status = 'waiting-contact';
 			return false;
 		}
@@ -1258,6 +1260,7 @@ export class BehaviorRuntime {
 			return false;
 		}
 		if (realEntities.length) {
+			this.assertPlannedPayloads(action, realEntities);
 			if (channel.externallyManaged) this.assertMaterialIdentity(realEntities);
 			// 先检查整批，再改归属；同一 fixed tick 中后来的抓取会看到占用状态。
 			if (new Set(realEntities).size !== realEntities.length || realEntities.some(e => e.userData.materialAttachedBy)) throw new Error('待抓物料已被占用或重复，禁止交接');
@@ -1405,6 +1408,32 @@ export class BehaviorRuntime {
 		}
 		return true;
 	}
+
+	/** 规划交接必须使用同一模板 TCP 位姿；历史动作保留原有检查路径。 */
+	private plannedMaterialContact(action: TwinBehaviorActionDefinition, frame: TwinToolFrameDefinition, slot: TwinMaterialSlotDefinition, configured?: TwinWorkPointDefinition) {
+		if (!action.targetTemplateId) return this.materialContact(frame, slot, configured);
+		const owners: THREE.Object3D[] = [];
+		this.scene.traverse(node => { if (node.userData.twinEntityId && node.userData.transportUnitType) owners.push(node); });
+		const target = deriveSlotToolTarget(this.manifest, slot.slotId, action.targetTemplateId, createSlotTargetContext(this.manifest, slot, { getRoot: this.getObjectRoot, getRuntimeOwners: () => owners }));
+		if (target.toolFrameId !== frame.toolFrameId) throw new Error('交接模板与持料工具不匹配');
+		const actor = this.getObjectRoot(frame.objectId), node = actor && this.findNode(actor, frame.nodePath);
+		if (!actor || !node) throw new Error('交接工具节点缺失');
+		node.updateWorldMatrix(true, false);
+		const orientation = node.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...(frame.localRotation || [0, 0, 0]), 'XYZ')));
+		return this.isToolFrameAtWorldTarget(actor, frame, new THREE.Vector3(...target.contact), 1e-4) && orientation.angleTo(new THREE.Quaternion(...target.tcpQuaternion)) <= 1e-4;
+	}
+
+	/** 在改写任何物料父节点之前，整批核对身份与冻结世界位姿。 */
+	private assertPlannedPayloads(action: TwinBehaviorActionDefinition, materials: THREE.Object3D[]) {
+		if (!action.expectedPayloads) return;
+		const expected = action.expectedPayloads;
+		if (!Array.isArray(expected) || expected.length !== materials.length || new Set(expected.map(p => p.entityId)).size !== expected.length) throw new Error('规划物料数量或身份与实际批次不符');
+		for (const material of materials) {
+			material.updateWorldMatrix(true, false);
+			const item = expected.find(p => p.entityId === material.userData.twinEntityId);
+			if (!item || !Array.isArray(item.worldMatrix) || item.worldMatrix.length !== 16 || item.worldMatrix.some((v, i) => !Number.isFinite(v) || Math.abs(v - material.matrixWorld.elements[i]) > 1e-4)) throw new Error('规划物料身份或交接位姿已变化，禁止自动补位');
+		}
+	}
 	private readMaterialState(parts: string[]): unknown {
 		const [kind,id,field,extra] = parts;
 		if (kind === 'slot') {
@@ -1437,11 +1466,12 @@ export class BehaviorRuntime {
 			const frame = frameId ? this.toolFrames.get(frameId) : undefined;
 			if (!targetSlot || !frame || frameId !== channel.heldToolFrameId) throw new Error('放料必须使用当前持料工具和有效目标槽位');
 			this.assertMaterialIdentity(releasedMaterials);
+			this.assertPlannedPayloads(action, releasedMaterials);
 			for (const material of releasedMaterials) this.assertPayloadType(String(material.userData.payloadType || ''), targetSlot, frame);
 			if (!this.isMaterialSlotPresent(targetSlot)) { channel.status = 'waiting-station'; return false; }
 			const count = this.getPayloadMaterials(payload).length;
 			if (!count || count > this.materialSlotFreeCapacity(targetSlot)) { channel.status = 'waiting-material'; return false; }
-			if (!this.materialContact(frame, targetSlot, workPoint)) { channel.status = 'waiting-contact'; return false; }
+			if (!this.plannedMaterialContact(action, frame, targetSlot, workPoint)) { channel.status = 'waiting-contact'; return false; }
 			this.toolGripper(frame);
 			// Place 是接触放料复合节点：完成交接后同帧松爪，再于下一帧退回。
 			// 不允许先松爪再发现目标满位而把物料留在空中。
@@ -1459,11 +1489,11 @@ export class BehaviorRuntime {
 			}
 		}
 		if (targetSlot?.distributePayloadAcrossRuntimeOwners) {
-			if (!this.distributePayloadAcrossStationPallets(channel, payload, targetSlot)) return false;
+			if (!this.distributePayloadAcrossStationPallets(channel, payload, targetSlot, Boolean(action.targetTemplateId))) return false;
 		} else if (targetSlot?.stackPattern) {
-			this.placeStackPayload(payload, targetSlot);
+			this.placeStackPayload(payload, targetSlot, Boolean(action.targetTemplateId));
 		} else if (targetSlot && (targetSlot.stackPatternSlotId || String(targetSlot.metadata?.stackPatternSlotId || ''))) {
-			if (!this.placeLayerMaterialPayload(payload, targetSlot)) return false;
+			if (!this.placeLayerMaterialPayload(payload, targetSlot, Boolean(action.targetTemplateId))) return false;
 		} else if (targetSlot) {
 			const resolved = this.resolveMaterialSlotAnchor(targetSlot, this.preferredRuntimeOwnerId(targetSlot));
 			if (channel.externallyManaged) {
@@ -1497,7 +1527,7 @@ export class BehaviorRuntime {
 		return true;
 	}
 
-	private distributePayloadAcrossStationPallets(channel: ChannelState, payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
+	private distributePayloadAcrossStationPallets(channel: ChannelState, payload: THREE.Object3D, slot: TwinMaterialSlotDefinition, preserveWorldPose = false) {
 		const stationPalletIds = this.getStationPalletIds(this.getObjectRoot(channel.actorObjectId));
 		const planned = payload.userData.gridPlacement?.slotId === slot.slotId ? payload.userData.gridPlacement.palletIds as string[] : undefined;
 		if (planned && (new Set(planned).size !== planned.length || planned.some(id => !stationPalletIds.includes(id)))) throw new Error('变距目标不再属于当前到位批次，禁止错托放料');
@@ -1515,13 +1545,13 @@ export class BehaviorRuntime {
 				const resolved = this.resolveMaterialSlotAnchor(slot, palletIds[index]);
 				const preciseTarget = slot.metadata?.precisePlacement ? this.palletMaterialTarget(slot, palletIds[index], material).world : undefined;
 				if (channel.externallyManaged && this.getPayloadMaterials(resolved.anchor).length) throw new Error('目标托盘已有物料，禁止覆盖');
-				if (preciseTarget && material.getWorldPosition(new THREE.Vector3()).distanceTo(preciseTarget) > .035) throw new Error(`丝锭 ${material.userData.twinEntityId} 尚未与目标托盘逐件对齐，禁止松爪`);
+				if (preciseTarget && material.getWorldPosition(new THREE.Vector3()).distanceTo(preciseTarget) > (preserveWorldPose ? 1e-4 : .035)) throw new Error(`丝锭 ${material.userData.twinEntityId} 尚未与目标托盘逐件对齐，禁止松爪`);
 				return { material, resolved, preciseTarget };
 			});
 			for (const [index, {material, resolved, preciseTarget}] of placements.entries()) {
 				const beforeHandoff = material.getWorldPosition(new THREE.Vector3());
 				resolved.anchor.attach(material);
-				if (preciseTarget) material.position.copy(resolved.anchor.worldToLocal(preciseTarget));
+				if (preciseTarget) { if (!preserveWorldPose) material.position.copy(resolved.anchor.worldToLocal(preciseTarget)); }
 				else {
 					material.position.set(0, 0, 0);
 					const placedRotation = slot.localRotation || [0, 0, 0];
@@ -1580,7 +1610,7 @@ export class BehaviorRuntime {
 		material.userData.runtimeOwnerSupportClearance = clearance;
 	}
 
-	private placeStackPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
+	private placeStackPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition, preserveWorldPose = false) {
 		const pattern = slot.stackPattern!;
 		const resolved = this.resolveMaterialSlotAnchor(slot, this.preferredRuntimeOwnerId(slot));
 		const materials = this.getPayloadMaterials(payload);
@@ -1597,7 +1627,7 @@ export class BehaviorRuntime {
 			const materialWorld = material.getWorldPosition(new THREE.Vector3());
 			const index = slot.metadata?.precisePlacement ? available.slice().sort((a, b) => resolved.anchor.localToWorld(targetAt(a)).distanceToSquared(materialWorld) - resolved.anchor.localToWorld(targetAt(b)).distanceToSquared(materialWorld))[0] : current + offset;
 			available.splice(available.indexOf(index), 1);
-			if (slot.metadata?.precisePlacement && resolved.anchor.localToWorld(targetAt(index)).distanceTo(materialWorld) > .04) throw new Error(`码垛丝锭 ${material.userData.twinEntityId} 未贴合目标层槽位，禁止重新摆放`);
+			if (slot.metadata?.precisePlacement && resolved.anchor.localToWorld(targetAt(index)).distanceTo(materialWorld) > (preserveWorldPose ? 1e-4 : .04)) throw new Error(`码垛丝锭 ${material.userData.twinEntityId} 未贴合目标层槽位，禁止重新摆放`);
 			return { material, index, materialWorld };
 		});
 		for (const {material, index, materialWorld} of placements) {
@@ -1606,7 +1636,7 @@ export class BehaviorRuntime {
 			const row = Math.floor(cell / pattern.columns);
 			const column = cell % pattern.columns;
 			resolved.anchor.attach(material);
-			material.position.set(
+			if (!preserveWorldPose) material.position.set(
 				Number(pattern.originX || 0) + column * pattern.spacingX,
 				pattern.firstLayerY + layer * pattern.layerPitch,
 				Number(pattern.originZ || 0) + row * pattern.spacingZ,
@@ -1633,7 +1663,7 @@ export class BehaviorRuntime {
 		payload.removeFromParent();
 	}
 
-	private placeLayerMaterialPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition) {
+	private placeLayerMaterialPayload(payload: THREE.Object3D, slot: TwinMaterialSlotDefinition, preserveWorldPose = false) {
 		const patternSlotId = slot.stackPatternSlotId || String(slot.metadata?.stackPatternSlotId || '');
 		const patternSlot = this.materialSlots.get(patternSlotId);
 		if (!patternSlot?.stackPattern) return false;
@@ -1644,14 +1674,15 @@ export class BehaviorRuntime {
 		const perLayer = Math.max(1, pattern.columns * pattern.rows);
 		const itemCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackItemCount || 0)));
 		const layerMaterialCount = Math.max(0, Math.floor(Number(resolved.anchor.userData.stackLayerMaterialCount || 0)));
-		if (layerMaterialCount >= pattern.layers) throw new Error(`层间物料槽位 ${slot.slotId} 已满`);
+		const requiredSeparators = pattern.separatorMode === 'none' ? 0 : pattern.separatorMode === 'between-layers' ? Math.max(0, pattern.layers - 1) : pattern.layers;
+		if (layerMaterialCount >= requiredSeparators) throw new Error(`层间物料槽位 ${slot.slotId} 已满`);
 		if (itemCount < (layerMaterialCount + 1) * perLayer) return false;
 
 		const beforeHandoff = material.getWorldPosition(new THREE.Vector3());
 		const target = new THREE.Vector3(0, pattern.firstLayerY + layerMaterialCount * pattern.layerPitch + Number(pattern.layerMaterialOffsetY ?? 0.21) + Number(pattern.separatorThickness || 0.05) / 2, 0);
-		if (slot.metadata?.precisePlacement && resolved.anchor.localToWorld(target.clone()).distanceTo(beforeHandoff) > .04) throw new Error(`隔板 ${material.userData.twinEntityId} 未贴合目标层，禁止松爪`);
+		if (slot.metadata?.precisePlacement && resolved.anchor.localToWorld(target.clone()).distanceTo(beforeHandoff) > (preserveWorldPose ? 1e-4 : .04)) throw new Error(`隔板 ${material.userData.twinEntityId} 未贴合目标层，禁止松爪`);
 		resolved.anchor.attach(material);
-		material.position.copy(target);
+		if (!preserveWorldPose) material.position.copy(target);
 		if (!slot.metadata?.precisePlacement) material.rotation.set(0, 0, 0);
 		delete material.userData.materialAttachedBy;
 		material.userData.runtimeOwnerEntityId = resolved.owner.userData?.twinEntityId;
@@ -1672,7 +1703,8 @@ export class BehaviorRuntime {
 		const capacity = pattern.columns * pattern.rows * pattern.layers;
 		const itemCount = Number(anchor.userData.stackItemCount || 0);
 		const layerMaterialCount = Number(anchor.userData.stackLayerMaterialCount || 0);
-		const complete = itemCount >= capacity && (!pattern.layerMaterialRequired || layerMaterialCount >= pattern.layers);
+		const requiredSeparators = pattern.separatorMode === 'none' ? 0 : pattern.separatorMode === 'between-layers' ? Math.max(0, pattern.layers - 1) : pattern.separatorMode === 'every-layer' || pattern.layerMaterialRequired ? pattern.layers : 0;
+		const complete = itemCount >= capacity && layerMaterialCount >= requiredSeparators;
 		owner.userData.stackComplete = complete;
 		owner.userData.readyForPostProcess = complete;
 		owner.userData.stackCapacity = capacity;

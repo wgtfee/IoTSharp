@@ -21,7 +21,7 @@ internal static class TwinActionFlowServerCompiler
     private static readonly HashSet<string> AllowedNodeTypes = new(StringComparer.Ordinal)
     {
         "Start", "End", "Merge", "Condition", "Switch", "ParallelFork", "ParallelJoin",
-        "MoveTo", "MovePose", "JointMove", "AxisMove", "Home",
+        "MoveTo", "MovePose", "JointMove", "AxisMove", "Home", "FollowTrajectory", "PlanPickPlace", "PlannedTransferStep",
         "GripOpen", "GripClose", "Attach", "Detach",
         "PrepareSlot", "ReserveSlot", "TransferMaterial", "ReleaseSlot",
         "ReserveSection", "EnterSection", "LeaveSection", "SelectRoute",
@@ -32,7 +32,7 @@ internal static class TwinActionFlowServerCompiler
     private static readonly HashSet<string> BlockingNodeTypes = new(StringComparer.Ordinal)
         { "ReserveSlot", "ReserveSection", "WaitSignal", "WaitAck", "ManualConfirm", "Deadline", "WriteCommand", "WaitStation", "WaitInterlock" };
     private static readonly HashSet<string> MotionNodeTypes = new(StringComparer.Ordinal)
-        { "MoveTo", "MovePose", "JointMove", "AxisMove", "Home" };
+        { "MoveTo", "MovePose", "JointMove", "AxisMove", "Home", "FollowTrajectory", "PlanPickPlace", "PlannedTransferStep" };
     private static readonly HashSet<string> ActuatorNodeTypes = new(StringComparer.Ordinal)
         { "JointMove", "AxisMove", "GripOpen", "GripClose" };
     private static readonly Regex CredentialKeyPattern = new("password|passwd|pwd|token|secret|connectionstring|api[_-]?key|clientsecret", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -142,6 +142,20 @@ internal static class TwinActionFlowServerCompiler
             var poseId = ConfigString(config, "poseId");
             var actuatorId = ConfigString(config, "actuatorId");
             if (type == "MoveTo" && !workPointIds.Contains(workPointId)) result.Diagnostics.Add(Error("AF1103", "MoveTo 必须引用有效 WorkPoint。", $"{nodePath}.config.workPointId", flowId, nodeId));
+            if (type == "FollowTrajectory")
+            {
+                var matches = Array(manifest, "motionTrajectories").Where(t => GetString(t, "trajectoryId") == ConfigString(config, "trajectoryId")).ToArray();
+                if (!sceneFlow || matches.Length != 1 || GetString(matches[0], "actorObjectId") != actorObjectId)
+                    result.Diagnostics.Add(Error("AF1501", "定时轨迹必须属于当前设备且仅通过三维仿真执行。", $"{nodePath}.config.trajectoryId", flowId, nodeId));
+            }
+            if (type == "PlanPickPlace" && (!sceneFlow || !config.HasValue || !ValidPlanningRequest(manifest, config.Value, actorObjectId)))
+                result.Diagnostics.Add(Error("AF1502", "批次取放必须具有有效的来源、目标、工具、批量和实际轴运动约束。", $"{nodePath}.config.request", flowId, nodeId));
+            if (type == "PlannedTransferStep")
+            {
+                var plan = Array(flow, "nodes").FirstOrDefault(n => GetString(n, "nodeId") == ConfigString(config, "planNodeId") && GetString(n, "type") == "PlanPickPlace");
+                if (!sceneFlow || plan.ValueKind != JsonValueKind.Object || GetString(plan, "actorObjectId") != actorObjectId || !(new[] { "approach", "close", "attach", "carry", "detach", "retreat" }).Contains(ConfigString(config, "step")))
+                    result.Diagnostics.Add(Error("AF1503", "规划步骤必须引用同一设备的批次规划节点及有效步骤。", nodePath, flowId, nodeId));
+            }
             if (type == "MovePose" && !poseIds.Contains(poseId)) result.Diagnostics.Add(Error("AF1103", "MovePose 必须引用有效 Pose。", $"{nodePath}.config.poseId", flowId, nodeId));
             if (ActuatorNodeTypes.Contains(type) && !actuatorIds.Contains(actuatorId)) result.Diagnostics.Add(Error("AF1103", $"{type} 必须引用有效 Actuator。", $"{nodePath}.config.actuatorId", flowId, nodeId));
 
@@ -293,6 +307,10 @@ internal static class TwinActionFlowServerCompiler
         bool ReadOnly(string reference) { var key = reference.Trim(); return key.StartsWith("material/", StringComparison.Ordinal) || key.StartsWith("binding:", StringComparison.Ordinal) || key.StartsWith("station.", StringComparison.Ordinal) || Array(manifest,"bindings").Any(b=>GetString(b,"bindingId")==key); }
         var safety = new HashSet<string>(new[] { "MoveTo", "MovePose", "JointMove", "AxisMove", "Home", "GripOpen", "GripClose", "Attach", "Detach", "Pick", "Place", "PrepareSlot", "WaitInterlock", "WaitStation", "CompleteStation", "MarkMaterial", "SelectRoute" });
         var timeoutPolicy = Object(node,"timeoutPolicy");
+        supported.Add("FollowTrajectory");
+        safety.Add("FollowTrajectory");
+        supported.UnionWith(new[] { "PlanPickPlace", "PlannedTransferStep" });
+        safety.UnionWith(new[] { "PlanPickPlace", "PlannedTransferStep" });
         if (safety.Contains(type) && ((timeoutPolicy.HasValue && (GetString(timeoutPolicy.Value,"onTimeout") ?? "fault") != "fault") || ConfigNumber(Object(node,"retryPolicy"),"maxAttempts") > 1 || !string.IsNullOrEmpty(GetString(node,"compensationNodeId")) || Array(flow,"edges").Any(e=>GetString(e,"sourceNodeId")==nodeId && (GetString(e,"sourcePort") is "failure" or "timeout")))) Reject("AF1414","安全动作只允许超时/失败停机，禁止跳过、自动重试或错误分支绕行。");
         foreach (var key in new[] { "onStartState", "onCompleteState" }) if (Array(config,key).Any(a=>ReadOnly(GetString(a,"source") ?? ""))) Reject("AF1411","绑定、物料及工位状态只读，禁止动作赋值。");
         if (!supported.Contains(type)) Reject("AF1403", $"{type} 未提供三维执行适配器，不能以计时假完成。");
@@ -344,6 +362,38 @@ internal static class TwinActionFlowServerCompiler
         if (type == "SelectRoute" && !Array(manifest, "routes").Where(r => GetString(r, "routeId") == ConfigString(config, "routeId")).SelectMany(r => Array(r, "edges")).Any(e => GetString(e, "edgeId") == ConfigString(config, "edgeId") && GetString(e, "fromPointId") == ConfigString(config, "junctionPointId") && (!e.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False))) Reject("AF1106", "必须选择路线中真实存在的岔口出边。");
         if (config.TryGetProperty("alignPayloadGrid", out var grid) && grid.ValueKind == JsonValueKind.True && (type != "MoveTo" || string.IsNullOrWhiteSpace(ConfigString(config, "sourceSlotId")) == string.IsNullOrWhiteSpace(ConfigString(config, "targetSlotId")) || ConfigNumber(config, "payloadCount") > 12)) Reject("AF1406", "变距需唯一来源或目标，不能超出 12 抓位。");
         foreach (var key in new[] { "payloadCount", "minimumPayloadCount", "durationSeconds" }) if (config.TryGetProperty(key, out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number) || number < 0)) Reject("AF1406", $"{key} 必须为有限非负数。");
+    }
+
+    /// <summary>检查批次工艺卡的显式引用和运动约束；实际库存与机构可达性在本批规划时再次检查。</summary>
+    private static bool ValidPlanningRequest(JsonElement manifest, JsonElement config, string? actor)
+    {
+        var request = Object(config, "request");
+        if (!request.HasValue || string.IsNullOrWhiteSpace(ConfigString(request, "taskId")) || string.IsNullOrWhiteSpace(ConfigString(request, "name"))) return false;
+        var r = request.Value;
+        if (r.TryGetProperty("palletRecipeId", out var recipe) && (recipe.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(recipe.GetString()))) return false;
+        if (r.TryGetProperty("expectedLayer", out var layer) && (layer.ValueKind != JsonValueKind.Number || !layer.TryGetInt32(out var index) || index < 0 || index > 63 || string.IsNullOrWhiteSpace(ConfigString(request, "palletRecipeId")))) return false;
+        var count = ConfigNumber(request, "payloadCount");
+        if (!r.TryGetProperty("transferMaterials", out var transfer) || transfer.ValueKind != JsonValueKind.True || !count.HasValue || count < 1 || count > 99 || count != Math.Floor(count.Value)) return false;
+        var slots = Array(manifest, "materialSlots");
+        var source = slots.FirstOrDefault(s => GetString(s, "slotId") == ConfigString(request, "sourceSlotId"));
+        var target = slots.FirstOrDefault(s => GetString(s, "slotId") == ConfigString(request, "targetSlotId"));
+        var tool = Array(manifest, "toolFrames").FirstOrDefault(t => GetString(t, "toolFrameId") == ConfigString(request, "toolFrameId"));
+        if (source.ValueKind != JsonValueKind.Object || target.ValueKind != JsonValueKind.Object || tool.ValueKind != JsonValueKind.Object || GetString(tool, "objectId") != actor || GetString(source, "slotId") == GetString(target, "slotId") || GetString(source, "role") != "source" || !(new[] { "target", "stack", "buffer", "fixture" }).Contains(GetString(target, "role"))) return false;
+        var payload = GetString(source, "payloadType");
+        if (string.IsNullOrWhiteSpace(payload) || payload != GetString(target, "payloadType") || !ConfigStringArray(tool, "payloadTypes").Contains(payload)) return false;
+        var toolId = GetString(tool, "toolFrameId");
+        if (!Array(source, "toolTargets").Any(t => GetString(t, "toolFrameId") == toolId) || !Array(target, "toolTargets").Any(t => GetString(t, "toolFrameId") == toolId)) return false;
+        var limits = Object(r, "axisLimits");
+        if (!limits.HasValue) return false;
+        var selectedAxes = ConfigStringArray(tool, "cartesianActuatorIds");
+        var axes = Array(manifest, "actuators").Where(a => GetString(a, "objectId") == actor && GetString(a, "kind") != "gripper" && (!tool.TryGetProperty("cartesianActuatorIds", out _) || selectedAxes.Contains(GetString(a, "actuatorId") ?? ""))).ToList();
+        if (axes.Count == 0) return false;
+        foreach (var axis in axes)
+        {
+            var limit = Object(limits.Value, GetString(axis, "actuatorId") ?? "");
+            if (!limit.HasValue || (new[] { "velocity", "acceleration", "jerk" }).Any(k => !(ConfigNumber(limit, k) > 0)) || !(ConfigNumber(axis, "speed") > 0) || ConfigNumber(limit, "velocity") > ConfigNumber(axis, "speed")) return false;
+        }
+        return true;
     }
 
     private static JsonObject BuildPolicies(JsonElement? policies, double timeout, int maxLoop, bool requireInterlock)

@@ -1,5 +1,6 @@
 <template>
 	<div class="twin-workbench" v-loading="pageLoading">
+		<PickPlaceDesigner v-model="pickPlaceVisible" :manifest="manifest" :get-scene="getMotionScene" @apply="applyMotionDraft" @preview="showMotionPreview" />
 		<header class="twin-toolbar">
 			<div class="twin-toolbar__title">
 				<span class="twin-toolbar__eyebrow">IOTSHARP DIGITAL TWIN</span>
@@ -20,6 +21,7 @@
 				</el-button-group>
 				<el-button @click="openCreateSceneDialog('blank')">新建场景</el-button>
 				<el-button @click="resourceDrawerVisible = true">模型资源库</el-button>
+				<el-button :disabled="viewportMode !== 'editor' || playing" @click="openPickPlaceDesigner">取放工艺</el-button>
 				<el-button :type="routeEditMode ? 'warning' : 'default'" @click="toggleRouteEditMode">{{ routeEditMode ? '结束编辑' : '编辑路线' }}</el-button>
 				<el-button :type="playing ? 'danger' : 'primary'" @click="togglePlaying">{{ playing ? '暂停' : '运行' }}</el-button>
 				<el-button :loading="saving" :disabled="!currentScene" @click="saveDraft()">保存草稿</el-button>
@@ -583,6 +585,9 @@ import { createCompiledRuntimeManifest, persistCompiledRouteGraph } from '/@/dig
 import { validateRouteAuthoringManifest } from '/@/digital-twin/routes/RouteAuthoringValidator';
 import { runDiverterRouteDebug, runMergeRouteDebug, runSingleRouteDebug } from '/@/digital-twin/routes/RouteDebugRunner';
 import ActionFlowDesigner from '/@/digital-twin/action-flow/components/ActionFlowDesigner.vue';
+import PickPlaceDesigner from '/@/digital-twin/motion/PickPlaceDesigner.vue';
+import type { PickPlacePreview } from '/@/digital-twin/motion/PickPlacePlanner';
+import type { MotionSceneAccess } from '/@/digital-twin/motion/SceneSlotResolver';
 import type { TwinActionFlowDefinitionV2 } from '/@/digital-twin/action-flow/contracts/action-flow-v2';
 import { ThreeJsEditorAdapter } from '/@/digital-twin/editor-adapter/ThreeJsEditorAdapter';
 import type { TwinRuntimeMetrics, TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -602,6 +607,17 @@ const leftPanelTab = ref<'scene' | 'objects' | 'library' | 'route' | 'rules'>('s
 const workspaceMode = ref<'3d' | 'flow' | 'split'>('3d');
 const adapter = ref<ThreeJsEditorAdapter>();
 const professionalEditor = ref<any>();
+const pickPlaceVisible = ref(false);
+const getMotionScene = (): MotionSceneAccess | undefined => professionalEditor.value?.getMotionSceneAccess();
+const showMotionPreview = (preview?: PickPlacePreview) => professionalEditor.value?.showMotionPreview(preview);
+const openPickPlaceDesigner = () => { professionalEditor.value?.captureManifest(manifest.value); pickPlaceVisible.value = true; };
+const applyMotionDraft = (value: TwinSceneManifest) => {
+	if (viewportMode.value !== 'editor' || playing.value) return;
+	// 编辑器持有同一个场景对象；保留其引用，避免后续拖动仍写入已被替换的旧草稿。
+	pushWorkbenchHistory();
+	Object.assign(manifest.value, value);
+	sceneFlowDirty.value = true; refreshDiagnostics(); pushWorkbenchHistory();
+};
 const manifest = ref<TwinSceneManifest>(createBlankTwinSceneManifest());
 const workbenchHistory = ref<TwinSceneManifest[]>([]);
 const workbenchHistoryIndex = ref(-1);

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { MotionSceneAccess } from '../motion/SceneSlotResolver';
+import type { PickPlacePreview } from '../motion/PickPlacePlanner';
 import type { ThreeEditorModelSnapshot, ThreeEditorSnapshot, TwinEquipmentType, TwinRouteDefinition, TwinSceneManifest, TwinSceneObjectDefinition, TwinVector3 } from '/@/digital-twin/contracts';
 import type { TwinV7SceneObjectDefinition } from '/@/digital-twin/contracts/v7-components';
 import type { TwinSelectionInfo } from '/@/digital-twin/runtime/TwinRuntime';
@@ -103,6 +105,7 @@ export class ThreeEditorCoreHost {
 	private readonly resizeObserver: ResizeObserver;
 	private readonly objectUrls = new Set<string>();
 	private readonly loadedModels = new Map<string, LoadedEditorModel>();
+	private motionPreviewLine?: THREE.Line;
 	private readonly selectionRaycaster = new THREE.Raycaster();
 	private readonly selectionPointer = new THREE.Vector2();
 	private readonly selectionBounds = new Map<string, THREE.Box3>();
@@ -760,6 +763,28 @@ export class ThreeEditorCoreHost {
 		};
 		target.editorExtension = { source: 'threejs-editor', payloadVersion: 2, threeEditor: snapshot };
 		return target;
+	}
+
+	/** 为只读工艺预览提供准确模型与载体；不暴露编辑器历史或原生存储。 */
+	getMotionSceneAccess(): MotionSceneAccess {
+		return { getRoot: id => this.loadedModels.get(id)?.root,
+			getCollisionRoots: () => { const inventory: THREE.Object3D[] = []; this.editor.viewer.scene.traverse((node: THREE.Object3D) => { if (node.userData.materialEntity) inventory.push(node); }); return inventory; },
+			getRuntimeOwners: () => { const owners: THREE.Object3D[] = []; this.editor.viewer.scene.traverse((node: THREE.Object3D) => { if (node.userData.transportUnitType && node.userData.twinEntityId) owners.push(node); }); return owners; } };
+	}
+
+	/** 临时几何参考线不入库；关闭工艺卡、变更输入或卸载时释放 GPU 资源。 */
+	showMotionPreview(preview?: PickPlacePreview) {
+		if (this.motionPreviewLine) {
+			this.motionPreviewLine.removeFromParent(); this.motionPreviewLine.geometry.dispose();
+			(this.motionPreviewLine.material as THREE.Material).dispose(); this.motionPreviewLine = undefined;
+		}
+		if (preview) {
+			const points = [preview.pick.approach, preview.pick.contact, preview.pick.retreat, preview.place.approach, preview.place.contact, preview.place.retreat].map(p => new THREE.Vector3(...p));
+			this.motionPreviewLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: 0x38bdf8, depthTest: false }));
+			this.motionPreviewLine.name = '取放几何参考线'; this.motionPreviewLine.renderOrder = 10;
+			this.editor.viewer.scene.add(this.motionPreviewLine);
+		}
+		this.editor.viewer.renderScene?.();
 	}
 
 	setSelectionMode(mode: 'select' | 'root' | 'multi' | 'transform') {
@@ -1513,6 +1538,7 @@ export class ThreeEditorCoreHost {
 	}
 
 	dispose() {
+		this.showMotionPreview();
 		if (this.disposed) return;
 		this.disposed = true;
 		this.cancelMarqueeSelection();

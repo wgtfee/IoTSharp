@@ -146,6 +146,17 @@ export class ActuatorRuntime {
 		return this.apply({ actuatorId, value, source: 'action-flow', immediate });
 	}
 
+	/** 定时轨迹统一预检全部轴后写入本逻辑时刻的位置，禁止对求值结果二次插值。 */
+	applyTrajectoryFrame(actorId: string, targets: Array<{ actuatorId: string; value: number }>): boolean {
+		if (this.dataMode !== 'simulation' || !targets.length || new Set(targets.map(t => t.actuatorId)).size !== targets.length) return false;
+		for (const target of targets) {
+			const axis = this.actuatorById.get(target.actuatorId);
+			if (!axis || axis.objectId !== actorId || axis.kind === 'gripper' || !Number.isFinite(target.value) || actuatorTargetError(axis, target.value) || !this.resolveNode(axis) || !this.canControl(axis, 'action-flow')) return false;
+		}
+		for (const target of targets) this.applyActionFlow(target.actuatorId, target.value, true);
+		return true;
+	}
+
 	applyManualTest(actuatorId: string, value: number | boolean, immediate = true) {
 		return this.apply({ actuatorId, value, source: 'manual-test', immediate });
 	}
