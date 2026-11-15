@@ -34,36 +34,45 @@ public sealed class PdmWorkOrderMesOutboxWorker(
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PdmInternalWorkOrderDbContext>();
-        var batch = await db.MesOutbox.Where(x =>
-                x.DeliveryStatus == "Pending" && x.NextAttemptAtUtc <= DateTime.UtcNow)
-            .OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.SourceSequence)
-            .Take(options.Value.BatchSize).ToListAsync(ct);
-        foreach (var entry in batch)
+        const string resource = "IoTSharp.PdmWorkOrderMesOutbox.Dispatch";
+        if (!await PdmMesSqlDispatchLock.TryAcquireAsync(db, resource, ct)) return;
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            var batch = await db.MesOutbox.Where(x =>
+                    x.DeliveryStatus == "Pending" && x.NextAttemptAtUtc <= DateTime.UtcNow)
+                .OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.SourceSequence)
+                .Take(options.Value.BatchSize).ToListAsync(ct);
+            foreach (var entry in batch)
             {
-                var result = await client.SendAsync(entry.EventId, entry.PayloadJson, ct);
-                if (result.Accepted)
+                ct.ThrowIfCancellationRequested();
+                try
                 {
-                    entry.DeliveryStatus = "Delivered";
-                    entry.DeliveredAtUtc = DateTime.UtcNow;
-                    entry.LastErrorCode = null;
+                    var result = await client.SendAsync(entry.EventId, entry.PayloadJson, ct);
+                    if (result.Accepted)
+                    {
+                        entry.DeliveryStatus = "Delivered";
+                        entry.DeliveredAtUtc = DateTime.UtcNow;
+                        entry.LastErrorCode = null;
+                    }
+                    else
+                    {
+                        entry.LastErrorCode = result.Code;
+                        RetryOrReview(entry, result.Permanent);
+                    }
                 }
-                else
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
                 {
-                    entry.LastErrorCode = result.Code;
-                    RetryOrReview(entry, result.Permanent);
+                    entry.LastErrorCode = "UNKNOWN_DELIVERY_RESULT";
+                    RetryOrReview(entry, false);
+                    log.LogWarning(ex, "MES repair-event result uncertain, reusing EventId {EventId}", entry.EventId);
                 }
+                await db.SaveChangesAsync(ct);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception ex)
-            {
-                entry.LastErrorCode = "UNKNOWN_DELIVERY_RESULT";
-                RetryOrReview(entry, false);
-                log.LogWarning(ex, "MES repair-event result uncertain, reusing EventId {EventId}", entry.EventId);
-            }
-            await db.SaveChangesAsync(ct);
+        }
+        finally
+        {
+            await PdmMesSqlDispatchLock.ReleaseAsync(db, resource);
         }
     }
 
