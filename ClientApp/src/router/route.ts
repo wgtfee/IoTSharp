@@ -18,6 +18,12 @@ declare module 'vue-router' {
 // dynamicRoutes[0].children after login.
 export const digitalTwinSupplementalRoutes: Array<RouteRecordRaw> = [
 	{
+		path: '/iot/digital-twin/studio-v2',
+		name: 'digitaltwinstudiov2',
+		component: () => import('/@/views/iot/digital-twin/studio-v2/index.vue'),
+		meta: { title: '数字孪生 Studio V2', isLink: '', isHide: false, isKeepAlive: false, isAffix: false, isIframe: false, roles: ['admin', 'common'], icon: 'iconfont icon-bianji' },
+	},
+	{
 		path: '/iot/digital-twin/scenes',
 		name: 'digitaltwinscenes',
 		component: () => import('/@/views/iot/digital-twin/scenes.vue'),
