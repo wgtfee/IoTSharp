@@ -256,6 +256,50 @@ public sealed class Batch9InternalWorkOrdersTests
     }
 
     [Fact]
+    public void ExistingInternalOrdersCanBeOpenedWithoutProductionP1AndFeishuWorkers()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["PredictiveMaintenance:Enabled"] = "false",
+                ["PredictiveMaintenance:WorkOrders:Enabled"] = "true",
+                ["PredictiveMaintenance:WorkOrders:SchemaReady"] = "true",
+                ["PredictiveMaintenance:WorkOrders:AutoCreateEnabled"] = "false",
+                ["PredictiveMaintenance:WorkOrders:ManualCreateEnabled"] = "false",
+                ["PredictiveMaintenance:WorkOrders:Feishu:Enabled"] = "false",
+                ["ConnectionStrings:PdmWorkOrders"] =
+                    "Server=.\\MSSQ;Database=IoTSharpPdmDev;Integrated Security=True;TrustServerCertificate=True"
+            }).Build();
+        var services = new ServiceCollection();
+        services.AddPdmInternalWorkOrders(config);
+        Assert.Contains(services, x => x.ServiceType == typeof(PdmInternalWorkOrderService));
+        Assert.Contains(services, x => x.ServiceType == typeof(PdmInternalWorkOrderDbContext));
+        Assert.DoesNotContain(services, x => x.ServiceType == typeof(PdmInternalWorkOrderAutoCreator));
+        Assert.DoesNotContain(services, x => x.ServiceType == typeof(PdmWorkOrderNotificationWorker));
+        Assert.DoesNotContain(services, x => x.ServiceType == typeof(PdmFeishuPushMcpSender));
+    }
+
+    [Theory]
+    [InlineData("AutoCreateEnabled")]
+    [InlineData("ManualCreateEnabled")]
+    [InlineData("Feishu:Enabled")]
+    public void EnablingAutomaticOrFieldWriteWithoutP1ApprovalIsRejected(string flag)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string,string?>
+            {
+                ["PredictiveMaintenance:Enabled"] = "false",
+                ["PredictiveMaintenance:WorkOrders:Enabled"] = "true",
+                ["PredictiveMaintenance:WorkOrders:SchemaReady"] = "true",
+                ["PredictiveMaintenance:WorkOrders:" + flag] = "true",
+                ["ConnectionStrings:PdmWorkOrders"] =
+                    "Server=.\\MSSQ;Database=IoTSharpPdmDev;Integrated Security=True;TrustServerCertificate=True"
+            }).Build();
+        Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddPdmInternalWorkOrders(config));
+    }
+
+    [Fact]
     public async Task ManagedFeishuProviderAcceptsExactlyOneClaimAndKeepsOrderPersistent()
     {
         await using var store = new Store();

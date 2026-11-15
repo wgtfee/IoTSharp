@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IoTSharp.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace IoTSharp.Services.PredictiveMaintenance.P2;
 
@@ -17,7 +18,9 @@ namespace IoTSharp.Services.PredictiveMaintenance.P2;
 /// notification request per verified risk episode. No external maintenance API.
 /// No notification can be sent until a separately approved dispatcher is wired.
 /// </summary>
-public sealed class PdmInternalWorkOrderService(PdmInternalWorkOrderDbContext db)
+public sealed class PdmInternalWorkOrderService(
+    PdmInternalWorkOrderDbContext db,
+    Microsoft.Extensions.Configuration.IConfiguration? config = null)
 {
     private static void Scope(Guid tenant, Guid customer)
     {
@@ -117,6 +120,7 @@ public sealed class PdmInternalWorkOrderService(PdmInternalWorkOrderDbContext db
             TenantId = profile.TenantId, CustomerId = profile.CustomerId,
             DeviceId = profile.DeviceId, ProfileId = profile.Id,
             ProfileVersion = profile.Version, RiskEventId = episode.Id,
+            RiskSourceEventKey = episode.EventKey,
             RiskLevel = episode.RiskLevel,
             Title = (episode.RiskLevel == "Critical" ? "严重" : "预警") +
                     "设备异常 · 待检修",
@@ -200,6 +204,14 @@ public sealed class PdmInternalWorkOrderService(PdmInternalWorkOrderDbContext db
             ActorId = actor, Action = action, FromState = previous,
             ToState = order.State, Reason = reason, AtUtc = now
         });
+        if (action is "Complete" or "Close" &&
+            config?.GetValue<bool>("PredictiveMaintenance:WorkOrders:MesSync:Enabled") == true)
+        {
+            if (!config.GetValue<bool>("PredictiveMaintenance:WorkOrders:MesSync:SchemaReady"))
+                throw new InvalidOperationException("MES work-order outbox schema not approved.");
+            // Append the message into the SAME transaction as the human transition.
+            PdmWorkOrderMesProjector.Append(db, order, action, actor, now);
+        }
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return order;

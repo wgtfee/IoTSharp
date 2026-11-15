@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>CS0436</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" VersionOverride="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <Reference Include="IoTSharp">
+      <HintPath>../../IoTSharp/obj/Debug/net10.0/IoTSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="IoTSharp.Data">
+      <HintPath>../../IoTSharp.Data/bin/Debug/net10.0/IoTSharp.Data.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/P2/PdmInternalWorkOrderDbContext.cs" Link="PdmInternalWorkOrderDbContext.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/P2/PdmInternalWorkOrderService.cs" Link="PdmInternalWorkOrderService.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/P2/PdmWorkOrderMesOutbox.cs" Link="PdmWorkOrderMesOutbox.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/Integration/PdmMesEventProjector.cs" Link="PdmMesEventProjector.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/Integration/PdmMesOutboxWorker.cs" Link="PdmMesOutboxWorker.cs" />
+    <Compile Include="../../IoTSharp/Services/PredictiveMaintenance/Integration/PdmWorkOrderMesOutboxWorker.cs" Link="PdmWorkOrderMesOutboxWorker.cs" />
+  </ItemGroup>
+</Project>

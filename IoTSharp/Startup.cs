@@ -351,6 +351,7 @@ namespace IoTSharp
             services.AddTelemetryStorage(settings, healthChecks);
             services.AddPredictiveMaintenanceP1(Configuration);
             IoTSharp.Services.PredictiveMaintenance.P2.PdmInternalWorkOrderRegistration.AddPdmInternalWorkOrders(services, Configuration);
+            IoTSharp.Services.PredictiveMaintenance.Integration.PdmMesIntegrationRegistration.AddPdmMesIntegration(services, Configuration);
             var zmqSection = Configuration.GetSection(nameof(ZMQOption));
             if (zmqSection.Exists())
             {

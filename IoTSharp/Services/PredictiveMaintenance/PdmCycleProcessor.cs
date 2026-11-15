@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IoTSharp.Data;
+using IoTSharp.Services.PredictiveMaintenance.Integration;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 
 namespace IoTSharp.Services.PredictiveMaintenance;
@@ -21,13 +23,15 @@ public sealed class PdmCycleProcessor
     private readonly PdmDbContext _db;
     private readonly IPdmHistoryReader _history;
     private readonly PdmHealthEvaluator _evaluator;
+    private readonly bool _mesIntegrationEnabled;
 
     public PdmCycleProcessor(PdmDbContext db, IPdmHistoryReader history,
-        PdmHealthEvaluator evaluator)
+        PdmHealthEvaluator evaluator, IOptions<PdmMesIntegrationOptions>? integration = null)
     {
         _db = db;
         _history = history;
         _evaluator = evaluator;
+        _mesIntegrationEnabled = integration?.Value.Enabled == true && integration.Value.SchemaReady;
     }
 
     public async Task<PdmCycleResult> ProcessAsync(
@@ -104,11 +108,14 @@ public sealed class PdmCycleProcessor
                  x.ProfileVersion == profile.Version &&
                  x.RiskType == PdmRiskEventTransitions.HealthRiskType && x.Status == "Open",
             token);
-
+        var previousRiskLevel = active?.RiskLevel;
         var action = PdmRiskEventTransitions.Apply(active, eval, profile,
             recoveryWindows, out var changed);
         if (action == PdmRiskTransitionKind.Opened && changed != null)
             _db.RiskEvents.Add(changed);
+
+        if (_mesIntegrationEnabled)
+            await PdmMesEventProjector.TryAppendAsync(_db, profile, changed, eval, action, previousRiskLevel, token);
 
         await _db.SaveChangesAsync(token);
         await transaction.CommitAsync(token);

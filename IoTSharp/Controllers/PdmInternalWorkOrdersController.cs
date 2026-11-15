@@ -34,8 +34,6 @@ public sealed class PdmInternalWorkOrdersController(
     IServiceProvider services, IConfiguration config) : ControllerBase
 {
     private bool Enabled =>
-        config.GetValue<bool>("PredictiveMaintenance:Enabled") &&
-        config.GetValue<bool>("PredictiveMaintenance:SchemaReady") &&
         config.GetValue<bool>("PredictiveMaintenance:WorkOrders:Enabled") &&
         config.GetValue<bool>("PredictiveMaintenance:WorkOrders:SchemaReady");
 
@@ -103,7 +101,10 @@ public sealed class PdmInternalWorkOrdersController(
     public async Task<IActionResult> CreateFromRisk(Guid riskEventId,
         CancellationToken ct = default)
     {
-        if (!Enabled || !config.GetValue<bool>(
+        if (!Enabled ||
+            !config.GetValue<bool>("PredictiveMaintenance:Enabled") ||
+            !config.GetValue<bool>("PredictiveMaintenance:SchemaReady") ||
+            !config.GetValue<bool>(
                 "PredictiveMaintenance:WorkOrders:ManualCreateEnabled"))
             return Unavailable();
         if (!UserScope(out var tenant, out var customer, out var actor)) return Forbid();

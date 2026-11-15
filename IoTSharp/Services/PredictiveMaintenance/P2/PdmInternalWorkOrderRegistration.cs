@@ -17,15 +17,27 @@ public static class PdmInternalWorkOrderRegistration
     {
         if (!config.GetValue<bool>(Prefix + "Enabled"))
             return services;
-        if (!config.GetValue<bool>(Prefix + "SchemaReady") ||
-            !config.GetValue<bool>("PredictiveMaintenance:Enabled") ||
-            !config.GetValue<bool>("PredictiveMaintenance:SchemaReady") ||
-            !config.GetValue<bool>("PredictiveMaintenance:SingleInstanceAcknowledged") ||
-            !config.GetValue<bool>("PredictiveMaintenance:PointMappingsApproved") ||
-            !config.GetValue<bool>("PredictiveMaintenance:HistoryQueryPlanApproved") ||
-            !config.GetValue<bool>("PredictiveMaintenance:HistoryUtcContractApproved"))
+        if (!config.GetValue<bool>(Prefix + "SchemaReady"))
             throw new InvalidOperationException(
-                "PdM internal orders cannot be enabled without approved P1 and separate work-order schema.");
+                "PdM internal orders require the independently deployed work-order schema.");
+
+        // Querying and human-managed transitions of existing internal work
+        // orders must not depend on activating the field-risk evaluation worker.
+        // Creating new orders from risks and enabling unattended Feishu delivery
+        // retain every existing P1 rollout gate.
+        var automaticOrFieldWrite =
+            config.GetValue<bool>(Prefix + "AutoCreateEnabled") ||
+            config.GetValue<bool>(Prefix + "ManualCreateEnabled") ||
+            config.GetValue<bool>(PdmWorkOrderFeishuOptions.SectionName + ":Enabled");
+        if (automaticOrFieldWrite &&
+            (!config.GetValue<bool>("PredictiveMaintenance:Enabled") ||
+             !config.GetValue<bool>("PredictiveMaintenance:SchemaReady") ||
+             !config.GetValue<bool>("PredictiveMaintenance:SingleInstanceAcknowledged") ||
+             !config.GetValue<bool>("PredictiveMaintenance:PointMappingsApproved") ||
+             !config.GetValue<bool>("PredictiveMaintenance:HistoryQueryPlanApproved") ||
+             !config.GetValue<bool>("PredictiveMaintenance:HistoryUtcContractApproved")))
+            throw new InvalidOperationException(
+                "PdM automatic creation, manual creation and Feishu delivery require approved P1 field rollout.");
 
         var connection = config.GetConnectionString("PdmWorkOrders");
         if (string.IsNullOrWhiteSpace(connection))

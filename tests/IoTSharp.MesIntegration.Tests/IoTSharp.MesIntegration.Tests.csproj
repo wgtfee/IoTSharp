@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../IoTSharp.Test/PdmMesEventProjectorTests.cs" Link="PdmMesEventProjectorTests.cs" />
+    <Compile Include="../../IoTSharp.Test/PdmMesApiClientTests.cs" Link="PdmMesApiClientTests.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Normal CI runs use source ProjectReference. When a running IoTSharp host locks
+         bin DLLs, opt in to an isolated test against newly compiled obj assemblies. -->
+    <ProjectReference Include="../../IoTSharp/IoTSharp.csproj" Condition="'$(MesIsolatedAssemblyReferences)' != 'true'" />
+    <ProjectReference Include="../../IoTSharp.Data/IoTSharp.Data.csproj" Condition="'$(MesIsolatedAssemblyReferences)' != 'true'" />
+    <Reference Include="IoTSharp" Condition="'$(MesIsolatedAssemblyReferences)' == 'true'">
+      <HintPath>../../IoTSharp/obj/Debug/net10.0/IoTSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="IoTSharp.Data" Condition="'$(MesIsolatedAssemblyReferences)' == 'true'">
+      <HintPath>../../IoTSharp.Data/bin/Debug/net10.0/IoTSharp.Data.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

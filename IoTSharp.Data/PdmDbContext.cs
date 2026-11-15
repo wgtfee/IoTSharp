@@ -15,6 +15,7 @@ public sealed class PdmDbContext : DbContext
     public DbSet<PdmPointPolicy> PointPolicies => Set<PdmPointPolicy>();
     public DbSet<PdmHealthSnapshot> HealthSnapshots => Set<PdmHealthSnapshot>();
     public DbSet<PdmRiskEvent> RiskEvents => Set<PdmRiskEvent>();
+    public DbSet<PdmIntegrationOutbox> IntegrationOutbox => Set<PdmIntegrationOutbox>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -22,6 +23,7 @@ public sealed class PdmDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PdmPointPolicyConfiguration());
         modelBuilder.ApplyConfiguration(new PdmHealthSnapshotConfiguration());
         modelBuilder.ApplyConfiguration(new PdmRiskEventConfiguration());
+        modelBuilder.ApplyConfiguration(new PdmIntegrationOutboxConfiguration());
     }
 }
 

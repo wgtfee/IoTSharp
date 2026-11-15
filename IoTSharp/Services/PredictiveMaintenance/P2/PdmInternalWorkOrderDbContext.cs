@@ -16,6 +16,7 @@ public sealed class PdmInternalWorkOrder
     public Guid ProfileId { get; set; }
     public int ProfileVersion { get; set; }
     public Guid RiskEventId { get; set; }
+    public string RiskSourceEventKey { get; set; } = "";
     public string WorkOrderNo { get; set; } = "";
     public string RiskLevel { get; set; } = "Warning";
     public string Title { get; set; } = "";
@@ -75,6 +76,7 @@ public sealed class PdmInternalWorkOrderDbContext(DbContextOptions<PdmInternalWo
     public DbSet<PdmInternalWorkOrder> WorkOrders => Set<PdmInternalWorkOrder>();
     public DbSet<PdmInternalWorkOrderNotification> Notifications => Set<PdmInternalWorkOrderNotification>();
     public DbSet<PdmInternalWorkOrderAudit> Audits => Set<PdmInternalWorkOrderAudit>();
+    public DbSet<PdmWorkOrderMesOutbox> MesOutbox => Set<PdmWorkOrderMesOutbox>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -90,6 +92,7 @@ public sealed class PdmInternalWorkOrderDbContext(DbContextOptions<PdmInternalWo
         order.Property(x => x.RiskLevel).HasMaxLength(24).IsRequired();
         order.Property(x => x.State).HasMaxLength(24).IsRequired();
         order.Property(x => x.Resolution).HasMaxLength(2000).IsRequired();
+        order.Property(x => x.RiskSourceEventKey).HasMaxLength(128).IsRequired();
         order.Property(x => x.Revision).IsConcurrencyToken();
         order.Property(x => x.FirstObservedUtc).HasConversion(
             value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
@@ -137,5 +140,14 @@ public sealed class PdmInternalWorkOrderDbContext(DbContextOptions<PdmInternalWo
             value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
         audit.HasOne<PdmInternalWorkOrder>().WithMany().HasForeignKey(x => x.WorkOrderId)
             .OnDelete(DeleteBehavior.Restrict);
+        var mes = builder.Entity<PdmWorkOrderMesOutbox>();
+        mes.ToTable("PdmWorkOrderMesOutbox");
+        mes.HasKey(x => x.EventId);
+        mes.HasIndex(x => new { x.TenantId, x.CustomerId, x.WorkOrderId, x.SourceSequence }).IsUnique();
+        mes.HasIndex(x => new { x.DeliveryStatus, x.NextAttemptAtUtc });
+        mes.Property(x => x.EventType).HasMaxLength(40).IsRequired();
+        mes.Property(x => x.DeliveryStatus).HasMaxLength(32).IsRequired();
+        mes.Property(x => x.LastErrorCode).HasMaxLength(80);
+        mes.Property(x => x.PayloadJson).IsRequired();
     }
 }
