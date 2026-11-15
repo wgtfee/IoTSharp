@@ -171,7 +171,8 @@ internal static class TwinActionFlowServerCompiler
                 if (config.HasValue && config.Value.TryGetProperty("expectedPayloads", out var expected))
                 {
                     var payloads = expected.ValueKind == JsonValueKind.Array ? expected.EnumerateArray().ToArray() : System.Array.Empty<JsonElement>();
-                    var payloadIds = payloads.Select(p => GetString(p, "entityId")).ToArray();
+                    // 数组中的非对象元素也必须变成诊断，不能令发布校验抛出异常。
+                    var payloadIds = payloads.Select(p => p.ValueKind == JsonValueKind.Object ? GetString(p, "entityId") : null).ToArray();
                     if (payloads.Length == 0 || payloadIds.Any(string.IsNullOrWhiteSpace) || payloadIds.Distinct(StringComparer.Ordinal).Count() != payloadIds.Length || payloads.Any(p => !p.TryGetProperty("worldMatrix", out var matrix) || matrix.ValueKind != JsonValueKind.Array || matrix.GetArrayLength() != 16 || matrix.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var n) || !double.IsFinite(n))))
                         result.Diagnostics.Add(Error("AF1505", $"{type} 的冻结物料必须具有唯一实体 ID 和 16 个有限世界矩阵元素。", $"{nodePath}.config.expectedPayloads", flowId, nodeId));
                     else if (ConfigNumber(config, "payloadCount") is double expectedCount && expectedCount != payloads.Length)
@@ -400,9 +401,12 @@ internal static class TwinActionFlowServerCompiler
         var limits = Object(r, "axisLimits");
         if (!limits.HasValue) return false;
         var selectedAxes = ConfigStringArray(tool, "cartesianActuatorIds");
+        var hasSelectedAxes = tool.TryGetProperty("cartesianActuatorIds", out var configuredAxes);
+        if (hasSelectedAxes && (configuredAxes.ValueKind != JsonValueKind.Array || configuredAxes.GetArrayLength() != selectedAxes.Count || selectedAxes.Count == 0 || selectedAxes.Distinct(StringComparer.Ordinal).Count() != selectedAxes.Count)) return false;
         var axes = Array(manifest, "actuators").Where(a => GetString(a, "objectId") == actor && (GetString(a, "kind") is "linear-axis" or "rotary-joint") && (!tool.TryGetProperty("cartesianActuatorIds", out _) || selectedAxes.Contains(GetString(a, "actuatorId") ?? ""))).ToList();
         if (axes.Count == 0) return false;
         var expectedAxisIds = axes.Select(a => GetString(a, "actuatorId") ?? "").ToHashSet(StringComparer.Ordinal);
+        if (expectedAxisIds.Contains("") || expectedAxisIds.Count != axes.Count || (hasSelectedAxes && !expectedAxisIds.SetEquals(selectedAxes))) return false;
         if (limits.Value.EnumerateObject().Any(property => !expectedAxisIds.Contains(property.Name)) || expectedAxisIds.Any(id => !limits.Value.TryGetProperty(id, out _))) return false;
         foreach (var axis in axes)
         {
@@ -411,8 +415,14 @@ internal static class TwinActionFlowServerCompiler
         }
         if (r.TryGetProperty("expectedLayer", out var expectedLayer))
         {
-            var recipeSlot = GetString(target, "stackPatternSlotId") is string patternSlotId && !string.IsNullOrWhiteSpace(patternSlotId)
-                ? slots.FirstOrDefault(s => GetString(s, "slotId") == patternSlotId) : target;
+            var recipeSlot = target;
+            if (target.TryGetProperty("stackPatternSlotId", out var patternReference))
+            {
+                if (patternReference.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(patternReference.GetString())) return false;
+                var recipeSlots = slots.Where(s => GetString(s, "slotId") == patternReference.GetString()).ToArray();
+                if (recipeSlots.Length != 1) return false;
+                recipeSlot = recipeSlots[0];
+            }
             var pattern = Object(recipeSlot, "stackPattern");
             if (!pattern.HasValue || expectedLayer.ValueKind != JsonValueKind.Number || !expectedLayer.TryGetInt32(out var layerIndex) || !TryInt(pattern.Value, "layers", out var layerCount) || layerIndex < 0 || layerIndex >= layerCount) return false;
         }

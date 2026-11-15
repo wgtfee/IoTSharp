@@ -10,7 +10,7 @@ import { JointTrajectoryPlayer, evaluateJointTrajectory, motionDependencySnapsho
 import { applyPickPlacePreview, createBatchPickPlaceFlow, createStackingRecipeFlow, previewPickPlace } from '../src/digital-twin/motion/PickPlacePlanner';
 import { createSlotTargetContext, exactNode } from '../src/digital-twin/motion/SceneSlotResolver';
 import { ToolPoseSolver } from '../src/digital-twin/motion/ToolPoseSolver';
-import { translatingBoxesOverlap } from '../src/digital-twin/motion/CartesianCollisionReview';
+import { reviewCartesianCollision, translatingBoxesOverlap } from '../src/digital-twin/motion/CartesianCollisionReview';
 import { SimulationFlowRuntime } from '../src/digital-twin/action-flow/runtime/SimulationFlowRuntime';
 import { compileActionFlow } from '../src/digital-twin/action-flow/compiler/ActionFlowCompiler';
 
@@ -27,6 +27,32 @@ function fixture() {
 	const access = { getRoot: (id: string) => ({ actor: root, source, target }[id]), getRuntimeOwners: () => [] as Group[] };
 	const request = { taskId: 'test-transfer', name: '静态取放', sourceSlotId: 'source', targetSlotId: 'target', toolFrameId: 'tcp', axisLimits: Object.fromEntries(['x', 'y', 'z'].map(id => [id, { velocity: 1, acceleration: 2, jerk: 10 }])) };
 	return { manifest, scene, root, x, y, z, source, target, access, request };
+}
+
+// 端点均不碰撞，但带 X 初始旋转的 Y 轴在中途经过障碍；覆盖真实 Euler 旋转轴。
+{
+	const r = fixture();
+	r.manifest.actuators![1].kind = 'rotary-joint'; r.manifest.actuators![1].unit = 'radian';
+	r.manifest.actuators![1].minValue = -4; r.manifest.actuators![1].maxValue = 4;
+	r.y.rotation.x = Math.PI / 2;
+	const body = new Mesh(new BoxGeometry(.04, .04, .04)); body.position.x = 1; r.z.add(body);
+	const obstacle = new Mesh(new BoxGeometry(.04, .04, .04)); obstacle.position.y = 1; r.source.add(obstacle);
+	const solver = new ToolPoseSolver(r.manifest, r.root, r.manifest.toolFrames![0]);
+	const trajectory = { axisIds: ['x', 'y', 'z'], actorObjectId: 'actor', points: [{ time: 0, positions: [0, 0, 0] }, { time: 10, positions: [0, Math.PI, 0] }] } as TwinJointTrajectory;
+	assert.equal(reviewCartesianCollision(r.manifest, trajectory, r.access, solver).status, 'blocked');
+	obstacle.position.y = 10;
+	assert.equal(reviewCartesianCollision(r.manifest, trajectory, r.access, solver).status, 'clear-within-scope');
+	assert.equal(reviewCartesianCollision(r.manifest, trajectory, { ...r.access, getRoot: id => id === 'target' ? undefined : r.access.getRoot(id) }, solver).status, 'unchecked');
+	const unsupported = new Mesh(new BoxGeometry(.04, .04, .04)); unsupported.morphTargetInfluences = [1]; r.target.add(unsupported);
+	assert.equal(reviewCartesianCollision(r.manifest, trajectory, r.access, solver).status, 'unchecked');
+}
+// 多工具共享约束输入时，序列化的单个规划节点不能携带另一工具的专用轴。
+{
+	const r = fixture();
+	const request = { ...r.request, transferMaterials: true, payloadCount: 1, axisLimits: { ...r.request.axisLimits, separatorAxis: { velocity: 1, acceleration: 2, jerk: 10 } } };
+	const result = createBatchPickPlaceFlow(r.manifest, request);
+	const stored = result.actionFlows![0].nodes.find(node => node.type === 'PlanPickPlace')!.config.request as typeof request;
+	assert.deepEqual(Object.keys(stored.axisLimits).sort(), ['x', 'y', 'z']);
 }
 
 const f = fixture(), before = JSON.stringify(f.manifest);

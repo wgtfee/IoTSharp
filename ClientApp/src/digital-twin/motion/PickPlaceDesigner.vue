@@ -109,7 +109,7 @@ const selectedTool = computed(()=>draft.value?.toolFrames?.find(t=>t.toolFrameId
 const selectedTarget = computed(()=>draft.value?.materialSlots?.find(s=>s.slotId===request.value.targetSlotId));
 const separatorMode = computed(()=>selectedTarget.value?.stackPattern?.separatorMode || (selectedTarget.value?.stackPattern?.layerMaterialRequired?'every-layer':'none'));
 const separatorCount = computed(()=>{const layers=selectedTarget.value?.stackPattern?.layers||0;return separatorMode.value==='between-layers'?Math.max(0,layers-1):separatorMode.value==='every-layer'?layers:0;});
-const resumeError = computed(()=>resume.value.pendingSeparator && (resume.value.completedLayers<1 || resume.value.completedLayers>separatorCount.value)
+const resumeError = computed(()=>!fullPallet.value ? '' : resume.value.pendingSeparator && (resume.value.completedLayers<1 || resume.value.completedLayers>separatorCount.value)
 	? '待补隔板必须对应一个已完成主物料层，且该层按当前配方需要隔板。'
 	: resume.value.completedLayers === selectedTarget.value?.stackPattern?.layers && !resume.value.pendingSeparator
 		? '配方已满层；请换托后创建新工艺。'

@@ -1,4 +1,4 @@
-import { Box3, Matrix4, Mesh, Object3D, Vector3 } from 'three';
+import { Box3, Matrix4, Mesh, Object3D, Quaternion, Vector3 } from 'three';
 import type { TwinSceneManifest } from '../contracts';
 import type { TwinJointTrajectory } from './JointTrajectory';
 import { exactNode, type MotionSceneAccess } from './SceneSlotResolver';
@@ -62,16 +62,17 @@ export function reviewCartesianCollision(manifest: TwinSceneManifest, trajectory
 	if (payload && trajectory.points.length !== 7) { review.limitations.push('持料检查要求完整六段取放链。'); return review; }
 	const original = scene.getRoot(trajectory.actorObjectId);
 	if (!original) return review;
+	let incompleteGeometry = false;
 	const shapes = (roots: Object3D[], exclude: (node: Object3D) => boolean = () => false) => {
 		const result: Shape[] = [], visited = new Set<Object3D>();
 		for (const root of roots) { root.updateWorldMatrix(true, true); root.traverse(node => {
 			if (visited.has(node) || exclude(node)) return; visited.add(node);
 			const mesh = node as Mesh;
 			if (!mesh.isMesh) return;
-			if ((mesh as any).isSkinnedMesh || (mesh as any).isInstancedMesh || mesh.morphTargetInfluences?.some(v => v !== 0)) { review.limitations.push(`网格 ${node.name || node.type} 含蒙皮、实例或形变，未检查。`); return; }
+			if ((mesh as any).isSkinnedMesh || (mesh as any).isInstancedMesh || mesh.morphTargetInfluences?.some(v => v !== 0)) { incompleteGeometry = true; review.limitations.push(`网格 ${node.name || node.type} 含蒙皮、实例或形变，未检查。`); return; }
 			if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 			const local = mesh.geometry.boundingBox;
-			if (!local || local.isEmpty() || [...local.min.toArray(), ...local.max.toArray()].some(v => !Number.isFinite(v))) { review.limitations.push(`网格 ${node.name || node.type} 无有效包围体。`); return; }
+			if (!local || local.isEmpty() || [...local.min.toArray(), ...local.max.toArray()].some(v => !Number.isFinite(v))) { incompleteGeometry = true; review.limitations.push(`网格 ${node.name || node.type} 无有效包围体。`); return; }
 			result.push({ node: mesh, name: node.name || node.type, local: local.clone() });
 		}); }
 		return result;
@@ -84,9 +85,9 @@ export function reviewCartesianCollision(manifest: TwinSceneManifest, trajectory
 	const environment = shapes(roots, node => contains(original, node) || payloadRoots.some(p => contains(p, node)));
 	const carried = shapes(payloadRoots);
 	const localPayload = carried.map(s => payload!.pickMatrix.clone().invert().multiply(s.node.matrixWorld));
-	if (manifest.objects.some(o => !scene.getRoot(o.objectId))) review.limitations.push('部分场景对象尚未加载。');
+	if (manifest.objects.some(o => !scene.getRoot(o.objectId))) { incompleteGeometry = true; review.limitations.push('部分场景对象尚未加载。'); }
 	if (!moving.length) review.limitations.push('执行机构没有可检查的刚性网格。');
-	if (payload && !carried.length) review.limitations.push('本批物料没有可检查的刚性网格。');
+	if (payload && (!carried.length || payload.ids.some(id => !payloadRoots.some(root => String(root.userData.twinEntityId) === id)))) { incompleteGeometry = true; review.limitations.push('本批物料存在未加载或没有可检查网格的实体。'); }
 	if (!moving.length && !carried.length) return review;
 	const world = environment.map(s => s.local.clone().applyMatrix4(s.node.matrixWorld));
 	const rotaryAxes = solver.axes.filter(axis => axis.kind === 'rotary-joint');
@@ -98,6 +99,14 @@ export function reviewCartesianCollision(manifest: TwinSceneManifest, trajectory
 			const node = exactNode(solver.root, axis.nodePath), parent = node?.parent;
 			if (!node || !parent || !axis.motionAxis) return undefined;
 			const axisVector = new Vector3().setComponent(({ x: 0, y: 1, z: 2 } as const)[axis.motionAxis], 1);
+			// 执行器改写 Euler 分量，实际转轴须经过该分量之前的局部旋转。
+			const prefix = new Quaternion();
+			for (const component of node.rotation.order.toLowerCase()) {
+				if (component === axis.motionAxis) break;
+				const key = component as 'x' | 'y' | 'z';
+				prefix.multiply(new Quaternion().setFromAxisAngle(new Vector3().setComponent(({ x: 0, y: 1, z: 2 })[key], 1), node.rotation[key]));
+			}
+			axisVector.applyQuaternion(prefix);
 			return { actuatorId: axis.actuatorId, node, pivot: node.getWorldPosition(new Vector3()), direction: axisVector.transformDirection(parent.matrixWorld).normalize() };
 		});
 		// 取料接触是第 2 个目标，放料接触是第 5 个目标；撤离时库存保留放置位姿。
@@ -142,7 +151,7 @@ export function reviewCartesianCollision(manifest: TwinSceneManifest, trajectory
 			}
 		}
 	}
-	if (unsupportedSegment || !moving.length || !review.checkedPairs) review.status = 'unchecked';
+	if (incompleteGeometry || unsupportedSegment || !moving.length || !review.checkedPairs) review.status = 'unchecked';
 	else review.status = 'clear-within-scope';
 	return review;
 }

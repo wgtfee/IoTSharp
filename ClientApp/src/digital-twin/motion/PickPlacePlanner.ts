@@ -55,10 +55,14 @@ export function createBatchPickPlaceFlow(manifest: TwinSceneManifest, request: P
 	if (errors.length) throw new Error(errors.join('；'));
 	const actorObjectId = manifest.toolFrames!.find(t => t.toolFrameId === request.toolFrameId)!.objectId, flowId = `pick-place/${request.taskId}`;
 	if (manifest.actionFlows?.some(f => f.flowId === flowId)) throw new Error('工艺已存在，不能覆盖手动修改。');
+	// 编辑器共用多工具约束表；每个规划节点仅保存当前 TCP 使用的轴。
+	const tool = manifest.toolFrames!.find(t => t.toolFrameId === request.toolFrameId)!;
+	const axisIds = new Set((manifest.actuators || []).filter(a => a.objectId === tool.objectId && ['linear-axis', 'rotary-joint'].includes(a.kind) && (!tool.cartesianActuatorIds || tool.cartesianActuatorIds.includes(a.actuatorId))).map(a => a.actuatorId));
+	const nodeRequest = { ...request, axisLimits: Object.fromEntries(Object.entries(request.axisLimits).filter(([id]) => axisIds.has(id))) };
 	const labels = ['接近取料', '夹具闭合', '确认接触并抓取', '保持抓取关系搬运', '确认到位并放料', '放料后撤离'];
 	const flow: TwinActionFlowDefinitionV2 = { flowId, key: flowId, name: `${request.name}（按批次规划）`, contractVersion: '2.0', actorObjectIds: [actorObjectId], variables: [], enabled: false, revision: 1, status: 'Draft',
 		policies: { executionTarget: 'scene', allowedRuntimeModes: ['simulation'], defaultTimeoutSeconds: 300 },
-		nodes: [{ nodeId: 'start', type: 'Start', name: '开始', config: {} }, { nodeId: 'plan', type: 'PlanPickPlace', name: '绑定当前批次并规划', actorObjectId, config: { request: JSON.parse(JSON.stringify(request)) } },
+		nodes: [{ nodeId: 'start', type: 'Start', name: '开始', config: {} }, { nodeId: 'plan', type: 'PlanPickPlace', name: '绑定当前批次并规划', actorObjectId, config: { request: JSON.parse(JSON.stringify(nodeRequest)) } },
 			...plannedTransferSteps.map((step, i) => ({ nodeId: step, type: 'PlannedTransferStep' as const, name: labels[i], actorObjectId, config: { planNodeId: 'plan', step } })), { nodeId: 'end', type: 'End', name: '结束', config: {} }], edges: [] };
 	flow.nodes.forEach((node, i) => node.editor = { x: 80 + i * 240, y: 100 });
 	flow.edges = flow.nodes.slice(1).map((node, i) => ({ edgeId: `${flow.nodes[i].nodeId}-${node.nodeId}`, sourceNodeId: flow.nodes[i].nodeId, sourcePort: 'success', targetNodeId: node.nodeId }));
