@@ -89,7 +89,7 @@ export interface TrajectoryAxisPort {
 export class JointTrajectoryPlayer {
 	private readonly trajectory: TwinJointTrajectory;
 	private elapsed = 0;
-	constructor(trajectory: TwinJointTrajectory, manifest: TwinSceneManifest, private readonly port: TrajectoryAxisPort) {
+	constructor(trajectory: TwinJointTrajectory, private readonly manifest: TwinSceneManifest, private readonly port: TrajectoryAxisPort) {
 		const errors = trajectoryErrors(trajectory, manifest);
 		if (errors.length) throw new Error(errors.join('；'));
 		this.trajectory = JSON.parse(JSON.stringify(trajectory));
@@ -100,6 +100,8 @@ export class JointTrajectoryPlayer {
 	}
 	advance(dt: number): boolean {
 		if (!positive(dt)) throw new Error('轨迹步长必须为正的有限数值。');
+		// 声明在运动中被修改时，先停止写轴；不能继续执行按旧场景生成的轨迹。
+		if (this.trajectory.dependencySnapshot !== motionDependencySnapshot(this.manifest)) throw new Error('运动期间场景依赖已变化，轨迹停止并要求重新规划');
 		this.assertPositions(evaluateJointTrajectory(this.trajectory, this.elapsed), '执行轴被外部改写，轨迹停止');
 		const next = Math.min(this.trajectory.points.at(-1)!.time, this.elapsed + dt);
 		const values = evaluateJointTrajectory(this.trajectory, next);

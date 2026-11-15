@@ -165,6 +165,18 @@ internal static class TwinActionFlowServerCompiler
                 if (!string.IsNullOrWhiteSpace(slotId) && !slotIds.Contains(slotId)) result.Diagnostics.Add(Error("AF1103", $"{type} 引用的 MaterialSlot 不存在。", nodePath, flowId, nodeId));
                 var frameId = ConfigString(config, "toolFrameId");
                 if (!string.IsNullOrWhiteSpace(frameId) && !toolFrameIds.Contains(frameId)) result.Diagnostics.Add(Error("AF1103", $"{type} 引用的 ToolFrame 不存在。", nodePath, flowId, nodeId));
+                var templateId = ConfigString(config, "targetTemplateId");
+                if (!string.IsNullOrWhiteSpace(templateId) && !Array(manifest, "materialSlots").Where(s => GetString(s, "slotId") == slotId).SelectMany(s => Array(s, "toolTargets")).Any(t => GetString(t, "templateId") == templateId && GetString(t, "toolFrameId") == frameId))
+                    result.Diagnostics.Add(Error("AF1504", $"{type} 的模板候选必须属于所选槽位和 TCP。", $"{nodePath}.config.targetTemplateId", flowId, nodeId));
+                if (config.HasValue && config.Value.TryGetProperty("expectedPayloads", out var expected))
+                {
+                    var payloads = expected.ValueKind == JsonValueKind.Array ? expected.EnumerateArray().ToArray() : System.Array.Empty<JsonElement>();
+                    var payloadIds = payloads.Select(p => GetString(p, "entityId")).ToArray();
+                    if (payloads.Length == 0 || payloadIds.Any(string.IsNullOrWhiteSpace) || payloadIds.Distinct(StringComparer.Ordinal).Count() != payloadIds.Length || payloads.Any(p => !p.TryGetProperty("worldMatrix", out var matrix) || matrix.ValueKind != JsonValueKind.Array || matrix.GetArrayLength() != 16 || matrix.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var n) || !double.IsFinite(n))))
+                        result.Diagnostics.Add(Error("AF1505", $"{type} 的冻结物料必须具有唯一实体 ID 和 16 个有限世界矩阵元素。", $"{nodePath}.config.expectedPayloads", flowId, nodeId));
+                    else if (ConfigNumber(config, "payloadCount") is double expectedCount && expectedCount != payloads.Length)
+                        result.Diagnostics.Add(Error("AF1505", $"{type} 的冻结物料数量与 payloadCount 不一致。", $"{nodePath}.config.expectedPayloads", flowId, nodeId));
+                }
             }
             if (type is "PrepareSlot" or "ReserveSlot" or "ReleaseSlot")
             {
@@ -375,9 +387,11 @@ internal static class TwinActionFlowServerCompiler
         var count = ConfigNumber(request, "payloadCount");
         if (!r.TryGetProperty("transferMaterials", out var transfer) || transfer.ValueKind != JsonValueKind.True || !count.HasValue || count < 1 || count > 99 || count != Math.Floor(count.Value)) return false;
         var slots = Array(manifest, "materialSlots");
-        var source = slots.FirstOrDefault(s => GetString(s, "slotId") == ConfigString(request, "sourceSlotId"));
-        var target = slots.FirstOrDefault(s => GetString(s, "slotId") == ConfigString(request, "targetSlotId"));
-        var tool = Array(manifest, "toolFrames").FirstOrDefault(t => GetString(t, "toolFrameId") == ConfigString(request, "toolFrameId"));
+        var sourceMatches = slots.Where(s => GetString(s, "slotId") == ConfigString(request, "sourceSlotId")).ToArray();
+        var targetMatches = slots.Where(s => GetString(s, "slotId") == ConfigString(request, "targetSlotId")).ToArray();
+        var toolMatches = Array(manifest, "toolFrames").Where(t => GetString(t, "toolFrameId") == ConfigString(request, "toolFrameId")).ToArray();
+        if (sourceMatches.Length != 1 || targetMatches.Length != 1 || toolMatches.Length != 1) return false;
+        var source = sourceMatches[0]; var target = targetMatches[0]; var tool = toolMatches[0];
         if (source.ValueKind != JsonValueKind.Object || target.ValueKind != JsonValueKind.Object || tool.ValueKind != JsonValueKind.Object || GetString(tool, "objectId") != actor || GetString(source, "slotId") == GetString(target, "slotId") || GetString(source, "role") != "source" || !(new[] { "target", "stack", "buffer", "fixture" }).Contains(GetString(target, "role"))) return false;
         var payload = GetString(source, "payloadType");
         if (string.IsNullOrWhiteSpace(payload) || payload != GetString(target, "payloadType") || !ConfigStringArray(tool, "payloadTypes").Contains(payload)) return false;
@@ -386,12 +400,21 @@ internal static class TwinActionFlowServerCompiler
         var limits = Object(r, "axisLimits");
         if (!limits.HasValue) return false;
         var selectedAxes = ConfigStringArray(tool, "cartesianActuatorIds");
-        var axes = Array(manifest, "actuators").Where(a => GetString(a, "objectId") == actor && GetString(a, "kind") != "gripper" && (!tool.TryGetProperty("cartesianActuatorIds", out _) || selectedAxes.Contains(GetString(a, "actuatorId") ?? ""))).ToList();
+        var axes = Array(manifest, "actuators").Where(a => GetString(a, "objectId") == actor && (GetString(a, "kind") is "linear-axis" or "rotary-joint") && (!tool.TryGetProperty("cartesianActuatorIds", out _) || selectedAxes.Contains(GetString(a, "actuatorId") ?? ""))).ToList();
         if (axes.Count == 0) return false;
+        var expectedAxisIds = axes.Select(a => GetString(a, "actuatorId") ?? "").ToHashSet(StringComparer.Ordinal);
+        if (limits.Value.EnumerateObject().Any(property => !expectedAxisIds.Contains(property.Name)) || expectedAxisIds.Any(id => !limits.Value.TryGetProperty(id, out _))) return false;
         foreach (var axis in axes)
         {
             var limit = Object(limits.Value, GetString(axis, "actuatorId") ?? "");
             if (!limit.HasValue || (new[] { "velocity", "acceleration", "jerk" }).Any(k => !(ConfigNumber(limit, k) > 0)) || !(ConfigNumber(axis, "speed") > 0) || ConfigNumber(limit, "velocity") > ConfigNumber(axis, "speed")) return false;
+        }
+        if (r.TryGetProperty("expectedLayer", out var expectedLayer))
+        {
+            var recipeSlot = GetString(target, "stackPatternSlotId") is string patternSlotId && !string.IsNullOrWhiteSpace(patternSlotId)
+                ? slots.FirstOrDefault(s => GetString(s, "slotId") == patternSlotId) : target;
+            var pattern = Object(recipeSlot, "stackPattern");
+            if (!pattern.HasValue || expectedLayer.ValueKind != JsonValueKind.Number || !expectedLayer.TryGetInt32(out var layerIndex) || !TryInt(pattern.Value, "layers", out var layerCount) || layerIndex < 0 || layerIndex >= layerCount) return false;
         }
         return true;
     }
