@@ -1,0 +1,118 @@
+{
+  "source": "SQL Server Draft r9 readback",
+  "host": "http://127.0.0.1:5173",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-r9-sql-edge\\01-two-real-conveyor-lanes.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-r9-sql-edge\\02-robot-grabs-from-inner-eastbound-lane.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-r9-sql-edge\\03-robot-returns-to-outer-westbound-lane.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-r9-sql-edge\\04-two-lanes-robot-idle-after-reuse.png"
+  ],
+  "errors": [],
+  "stages": [
+    {
+      "laneCount": 2,
+      "oldBlocked": true,
+      "structureErrors": 0
+    },
+    {
+      "storedBobbinId": "R9-SILK-001",
+      "occupied": 1
+    },
+    {
+      "completedStores": 1,
+      "completedReuses": 1,
+      "finalFree": 100,
+      "remainingPallets": 108
+    }
+  ],
+  "initial": {
+    "lanes": {
+      "count": 2,
+      "parallel": true,
+      "properties": {
+        "length": 5.4,
+        "laneWidth": 1.55,
+        "laneSpacing": 1.9,
+        "height": 0.9,
+        "rollerDiameter": 0.14,
+        "rollerPitch": 0.55,
+        "frameHeight": 0.16,
+        "frameThickness": 0.1,
+        "supportSpacing": 2,
+        "capacityPerLane": 3,
+        "speedLimit": 0.7,
+        "conveyorSizeClass": "small",
+        "transportUnitType": "plastic-pallet",
+        "occupancyMode": "simulation",
+        "laneAReverse": false,
+        "laneBReverse": true,
+        "routeTaps": [],
+        "componentOwnedRoute": false,
+        "surplusSilkHandoff": true,
+        "engineeringOnly": true,
+        "physicalLanesIndependent": true,
+        "laneAUsage": "rack-inbound",
+        "laneBUsage": "rack-reuse-outbound"
+      },
+      "a": "DoubleSmall-Lane-A",
+      "b": "DoubleSmall-Lane-B"
+    },
+    "oldBlocked": true,
+    "oldViolations": [
+      "Studio V2 物理输送：缓存机器人下必须有真正的双排小辊道，内排 A 向右、外排 B 向左；单条双向辊道禁止运行",
+      "Studio V2 物理输送：缓存机器人交接路线必须是 2 排独立单向通路（6 点4边），不允许两排共享同一轨道"
+    ],
+    "violations": [],
+    "structureErrors": [],
+    "warnings": 73,
+    "connected": true,
+    "errors": [],
+    "initialCapacity": 100,
+    "handoffLanes": {
+      "laneA": {
+        "direction": "east",
+        "inbound": [
+          -6.7,
+          1.12,
+          -8.15
+        ],
+        "robot": [
+          -4,
+          1.12,
+          -8.15
+        ]
+      },
+      "laneB": {
+        "direction": "west",
+        "robot": [
+          -4,
+          1.12,
+          -6.25
+        ],
+        "outbound": [
+          -6.7,
+          1.12,
+          -6.25
+        ]
+      }
+    }
+  },
+  "geometry": {
+    "inboundSamples": 6,
+    "outboundSamples": 7,
+    "inboundXRange": [
+      -6.527947200728266,
+      -4.172052799271734
+    ],
+    "outboundXRange": [
+      -6.679426490669094,
+      -4.020573509330906
+    ],
+    "innerZ": -8.15,
+    "outerZ": -6.25
+  },
+  "palletSamples": 17,
+  "minPalletCenterSpacing": 1.49999999999979,
+  "maxOverlappingPairs": 0,
+  "passed": true
+}
