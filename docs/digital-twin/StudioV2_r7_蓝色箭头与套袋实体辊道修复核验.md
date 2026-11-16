@@ -32,7 +32,7 @@
 
 - TypeScript 全量 `vue-tsc --noEmit`：通过。
 - `verify-studio-v2-bagging-physical-routes.mjs`：旧 r6 安全违规、r7 零违规、缺/短辊道、反转箭头、错误端口的负向测试通过。
-- `verify-studio-v2-blue-arrow-browser.cjs`：真实 Edge、Three.js 和本地 Vite 测试；先读取 SQL r6 派生候选，再从**数据库真实 Draft r7 再次只读导出复测**。旧版禁止启动，新版能启动；四段辊道模型在实际 Three.js 中存在，场景结构错误 0、浏览器错误 0；108 小托盘身份稳定，短时采样没有小于 1.5 米的重叠（最小约 1.500606m）。
+- `verify-studio-v2-blue-arrow-browser.cjs`：真实 Edge、Three.js 和本地 Vite 测试；先读取 SQL r6 派生候选，再从**数据库真实 Draft r7 再次只读导出复测**。经过 Studio V2 页面实际使用的 `createStudioRuntimeManifest(...,'simulation')` 编译后，旧版禁止启动、新版能启动；四段辊道模型在实际 Three.js 中存在，场景结构错误 0、浏览器错误 0；108 小托盘身份稳定，短时采样没有小于 1.5 米的重叠（最小约 1.500606m）。
 - 最新浏览器截图：`ClientApp/.tmp-studio-v2-blue-arrows-r7-browser/studio-v2-blue-arrow-bagging-physical-rollers.png`；对应 `report.json`。
 - SQL 事务、数据库回读和 V19 SHA256 核验通过；未覆盖远程 `Develop`。
 

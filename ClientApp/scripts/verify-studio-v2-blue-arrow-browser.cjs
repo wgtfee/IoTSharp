@@ -21,7 +21,7 @@ const html=`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><link 
 <body><div id="viewport"></div><section id="info"><h2>STUDIO V2 · 蓝箭头物理输送复核</h2><p>套袋机 A/B：右入左出，四段真实连接辊道</p><p id="guard">物理互锁：正在检查</p><p id="counts">设备和路线：正在初始化</p><p id="pallets">108 循环托盘：正在初始化</p><p>仅 Simulation / 原 V19 场景只读</p></section>
 <script type="module">
 import {TwinRuntime} from '/src/digital-twin/runtime/TwinRuntime.ts';
-import {inspectStudioManifest} from '/src/views/iot/digital-twin/studio-v2/studioScene.ts';
+import {inspectStudioManifest,createStudioRuntimeManifest} from '/src/views/iot/digital-twin/studio-v2/studioScene.ts';
 import {inspectStudioV2PhysicalRoutes} from '/src/digital-twin/runtime/StudioV2PhysicalRouteGuard.ts';
 const errors=[],samples=[];
 window.__blue={ready:false,errors,samples};
@@ -34,12 +34,12 @@ try {
  const originalViolations=inspectStudioV2PhysicalRoutes(original);
  const correctedViolations=inspectStudioV2PhysicalRoutes(candidate);
  const diagnostics=inspectStudioManifest(candidate);
- const rt=new TwinRuntime(document.getElementById('viewport'),candidate,
+ const rt=new TwinRuntime(document.getElementById('viewport'),createStudioRuntimeManifest(candidate,'simulation'),
    {onError:e=>errors.push(e)},{readOnly:true});
  rt.camera.position.set(22,24,1);
  rt.orbitControls.target.set(11,0,-9);
  rt.orbitControls.update();
- const originalRuntime=new TwinRuntime(document.createElement('div'),original,
+ const originalRuntime=new TwinRuntime(document.createElement('div'),createStudioRuntimeManifest(original,'simulation'),
    {onError:e=>window.__blue.legacyError=e},{readOnly:true});
  originalRuntime.setRunning(true);
  const legacyBlocked=originalRuntime.runtimeRunning===false;
