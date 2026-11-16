@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createComponentDefinitionFromTemplate, defaultComponentRegistry } from '../components';
 import { SurplusSilkCacheStore, type SurplusSilkBobbin } from './SurplusSilkCacheStore';
 
 interface RackSlotGeometry { slotId: string; localPosition: [number, number, number] }
@@ -79,6 +80,7 @@ export class SurplusSilkCacheRuntime {
     const handoffProperties = handoff.userData.properties as Record<string, unknown> | undefined;
     const laneSpacing = Number(handoffProperties?.laneSpacing);
     const handoffLength = Number(handoffProperties?.length);
+    const robotPickupLocalX = Number(handoffProperties?.robotPickupLocalX ?? 0);
     this.laneSpacing = laneSpacing;
     this.handoffLength = handoffLength;
     if (handoff.userData.laneCount !== 2 || handoff.userData.parallelLanes !== true
@@ -86,7 +88,10 @@ export class SurplusSilkCacheRuntime {
       || !handoff.getObjectByName('DoubleSmall-Lane-B')
       || handoffProperties?.laneAReverse !== false || handoffProperties?.laneBReverse !== true
       || !Number.isFinite(laneSpacing) || laneSpacing < 1.63
-      || !Number.isFinite(handoffLength) || handoffLength < 4) {
+      || !Number.isFinite(handoffLength) || handoffLength < 4
+      || !Number.isFinite(robotPickupLocalX)
+      || robotPickupLocalX <= -handoffLength / 2
+      || robotPickupLocalX >= handoffLength / 2) {
       throw new Error('机器人交接必须是物理双排辊道：内排 A 向右，外排 B 向左；单条辊道禁止仿真');
     }
     // A carries silk on a pallet, the robot removes silk and the same EMPTY
@@ -94,10 +99,13 @@ export class SurplusSilkCacheRuntime {
     const laneA = -laneSpacing / 2;
     const laneB = laneSpacing / 2;
     const leftEnd = -handoffLength / 2;
-    this.storePickup = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneA));
-    this.reuseDrop = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneA));
-    this.inbound = handoff.localToWorld(new THREE.Vector3(leftEnd, 1.12, laneA));
-    this.outbound = handoff.localToWorld(new THREE.Vector3(handoffLength / 2, 1.12, laneA));
+    // Reuse the green small-pallet's own silk-cake support surface. Its base
+    // rests at conveyor y=.9 and its silk seat at y=.9+.12+.57+.21=1.80.
+    const cakeCenterY = .9 + .12 + .57 + .42 / 2;
+    this.storePickup = handoff.localToWorld(new THREE.Vector3(robotPickupLocalX, cakeCenterY, laneA));
+    this.reuseDrop = handoff.localToWorld(new THREE.Vector3(robotPickupLocalX, cakeCenterY, laneA));
+    this.inbound = handoff.localToWorld(new THREE.Vector3(leftEnd, cakeCenterY, laneA));
+    this.outbound = handoff.localToWorld(new THREE.Vector3(handoffLength / 2, cakeCenterY, laneA));
     this.base = robot.localToWorld(new THREE.Vector3(0, 1.2, 0));
     this.standby = robot.localToWorld(new THREE.Vector3(0, 2.8, 0));
     this.root.name = 'Simulation-Surplus-Silk-Cache-100-Slots';
@@ -258,7 +266,7 @@ export class SurplusSilkCacheRuntime {
     const slotGrip = slot.clone().add(new THREE.Vector3(0, 0.32, 0));
     const slotAbove = slotGrip.clone().setY(pickAbove.y);
     const steps: MotionStep[] = [
-      { phase:'conveyor-in', duration:1.3, gripperFrom:this.standby, gripperTo:this.standby, bobbinFrom:this.inbound, bobbinTo:this.storePickup },
+      { phase:'conveyor-in', duration:Math.max(1.3,this.inbound.distanceTo(this.storePickup)/.7), gripperFrom:this.standby, gripperTo:this.standby, bobbinFrom:this.inbound, bobbinTo:this.storePickup },
       { phase:'approach', duration:0.8, gripperFrom:this.standby, gripperTo:pickGrip },
       { phase:'grab', duration:0.2, gripperFrom:pickGrip, gripperTo:pickGrip, completion:'grab' },
       { phase:'lift', duration:0.8, gripperFrom:pickGrip, gripperTo:pickAbove, carrying:true },
@@ -305,30 +313,35 @@ export class SurplusSilkCacheRuntime {
     // over its actual RouteSlot entity. Until the branch is physically linked
     // and the same entity is transferred, this carrier is always preview-only.
     const previewOnly = true;
-    const model = new THREE.Group();
-    model.name = `SurplusCarrier-${palletId}`;
-    model.userData = {palletId,isLoaded:true,materialState:'loaded',previewOnly,simulationOnly:true};
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(.92,.12,.92),
-      new THREE.MeshStandardMaterial({color:0xb68b57,roughness:.83}));
-    deck.name = 'CacheCarrier-PhysicalPalletDeck';
-    model.add(deck);
-    model.position.copy(this.inbound).setY(.96);
+    // EXACT same registered green round small-pallet generator as the 108
+    // circulating pallet entities. Never substitute a brown wooden square.
+    const definition=createComponentDefinitionFromTemplate('builtin-small-pallet',{
+      objectId:`cache-preview-carrier:${palletId}`,name:`余丝缓存小托盘 ${palletId}`,
+      properties:{diameter:1.48,baseHeight:.12,supportSeatHeight:.57},
+    });
+    const model=defaultComponentRegistry.create(definition).root;
+    model.name=`SurplusCarrier-${palletId}`;
+    delete model.userData.twinObjectId;
+    model.userData={...model.userData,palletId,isLoaded:true,materialState:'loaded',
+      previewOnly,simulationOnly:true,transportUnitType:'plastic-pallet',
+      transportUnitVariant:'small-pallet',componentResourceKey:'builtin-small-pallet'};
+    model.position.copy(this.inbound).setY(.9);
     this.root.add(model);
     const half = this.handoffLength / 2;
     const radius = this.laneSpacing / 2;
     const laneA = -radius, laneB = radius;
-    const waypoints = [this.storePickup.clone().setY(.96)];
-    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(half,.96,laneA)));
+    const waypoints = [this.storePickup.clone().setY(.9)];
+    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(half,.9,laneA)));
     // A physical 180-degree turn-conveyor exists in the r10 manifest. Sample
     // that same semicircle so the carrier never teleports between adjacent lanes.
     for(let index=1;index<=24;index++){
       const angle=-Math.PI/2+Math.PI*index/24;
       waypoints.push(this.handoff.localToWorld(new THREE.Vector3(
-        half+radius*Math.cos(angle),.96,radius*Math.sin(angle))));
+        half+radius*Math.cos(angle),.9,radius*Math.sin(angle))));
     }
-    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(-half,.96,laneB)));
+    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(-half,.9,laneB)));
     return {palletId,model,state:'loaded-arrival',
-      position:this.storePickup.clone().setY(.96),waypoints,simulationPreviewOnly:previewOnly};
+      position:this.storePickup.clone().setY(.9),waypoints,simulationPreviewOnly:previewOnly};
   }
 
   private updateEmptyCarrier(deltaSeconds: number) {
