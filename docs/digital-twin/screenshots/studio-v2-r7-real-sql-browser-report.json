@@ -1,0 +1,414 @@
+{
+  "source": "SQL Server integrated auth (read-only)",
+  "sceneId": "d7c2dfdf-39bf-4e69-a2c4-587cfaf63c94",
+  "revision": 6,
+  "host": "http://127.0.0.1:5173",
+  "stages": [
+    {
+      "initialFree": 100,
+      "initialPallets": 108
+    },
+    {
+      "stored": true,
+      "occupied": 1,
+      "reservedIn": 0
+    },
+    {
+      "reused": true,
+      "finalFree": 100,
+      "finalPallets": 108
+    }
+  ],
+  "errors": [],
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-surplus-r7-e2e\\01-robot-store-in-motion.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-surplus-r7-e2e\\02-stored-on-real-rack.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-surplus-r7-e2e\\03-robot-retrieve-in-motion.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-surplus-r7-e2e\\04-reused-returned-to-handoff.png"
+  ],
+  "geometrySamples": 68,
+  "structureErrors": [],
+  "geometryWarnings": [
+    {
+      "code": "twin.transport-route.unattached",
+      "path": "objects[43].component",
+      "message": "木托盘/纸箱尚未吸附到大辊道路线。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-inspection-right-rise",
+      "message": "设备主体严重重叠：小辊道 · 双排合流后上行至外检 / 小辊道 · 外检线由右向左。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-inspection-right-rise",
+      "message": "设备主体严重重叠：小辊道 · 双排合流后上行至外检 / 底部 A/B 排上料后直角二合一。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-inspection-right-in",
+      "message": "设备主体严重重叠：小辊道 · 外检线由右向左 / 小辊道 · 外检前空托向下进入捷径。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-inspection-right-in",
+      "message": "设备主体严重重叠：小辊道 · 外检线由右向左 / 外检前空托直回流一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-loaded",
+      "message": "设备主体严重重叠：小辊道 · 有料托盘进入外检 / 小辊道 · 外检前空托向下进入捷径。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-loaded",
+      "message": "设备主体严重重叠：小辊道 · 有料托盘进入外检 / 外检前空托直回流一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-inspection-to-diverter",
+      "message": "设备主体严重重叠：小辊道 · 外检后继续向左 / 小辊道 · 外检后转入中部下排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-b-left-down",
+      "message": "设备主体严重重叠：小辊道 · 外检后转入中部下排 / 中部横向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-b-bag-up",
+      "message": "设备主体严重重叠：小辊道 · 中部下排上行至双套袋分流 / 小辊道 · 分流至套袋 B。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-b-bag-up",
+      "message": "设备主体严重重叠：小辊道 · 中部下排上行至双套袋分流 / 中部横向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-b-bag-up",
+      "message": "设备主体严重重叠：小辊道 · 中部下排上行至双套袋分流 / 双套袋 A/B 一分二辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-diverter-a",
+      "message": "设备主体严重重叠：小辊道 · 分流至套袋 A / 小辊道 · 套袋 A 右侧接入。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-diverter-a",
+      "message": "设备主体严重重叠：小辊道 · 分流至套袋 A / 小辊道 · 分流至套袋 B。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-diverter-a",
+      "message": "设备主体严重重叠：小辊道 · 分流至套袋 A / 双套袋 A/B 一分二辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-diverter-b",
+      "message": "设备主体严重重叠：小辊道 · 分流至套袋 B / 双套袋 A/B 一分二辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-post-bag-up",
+      "message": "设备主体严重重叠：小辊道 · 套袋汇流后下行至中部上排 / 中部横向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-post-bag-up",
+      "message": "设备主体严重重叠：小辊道 · 套袋汇流后下行至中部上排 / 双套袋左侧二合一辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-inner-up",
+      "message": "设备主体严重重叠：小辊道 · 中部上排西端向上 / 小辊道 · 中央回路向右接入上行排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-inner-up",
+      "message": "设备主体严重重叠：小辊道 · 中部上排西端向上 / 中部横向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-upper-right-in",
+      "message": "设备主体严重重叠：小辊道 · 中央回路向右接入上行排 / 右上竖向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-upper-right-in",
+      "message": "设备主体严重重叠：小辊道 · 中央回路向右接入上行排 / 双套袋左侧二合一辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-upper-north",
+      "message": "设备主体严重重叠：小辊道 · 顶部向左送至桁架 / 小辊道 · 桁架抓取后进入双排空托回流。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-upper-north",
+      "message": "设备主体严重重叠：小辊道 · 顶部向左送至桁架 / 右上竖向双排小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-edge-loaded-upper-north",
+      "message": "设备主体严重重叠：小辊道 · 顶部向左送至桁架 / 桁架下双排空托一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-edge-a-merge",
+      "message": "设备主体严重重叠：小辊道 · 桁架抓取后进入双排空托回流 / 小辊道 · 桁架空托切入外排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-edge-a-merge",
+      "message": "设备主体严重重叠：小辊道 · 桁架抓取后进入双排空托回流 / 桁架下双排空托一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-merger-through",
+      "message": "设备主体严重重叠：小辊道 · 桁架下内排接入公共汇流 / 小辊道 · 外检下方空托反向回机器人。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-merger-through",
+      "message": "设备主体严重重叠：小辊道 · 桁架下内排接入公共汇流 / 小辊道 · 公共空托回流下行。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-merger-through",
+      "message": "设备主体严重重叠：小辊道 · 桁架下内排接入公共汇流 / 桁架下方双排空托回流小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-merger-through",
+      "message": "设备主体严重重叠：小辊道 · 桁架下内排接入公共汇流 / 桁架双排/外检前空托三路汇流。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-edge-out",
+      "message": "设备主体严重重叠：小辊道 · 桁架空托切入外排 / 桁架下方双排空托回流小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-gantry-edge-out",
+      "message": "设备主体严重重叠：小辊道 · 桁架空托切入外排 / 桁架下双排空托一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-down",
+      "message": "设备主体严重重叠：小辊道 · 外检前空托向下进入捷径 / 小辊道 · 外检下方空托反向回机器人。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-down",
+      "message": "设备主体严重重叠：小辊道 · 外检前空托向下进入捷径 / 外检前空托直回流一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-merge",
+      "message": "设备主体严重重叠：小辊道 · 外检下方空托反向回机器人 / 小辊道 · 公共空托回流下行。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-merge",
+      "message": "设备主体严重重叠：小辊道 · 外检下方空托反向回机器人 / 桁架下方双排空托回流小辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-merge",
+      "message": "设备主体严重重叠：小辊道 · 外检下方空托反向回机器人 / 外检机。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-empty-return-merge",
+      "message": "设备主体严重重叠：小辊道 · 外检下方空托反向回机器人 / 桁架双排/外检前空托三路汇流。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-outer-down",
+      "message": "设备主体严重重叠：小辊道 · 公共空托回流下行 / 小辊道 · 空托分入底部 A 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-outer-down",
+      "message": "设备主体严重重叠：小辊道 · 公共空托回流下行 / 小辊道 · 空托接入底部 A 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-outer-down",
+      "message": "设备主体严重重叠：小辊道 · 公共空托回流下行 / 小辊道 · 空托分入底部 B 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-outer-down",
+      "message": "设备主体严重重叠：小辊道 · 公共空托回流下行 / 桁架双排/外检前空托三路汇流。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-outer-down",
+      "message": "设备主体严重重叠：小辊道 · 公共空托回流下行 / 公共空托分入底部 A/B 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-bottom-in-a",
+      "message": "设备主体严重重叠：小辊道 · 空托分入底部 A 排 / 小辊道 · 空托接入底部 A 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-bottom-in-a",
+      "message": "设备主体严重重叠：小辊道 · 空托分入底部 A 排 / 小辊道 · 空托分入底部 B 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-bottom-in-a",
+      "message": "设备主体严重重叠：小辊道 · 空托分入底部 A 排 / 公共空托分入底部 A/B 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-return-edge-bottom-in-b",
+      "message": "设备主体严重重叠：小辊道 · 空托分入底部 B 排 / 公共空托分入底部 A/B 排。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-in",
+      "message": "设备主体严重重叠：大辊道 · 空木托到码垛位 / 码垛桁架和暂存台。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-cover",
+      "message": "设备主体严重重叠：大辊道 · 满托到天盖 / 码垛桁架和暂存台。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-cover",
+      "message": "设备主体严重重叠：大辊道 · 满托到天盖 / 天盖桁架。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-wrap",
+      "message": "设备主体严重重叠：大辊道 · 天盖后到缠膜 / 天盖桁架。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-wrap",
+      "message": "设备主体严重重叠：大辊道 · 天盖后到缠膜 / 缠膜机。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-label",
+      "message": "设备主体严重重叠：大辊道 · 缠膜后到贴标 / 缠膜机。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-label",
+      "message": "设备主体严重重叠：大辊道 · 缠膜后到贴标 / 贴标机。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-conveyor-ref-large-edge-out",
+      "message": "设备主体严重重叠：大辊道 · 贴标后成品出库 / 贴标机。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-upper-left",
+      "message": "设备主体严重重叠：桁架下方双排空托回流小辊道 / 桁架下双排空托一分二。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-upper-left",
+      "message": "设备主体严重重叠：桁架下方双排空托回流小辊道 / 桁架双排/外检前空托三路汇流。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-upper-left",
+      "message": "设备主体严重重叠：桁架下方双排空托回流小辊道 / 码垛桁架和暂存台。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-upper-right",
+      "message": "设备主体严重重叠：右上竖向双排小辊道 / 双套袋左侧二合一辊道。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-bottom",
+      "message": "设备主体严重重叠：底部横向双排小辊道 / 西侧旋转台+双面丝车。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-double-small-bottom",
+      "message": "设备主体严重重叠：底部横向双排小辊道 / 东侧旋转台+双面丝车。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-center-robot",
+      "message": "设备主体严重重叠：余丝缓存机器人 · 结批余丝抓放与同批号再利用 / 余丝缓存 · 半圆弧5层×20杆（100工位）。"
+    },
+    {
+      "code": "twin.layout.body-overlap",
+      "path": "objects.reference-loading-robot",
+      "message": "设备主体严重重叠：底部六轴机器人+2×6丝锭夹具 / 西侧旋转台+双面丝车。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-cover-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-stacking-gantry。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-cover-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-top-cover-gantry。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-in-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-stacking-gantry。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-label-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-wrapper。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-wrap-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-top-cover-gantry。"
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "path": "routes.component-route-68147065.edges.component-edge-reference-conveyor-ref-large-edge-wrap-main-through",
+      "message": "路线 辊道内部输送 穿过设备主体 reference-wrapper。"
+    },
+    {
+      "code": "route.authoring.direction.reverse",
+      "message": "路线在 底部双排回机器人分流位 处出现 180.0° 近似反向折返"
+    }
+  ],
+  "warningBreakdown": [
+    {
+      "code": "twin.layout.body-overlap",
+      "count": 63
+    },
+    {
+      "code": "twin.layout.route-clearance",
+      "count": 6
+    },
+    {
+      "code": "twin.transport-route.unattached",
+      "count": 1
+    },
+    {
+      "code": "route.authoring.direction.reverse",
+      "count": 1
+    }
+  ],
+  "palletIdentityChecks": 18,
+  "minSampledPalletSpacingMeters": 1.5011904761907147,
+  "maxSampledOverlapPairs": 0,
+  "collisionSamples": [],
+  "completedPlasticLoops": 0,
+  "reusedPlasticPallets": 0,
+  "maxSampleDisplacementMeters": 1.0415625000000002,
+  "totalTravelMeters": 23.813066819819575,
+  "passed": true
+}
