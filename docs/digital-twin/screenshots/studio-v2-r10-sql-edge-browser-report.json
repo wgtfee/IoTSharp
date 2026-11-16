@@ -1,0 +1,1258 @@
+{
+  "host": "http://127.0.0.1:5173",
+  "source": "SQL Server Studio V2 Draft r10 exact readback",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-u-turn-r10-sql-edge\\01-robot-cache-two-lanes-with-physical-u-turn.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-u-turn-r10-sql-edge\\02-loaded-pallet-arrives-on-inner-lane.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-u-turn-r10-sql-edge\\03-robot-grabs-bobbin-original-pallet-empty.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-u-turn-r10-sql-edge\\04-empty-pallet-waits-for-downstream-return-acceptance.png"
+  ],
+  "events": [
+    {
+      "state": "picked",
+      "carrier": {
+        "palletId": "R10-ISOLATED-TEST-CARRIER",
+        "state": "empty-return",
+        "materialState": "empty",
+        "position": [
+          -3.9299999999999997,
+          0.96,
+          -8.15
+        ],
+        "previewOnly": true,
+        "requiresDownstreamAcceptance": false
+      }
+    }
+  ],
+  "errors": [],
+  "init": {
+    "oldBlocked": true,
+    "oldViolations": [
+      "Studio V2 物理输送：机器人取丝后空托必须经右端实体 180 度 U 形辊道下到 B 排，禁止从 A 跳到 B",
+      "Studio V2 物理输送：缓存交接必须含 A 载丝向右、实体 U 转向下、B 空托向左的连续单向路径（6 点5边）"
+    ],
+    "violations": [],
+    "errors": [],
+    "turnPresent": true,
+    "physicalTurnRollers": true,
+    "structureErrors": [],
+    "warnings": 74,
+    "running": true,
+    "mainCount": 108
+  },
+  "trace": [
+    {
+      "step": 0,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.3699999999999974,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 12,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.0899999999999963,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 24,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.809999999999995,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 36,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.529999999999994,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 48,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.249999999999993,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 60,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.9699999999999918,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 72,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.6899999999999906,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 84,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.4099999999999895,
+        0.96,
+        -8.15
+      ]
+    },
+    {
+      "step": 96,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.1311448299607367,
+        0.96,
+        -8.13295034689288
+      ]
+    },
+    {
+      "step": 108,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.8672102233229387,
+        0.96,
+        -8.043539912158684
+      ]
+    },
+    {
+      "step": 120,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.6399740058267315,
+        0.96,
+        -7.882034384000883
+      ]
+    },
+    {
+      "step": 132,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.470255667607633,
+        0.96,
+        -7.660764445077294
+      ]
+    },
+    {
+      "step": 144,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.37313478292962793,
+        0.96,
+        -7.399447183510675
+      ]
+    },
+    {
+      "step": 156,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.3551543325527635,
+        0.96,
+        -7.121360081823973
+      ]
+    },
+    {
+      "step": 168,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.41781776859174236,
+        0.96,
+        -6.849697518178821
+      ]
+    },
+    {
+      "step": 180,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.5578389833457733,
+        0.96,
+        -6.608535290183392
+      ]
+    },
+    {
+      "step": 192,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.7623746144834481,
+        0.96,
+        -6.419120811198405
+      ]
+    },
+    {
+      "step": 204,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.0125982617067544,
+        0.96,
+        -6.296465843315513
+      ]
+    },
+    {
+      "step": 216,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.2876438194014834,
+        0.96,
+        -6.250809866863597
+      ]
+    },
+    {
+      "step": 228,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.5676173071054844,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 240,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.8476173071054856,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 252,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.1276173071054867,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 264,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.407617307105488,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 276,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.687617307105489,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 288,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.96761730710549,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 300,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.2476173071054912,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 312,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.5276173071054924,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 324,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.8076173071054935,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 336,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.087617307105495,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 348,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.367617307105496,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 360,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.647617307105497,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 372,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.927617307105498,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 384,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.207617307105499,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 396,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.4876173071055,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 408,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.7676173071055015,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 420,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.047617307105503,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 432,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.327617307105504,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 444,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.607617307105505,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 456,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 468,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 480,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 492,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 504,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 516,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 528,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 540,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 552,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 564,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 576,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 588,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 600,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 612,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 624,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 636,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 648,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 660,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 672,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 684,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 696,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 708,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 720,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 732,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 744,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 756,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 768,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 780,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 792,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 804,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 816,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 828,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 840,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 852,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 864,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 876,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    },
+    {
+      "step": 888,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ]
+    }
+  ],
+  "end": {
+    "capacity": 100,
+    "occupied": 1,
+    "reservedIn": 0,
+    "reservedOut": 0,
+    "free": 99,
+    "slots": [
+      {
+        "slotId": "L01-C01",
+        "state": "occupied",
+        "bobbin": {
+          "bobbinId": "R10-EXAMPLE-BOBBIN",
+          "batchNo": "R10-BATCH",
+          "originalTaskNo": "R10-GANTRY-BATCH"
+        }
+      },
+      {
+        "slotId": "L01-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C20",
+        "state": "empty"
+      }
+    ],
+    "running": true,
+    "queued": 0,
+    "active": null,
+    "completedStores": 1,
+    "completedReuses": 0,
+    "carrier": {
+      "palletId": "R10-ISOLATED-TEST-CARRIER",
+      "state": "awaiting-empty-return-acceptance",
+      "materialState": "empty",
+      "position": [
+        -6.7,
+        0.96,
+        -6.25
+      ],
+      "previewOnly": true,
+      "requiresDownstreamAcceptance": true
+    },
+    "handoffLanes": {
+      "laneA": {
+        "direction": "east",
+        "inbound": [
+          -6.7,
+          1.12,
+          -8.15
+        ],
+        "robot": [
+          -4,
+          1.12,
+          -8.15
+        ]
+      },
+      "laneB": {
+        "direction": "west",
+        "purpose": "empty-pallet-only"
+      }
+    },
+    "events": [
+      "余丝入库预约 R10-EXAMPLE-BOBBIN / L01-C01 / R10-BATCH",
+      "机器人完成抓丝：原托盘变空，右行折返后进入 B 排空托回流",
+      "入库完成 R10-EXAMPLE-BOBBIN → L01-C01",
+      "空托盘 R10-ISOLATED-TEST-CARRIER 到达 B 排左出口，等待外部空流道真实接收确认"
+    ]
+  },
+  "seenPhysicalUTurn": true,
+  "seenEmptyBWestbound": true,
+  "main108Unchanged": true,
+  "nextPalletRejectedUntilAck": true,
+  "wrongPalletAckRejected": true,
+  "acknowledgedRemovalByExplicitSimulationCommand": true,
+  "passed": true
+}
