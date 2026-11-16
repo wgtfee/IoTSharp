@@ -1,0 +1,2156 @@
+{
+  "host": "http://127.0.0.1:5173",
+  "source": "SQL Server Studio V2 Draft r15 exact readback",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-full-span-two-square-elbows-r15-sql-edge\\00-far-right-down-cross-left-left-down-two-square-corners.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-full-span-two-square-elbows-r15-sql-edge\\01-blue-15m7-red-half-7m85-square-return-up.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-full-span-two-square-elbows-r15-sql-edge\\02-green-small-pallet-on-original-blue-main.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-full-span-two-square-elbows-r15-sql-edge\\03-robot-picks-silk-small-pallet-empty.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-full-span-two-square-elbows-r15-sql-edge\\04-empty-small-pallet-up-to-blue-midspan-awaiting-occupancy.png"
+  ],
+  "events": [
+    {
+      "state": "picked",
+      "carrier": {
+        "palletId": "R15-ISOLATED-TEST-CARRIER",
+        "state": "empty-return",
+        "materialState": "empty",
+        "position": [
+          -3.883333333333333,
+          0.9,
+          -5.3
+        ],
+        "previewOnly": true,
+        "requiresDownstreamAcceptance": false
+      }
+    }
+  ],
+  "errors": [],
+  "init": {
+    "oldBlocked": true,
+    "oldViolations": [
+      "Studio V2：整线从最右到最左的空小托回流必须保留两次90度直角（右侧下转、横向向左、左侧下转），不可仅有一根直辊道",
+      "Studio V2：整线空小托回流右端与左端两个90度转角必须有实体端口连接，不允许画成无接驳的直线"
+    ],
+    "violations": [],
+    "errors": [],
+    "turnPresent": true,
+    "physicalTurnRollers": true,
+    "structureErrors": [],
+    "warnings": 77,
+    "running": true,
+    "mainCount": 108
+  },
+  "fullReturn": {
+    "rightSquare": true,
+    "leftSquare": true,
+    "rightSquareRounded": false,
+    "leftSquareRounded": false,
+    "rightInput": [
+      10.8,
+      0.9,
+      8.999999999999998
+    ],
+    "leftInput": [
+      -14.6,
+      0.9,
+      9
+    ],
+    "spanCenter": [
+      -1.8999999999999995,
+      0,
+      9
+    ],
+    "spanLength": 25.4,
+    "existingRightDown": true,
+    "existingLeftDown": true,
+    "fullSpanEnabled": true,
+    "mergerThirdInput": true,
+    "segmentPoints": [
+      [
+        10.8,
+        0.9,
+        6.8
+      ],
+      [
+        10.8,
+        0.9,
+        9
+      ],
+      [
+        -14.6,
+        0.9,
+        9
+      ],
+      [
+        -14.6,
+        0.9,
+        15.2
+      ]
+    ],
+    "routeEdges": [
+      [
+        "ref-empty-return-diverter",
+        "ref-empty-return-turn-b",
+        "reference-conveyor-ref-empty-return-down"
+      ],
+      [
+        "ref-empty-return-turn-b",
+        "ref-gantry-merger",
+        "reference-conveyor-ref-empty-return-merge"
+      ],
+      [
+        "ref-gantry-merger",
+        "ref-return-outer-bottom",
+        "reference-conveyor-ref-return-edge-outer-down"
+      ]
+    ],
+    "rightPhysicalLink": true,
+    "leftPhysicalLink": true
+  },
+  "geometry": {
+    "oldLongLeftTapRemoved": true,
+    "leftSquareModel": true,
+    "leftSquareGenerator": "roller-conveyor-v1",
+    "leftSquareLength": 1.9,
+    "leftSquareYaw": 1.5707963267948966,
+    "leftSquareCenter": [
+      -2.95,
+      0,
+      -4.35
+    ],
+    "leftSquareRounded": false,
+    "leftSquareTransfer": true,
+    "blueMidspanReturnPort": "cache-return-entry",
+    "removedDuplicateBlue": true,
+    "horizontal": [
+      "reference-conveyor-ref-edge-loaded-upper-right-in",
+      "studio-v2-surplus-silk-empty-return-roller"
+    ],
+    "blueModel": true,
+    "redModel": true,
+    "squareCornerModel": true,
+    "squareCornerGenerator": "roller-conveyor-v1",
+    "roundedCorner": false,
+    "cornerType": "two-square-90-degree-transfers",
+    "cornerLength": 1.9,
+    "cornerCenter": [
+      4.9,
+      0,
+      -4.35
+    ],
+    "cornerYaw": -1.5707963267948966,
+    "blueGenerator": "roller-conveyor-v1",
+    "redGenerator": "roller-conveyor-v1",
+    "blueDoubleLanePresent": false,
+    "blueCenter": [
+      -2.95,
+      0,
+      -5.3
+    ],
+    "redCenter": [
+      0.9750000000000001,
+      0,
+      -3.4
+    ],
+    "blueLength": 15.700000000000001,
+    "redLength": 7.8500000000000005,
+    "blueZ": -5.3,
+    "redZ": -3.4,
+    "blueYaw": 0,
+    "redYaw": 3.141592653589793,
+    "blueFlow": "east",
+    "redFlow": "west",
+    "physicalConnections": 2,
+    "obsoleteConnectionPresent": false
+  },
+  "palletGeometry": {
+    "exists": true,
+    "variant": "small-pallet",
+    "resourceKey": "builtin-small-pallet",
+    "type": "plastic-pallet",
+    "greenRoundBase": true,
+    "supportSeat": true,
+    "locatingPost": true,
+    "brownSquareDeck": false,
+    "carrierPosition": [
+      -10.791471626297579,
+      0.9,
+      -5.3
+    ]
+  },
+  "trace": [
+    {
+      "step": 0,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.4399999999999977,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 12,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.1599999999999966,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 24,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.8799999999999955,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 36,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.5999999999999943,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 48,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.319999999999993,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 60,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.039999999999992,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 72,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.759999999999991,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 84,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.4799999999999898,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 96,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.1999999999999886,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 108,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.9199999999999879,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 120,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.6399999999999881,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 132,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.35999999999998833,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 144,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.0799999999999885,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 156,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.20000000000001145,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 168,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.48000000000001125,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 180,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.7600000000000111,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 192,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.0400000000000111,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 204,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.3200000000000123,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 216,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.6000000000000134,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 228,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.8800000000000145,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 240,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.1600000000000157,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 252,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.440000000000017,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 264,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.720000000000018,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 276,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.000000000000019,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 288,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.2800000000000202,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 300,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.5600000000000214,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 312,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.8400000000000225,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 324,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.120000000000023,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 336,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.400000000000024,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 348,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.6800000000000255,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 360,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -5.239999999999974
+      ]
+    },
+    {
+      "step": 372,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -4.959999999999972
+      ]
+    },
+    {
+      "step": 384,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -4.679999999999971
+      ]
+    },
+    {
+      "step": 396,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -4.39999999999997
+      ]
+    },
+    {
+      "step": 408,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -4.119999999999969
+      ]
+    },
+    {
+      "step": 420,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -3.839999999999968
+      ]
+    },
+    {
+      "step": 432,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.9,
+        0.9,
+        -3.5599999999999667
+      ]
+    },
+    {
+      "step": 444,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.7799999999999665,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 456,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.499999999999965,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 468,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        4.219999999999964,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 480,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.939999999999963,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 492,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.659999999999962,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 504,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.379999999999961,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 516,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        3.0999999999999597,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 528,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.8199999999999585,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 540,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.5399999999999574,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 552,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        2.2599999999999563,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 564,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.9799999999999551,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 576,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.699999999999954,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 588,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.4199999999999529,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 600,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        1.1399999999999517,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 612,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.8599999999999514,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 624,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.5799999999999516,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 636,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.29999999999995175,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 648,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        0.019999999999951876,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 660,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.260000000000048,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 672,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.5400000000000479,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 684,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.8200000000000477,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 696,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.100000000000048,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 708,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.3800000000000492,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 720,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.6600000000000503,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 732,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.9400000000000515,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 744,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.2200000000000526,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 756,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.5000000000000537,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 768,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.780000000000055,
+        0.9,
+        -3.4
+      ]
+    },
+    {
+      "step": 780,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -3.510000000000056
+      ]
+    },
+    {
+      "step": 792,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -3.7900000000000573
+      ]
+    },
+    {
+      "step": 804,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -4.070000000000058
+      ]
+    },
+    {
+      "step": 816,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -4.350000000000059
+      ]
+    },
+    {
+      "step": 828,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -4.63000000000006
+      ]
+    },
+    {
+      "step": 840,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -4.910000000000061
+      ]
+    },
+    {
+      "step": 852,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.190000000000063
+      ]
+    },
+    {
+      "step": 864,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 876,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 888,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 900,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 912,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 924,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 936,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 948,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 960,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 972,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 984,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 996,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1008,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1020,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1032,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1044,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1056,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1068,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1080,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1092,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1104,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1116,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1128,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1140,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1152,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1164,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1176,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1188,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1200,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1212,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1224,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1236,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1248,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1260,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1272,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1284,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1296,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1308,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1320,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1332,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1344,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1356,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1368,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1380,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1392,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1404,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1416,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1428,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1440,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1452,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1464,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1476,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1488,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1500,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1512,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1524,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1536,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1548,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1560,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1572,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1584,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1596,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1608,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1620,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1632,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1644,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1656,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1668,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1680,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1692,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1704,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1716,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1728,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1740,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1752,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1764,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1776,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    },
+    {
+      "step": 1788,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ]
+    }
+  ],
+  "end": {
+    "capacity": 100,
+    "occupied": 1,
+    "reservedIn": 0,
+    "reservedOut": 0,
+    "free": 99,
+    "slots": [
+      {
+        "slotId": "L01-C01",
+        "state": "occupied",
+        "bobbin": {
+          "bobbinId": "R15-EXAMPLE-BOBBIN",
+          "batchNo": "R15-BATCH",
+          "originalTaskNo": "R15-GANTRY-BATCH"
+        }
+      },
+      {
+        "slotId": "L01-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C20",
+        "state": "empty"
+      }
+    ],
+    "running": true,
+    "queued": 0,
+    "active": null,
+    "completedStores": 1,
+    "completedReuses": 0,
+    "carrier": {
+      "palletId": "R15-ISOLATED-TEST-CARRIER",
+      "state": "awaiting-empty-return-acceptance",
+      "materialState": "empty",
+      "position": [
+        -2.95,
+        0.9,
+        -5.3
+      ],
+      "previewOnly": true,
+      "requiresDownstreamAcceptance": true
+    },
+    "handoffLanes": {
+      "blue": {
+        "objectId": "studio-v2-surplus-silk-handoff-roller",
+        "direction": "east",
+        "inbound": [
+          -10.8,
+          1.7999999999999998,
+          -5.3
+        ],
+        "robot": [
+          -4,
+          1.7999999999999998,
+          -5.3
+        ]
+      },
+      "red": {
+        "objectId": "studio-v2-surplus-silk-empty-return-roller",
+        "direction": "west",
+        "purpose": "empty-small-pallet-only",
+        "z": -3.4,
+        "length": 7.8500000000000005,
+        "rejoin": "cache-return-entry",
+        "squareTurn": true,
+        "requiresMainLoopOccupancyGrant": true
+      }
+    },
+    "events": [
+      "余丝入库预约 R15-EXAMPLE-BOBBIN / L01-C01 / R15-BATCH",
+      "机器人完成抓丝：原托盘变空，右行折返后进入 B 排空托回流",
+      "入库完成 R15-EXAMPLE-BOBBIN → L01-C01",
+      "空托盘 R15-ISOLATED-TEST-CARRIER 经红色半长辊道左端直角向上，抵达蓝色主线中段，等待主线同 ID 占位接收确认"
+    ]
+  },
+  "seenPhysicalRightAngleTransfer": true,
+  "straightVerticalSamples": 7,
+  "leftSquareUpSamples": 7,
+  "seenEmptyBWestbound": true,
+  "main108Unchanged": true,
+  "nextPalletRejectedUntilAck": true,
+  "wrongPalletAckRejected": true,
+  "acknowledgedRemovalByExplicitSimulationCommand": true,
+  "passed": true
+}
