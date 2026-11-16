@@ -71,6 +71,20 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 					requiresMainLoopOccupancyGrant: true, simulationPreviewOnly: true },
 			});
 		}
+		// Independent side-entry at the original BLUE main line's midspan,
+		// not the already occupied input/output ends. The empty small pallet
+		// may not enter the main 108-pallet loop without occupancy arbitration.
+		if (props.cacheReturnEntry === true) {
+			ports.push({
+				portId: 'cache-return-entry', name: '红线折回蓝线的直角待接收入口',
+				type: 'material-input',
+				localPosition: [0, height, 0],
+				localDirection: [-1, 0, 0],
+				metadata: { routeTap: true, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
+					requiresMainLoopOccupancyGrant: true, requiresSamePalletIdHandoff: true,
+					simulationPreviewOnly: true },
+			});
+		}
 		// Square 90-degree transfer in and out of a straight cross conveyor.
 		// With yaw=-PI/2, both local +Z directions face world -X and oppose
 		// the neighboring horizontal conveyor ports. No circular rail exists.
@@ -80,6 +94,44 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 			ports[0].name = '90度直角入口';
 			ports[1].name = '90度直角出口';
 			root.userData.squareRightAngleTransfer = true;
+			root.userData.rounded = false;
+		}
+		// The existing full-width empty SMALL pallet route has two 90-degree
+		// bends: right DOWN -> WEST across floor -> left DOWN. These are
+		// two SQUARE guide beds inside the EXISTING horizontal conveyor;
+		// never introduce a duplicated long return or a rounded U-turn.
+		if (props.fullSpanTwoSquareElbows === true) {
+			const markerMaterial = new THREE.MeshStandardMaterial({
+				color: 0xeab308, metalness: 0.68, roughness: 0.35,
+			});
+			const surfaceY = height + 0.025;
+			for (const side of ['Right', 'Left'] as const) {
+				const elbow = new THREE.Group();
+				elbow.name = `EmptyReturnSquareElbow-${side}`;
+				elbow.position.set(side === 'Right' ? -length / 2 : length / 2, 0, 0);
+				elbow.userData.squareCorner = true;
+				elbow.userData.rounded = false;
+				const horizontalRail = new THREE.Mesh(new THREE.BoxGeometry(width, 0.055, 0.09), markerMaterial);
+				horizontalRail.position.set(0, surfaceY, -width * 0.38);
+				horizontalRail.name = 'StraightWestGuide';
+				elbow.add(horizontalRail);
+				const verticalRail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.055, width), markerMaterial);
+				verticalRail.position.set(side === 'Right' ? -width * 0.38 : width * 0.38, surfaceY, 0);
+				verticalRail.name = side === 'Right' ? 'RightDownGuide' : 'LeftDownGuide';
+				elbow.add(verticalRail);
+				root.add(elbow);
+			}
+			// The horizontal span has yaw=PI; local +Z faces world -Z,
+			// opposing the incoming RIGHT vertical-down output (+Z).
+			ports.push({
+				portId: 'square-right-input', name: '右端向下90度后转左',
+				type: 'material-input',
+				localPosition: [-length / 2, height, 0],
+				localDirection: [0, 0, 1],
+				metadata: { routeTap: true, physicalSquareCorner: true,
+					transportUnitType: 'plastic-pallet', requiresOccupancyGrant: true },
+			});
+			root.userData.fullSpanTwoSquareElbows = true;
 			root.userData.rounded = false;
 		}
 		// Optional side input, only when this real roller is configured as a physical merge.

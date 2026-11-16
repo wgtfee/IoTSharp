@@ -50,6 +50,20 @@ export class MergerConveyorComponent implements TwinComponentGenerator {
 			{ portId: 'input-b', name: '汇流入口', type: 'material-input', localPosition: [inputBStart.x, height, inputBStart.z], localDirection: [-Math.cos(branchAngle), 0, branchSide * Math.sin(branchAngle)] },
 			{ portId: 'output', name: '出口', type: 'material-output', localPosition: [outputLength, height, 0], localDirection: [1, 0, 0] },
 		];
+		// The EXISTING three-way gantry merger turns the full-span
+		// right-to-left empty-pallet conveyor 90 degrees DOWN at its WEST end.
+		// Keep input-a/input-b and output unchanged; this is the third side
+		// input missing from the original physical connection graph.
+		if (props.emptyReturnSquareThirdInput === true) {
+			ports.push({
+				portId: 'empty-return-square-input', name: '最左端空小托回流90度汇入口',
+				type: 'material-input', localPosition: [0, height, 0],
+				localDirection: [0, 0, -1],
+				metadata: { routeTap: true, physicalSquareCorner: true,
+					transportUnitType: 'plastic-pallet', requiresOccupancyGrant: true },
+			});
+			root.userData.fullSpanSquareReturnLeftJoin = true;
+		}
 		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
 			flowId: 'merger', name: '二合一内置路线', conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
 			points: [

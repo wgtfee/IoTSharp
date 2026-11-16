@@ -63,10 +63,11 @@ export class SurplusSilkCacheRuntime {
   private carrier?: CacheCarrier;
   private readonly handoff: THREE.Group;
   private readonly emptyReturn: THREE.Group;
+  private readonly emptyReturnUp: THREE.Group;
   private readonly laneSpacing: number;
   private readonly handoffLength: number;
 
-  constructor(scene: THREE.Scene, rack: THREE.Group, handoff: THREE.Group, emptyReturn: THREE.Group, robot: THREE.Group) {
+  constructor(scene: THREE.Scene, rack: THREE.Group, handoff: THREE.Group, emptyReturn: THREE.Group, emptyReturnUp: THREE.Group, robot: THREE.Group) {
     const slotMetadata = rack.userData.cacheSlots as RackSlotGeometry[] | undefined;
     if (!slotMetadata || slotMetadata.length !== 100) throw new Error('余丝缓存机器人需要已注册的100根可寻址挂杆');
     rack.updateWorldMatrix(true, false);
@@ -77,9 +78,11 @@ export class SurplusSilkCacheRuntime {
     this.store = new SurplusSilkCacheStore(slotMetadata.map(slot => slot.slotId));
     handoff.updateWorldMatrix(true, false);
     emptyReturn.updateWorldMatrix(true, false);
+    emptyReturnUp.updateWorldMatrix(true, false);
     robot.updateWorldMatrix(true, false);
     this.handoff = handoff;
     this.emptyReturn = emptyReturn;
+    this.emptyReturnUp = emptyReturnUp;
     const handoffProperties = handoff.userData.properties as Record<string, unknown> | undefined;
     const returnProperties = emptyReturn.userData.properties as Record<string, unknown> | undefined;
     // These are two completely independent roller conveyor objects, NOT
@@ -95,12 +98,19 @@ export class SurplusSilkCacheRuntime {
       || returnProperties?.emptyPalletOnly !== true
       || !Number.isFinite(laneSpacing) || Math.abs(laneSpacing - 1.9) > .02
       || !Number.isFinite(handoffLength) || Math.abs(handoffLength - 15.7) > .02
-      || Math.abs(Number(returnProperties?.length) - 17.6) > .02
+      || Math.abs(Number(returnProperties?.length) - handoffLength / 2) > .02
+      || returnProperties?.halfOfBlue !== true
+      || handoffProperties?.cacheReturnEntry !== true
       || Math.abs(Number(handoff.rotation.y)) > .02
       || Math.abs(Math.abs(emptyReturn.rotation.y)-Math.PI) > .02
       || Math.abs(handoff.position.x+2.95)>.02
-      || Math.abs(emptyReturn.position.x+3.9)>.02) {
-      throw new Error('余丝机器人下应只有原108托盘主闭环蓝线与独立红空托线，禁止增加第三条平行辊道');
+      || Math.abs(emptyReturn.position.x-.975)>.02
+      || Math.abs(emptyReturnUp.position.x-handoff.position.x)>.02
+      || Math.abs(emptyReturnUp.position.z-(handoff.position.z+laneSpacing/2))>.02
+      || Math.abs(emptyReturnUp.rotation.y-Math.PI/2)>.02
+      || emptyReturnUp.userData.properties?.squareRightAngleTransfer !== true
+      || emptyReturnUp.userData.properties?.leftReturnToBlue !== true) {
+      throw new Error('余丝缓存下方必须只有半长的独立红色辊道，左端90度直角向上接原蓝主线，禁止长回流或圆弧');
     }
     // The original main-route blue conveyor has no cache-specific attributes:
     // its handoff point is derived from the unchanged robot world position.
@@ -253,7 +263,8 @@ export class SurplusSilkCacheRuntime {
       handoffLanes: {
         blue: { objectId: 'studio-v2-surplus-silk-handoff-roller', direction: 'east', inbound: this.inbound.toArray(), robot: this.storePickup.toArray() },
         red: { objectId: 'studio-v2-surplus-silk-empty-return-roller', direction: 'west', purpose: 'empty-small-pallet-only',
-          z: this.emptyReturn.position.z },
+          z: this.emptyReturn.position.z, length: Number(this.emptyReturn.userData.properties?.length),
+          rejoin: 'cache-return-entry', squareTurn: true, requiresMainLoopOccupancyGrant: true },
       },
       events: [...this.events],
     };
@@ -351,11 +362,14 @@ export class SurplusSilkCacheRuntime {
     // Blue east edge and red east edge are at the SAME world X=4.9.
     waypoints.push(new THREE.Vector3(this.emptyReturn.position.x+Number(this.emptyReturn.userData.properties?.length)/2,.9,this.emptyReturn.position.z));
     // Red's local +X points WEST because the roller is yaw=PI.
-    // The reused original blue is 15.7m but red is 17.6m and extends
-    // farther WEST to the left downward return at x=-12.7. Never use the
-    // blue half-length for the red outlet, or the empty pallet stops early.
+    // R14: the red line is exactly HALF the original 15.7m blue line.
+    // After traveling WEST on red, the same empty small pallet turns at
+    // 90 degrees NORTH across the second straight vertical transfer.
+    // It MUST await main-loop occupancy and SAME-ID reception at the blue
+    // midspan, rather than teleporting into the live 108-pallet loop.
     const redHalf=Number(this.emptyReturn.userData.properties?.length)/2;
     waypoints.push(this.emptyReturn.localToWorld(new THREE.Vector3(redHalf,.9,0)));
+    waypoints.push(this.emptyReturnUp.localToWorld(new THREE.Vector3(Number(this.emptyReturnUp.userData.properties?.length)/2,.9,0)));
     return {palletId,model,state:'loaded-arrival',
       position:this.storePickup.clone().setY(.9),waypoints,simulationPreviewOnly:previewOnly};
   }
@@ -381,7 +395,7 @@ export class SurplusSilkCacheRuntime {
     if (carrier.waypoints.length === 1) {
       carrier.state = 'awaiting-empty-return-acceptance';
       carrier.model.userData.waitingDownstream = true;
-      this.record(`空托盘 ${carrier.palletId} 到达 B 排左出口，等待外部空流道真实接收确认`);
+      this.record(`空托盘 ${carrier.palletId} 经红色半长辊道左端直角向上，抵达蓝色主线中段，等待主线同 ID 占位接收确认`);
     }
   }
 

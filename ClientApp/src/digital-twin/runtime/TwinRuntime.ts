@@ -990,10 +990,11 @@ export class TwinRuntime {
 			// created a duplicate blue track overlapping this original conveyor.
 			const handoff = this.componentModels.get('reference-conveyor-ref-edge-loaded-upper-right-in')?.root;
 			const emptyReturn = this.componentModels.get('studio-v2-surplus-silk-empty-return-roller')?.root;
+			const emptyReturnUp = this.componentModels.get('studio-v2-cache-empty-left-square-up')?.root;
 			const robot = this.componentModels.get('reference-center-robot')?.root;
-			if (rack && handoff && emptyReturn && robot) {
+			if (rack && handoff && emptyReturn && emptyReturnUp && robot) {
 				try {
-					this.surplusCache = new SurplusSilkCacheRuntime(this.scene, rack, handoff, emptyReturn, robot);
+					this.surplusCache = new SurplusSilkCacheRuntime(this.scene, rack, handoff, emptyReturn, emptyReturnUp, robot);
 					this.surplusCache.setRunning(this.runtimeRunning && !this.componentTestObjectId);
 				} catch (error) {
 					this.events.onError?.('余丝缓存运行时初始化失败：' + (error instanceof Error ? error.message : String(error)));
