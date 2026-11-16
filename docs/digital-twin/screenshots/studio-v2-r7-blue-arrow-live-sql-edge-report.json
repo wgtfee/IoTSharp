@@ -1,0 +1,61 @@
+{
+  "host": "http://127.0.0.1:5173",
+  "source": "SQL Server V2 Draft r7 readback (real database)",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-blue-arrows-r7-browser\\studio-v2-blue-arrow-bagging-physical-rollers.png"
+  ],
+  "errors": [],
+  "legacyPhysicalViolationCount": 3,
+  "candidatePhysicalViolationCount": 0,
+  "legacySimulationBlocked": true,
+  "correctedSimulationRunning": true,
+  "rollers": [
+    {
+      "id": "studio-v2-bag-a-infeed-roller",
+      "exists": true,
+      "position": [
+        19.1,
+        0,
+        -12.9
+      ],
+      "length": 1.8000000000000007
+    },
+    {
+      "id": "studio-v2-bag-a-outfeed-roller",
+      "exists": true,
+      "position": [
+        9.3,
+        0,
+        -12.9
+      ],
+      "length": 5.000000000000001
+    },
+    {
+      "id": "studio-v2-bag-b-infeed-roller",
+      "exists": true,
+      "position": [
+        18.85,
+        0,
+        -5.5
+      ],
+      "length": 2.3000000000000007
+    },
+    {
+      "id": "studio-v2-bag-b-outfeed-roller",
+      "exists": true,
+      "position": [
+        9.05,
+        0,
+        -5.5
+      ],
+      "length": 4.500000000000001
+    }
+  ],
+  "structureErrors": [],
+  "warningCount": 75,
+  "sampleCount": 21,
+  "minimumCenterDistanceMeters": 1.5006062606254307,
+  "maxOverlapPairs": 0,
+  "palletIdentityStable": true,
+  "passed": true
+}
