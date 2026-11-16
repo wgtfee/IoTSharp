@@ -135,52 +135,68 @@ export function inspectStudioV2PhysicalRoutes(manifest: TwinSceneManifest): stri
     errors.push('Studio V2 物理输送：套袋 B 出口必须接到右侧双排 B 线南端，然后向北合流');
   }
 
-  // Operator correction r12: DELETE the erroneous one-piece double conveyor.
-  // Its FORMER LOWER lane is the single blue loaded conveyor at Z=-6.25.
-  // A physically INDEPENDENT red empty-only roller is below it at Z=-4.35.
-  const handoffId='studio-v2-surplus-silk-handoff-roller';
+  // r13: the THIRD line was the already-existing, 108-pallet loaded main
+  // conveyor. It was wrong to draw another blue line overlapping that line.
+  // Reuse the original as blue and allow exactly ONE additional red below it.
+  const extraBlueId='studio-v2-surplus-silk-handoff-roller';
+  const handoffId='reference-conveyor-ref-edge-loaded-upper-right-in';
   const handoff=object(handoffId);
   const handoffProps=handoff?.component?.properties;
   const redId='studio-v2-surplus-silk-empty-return-roller';
   const red=object(redId);
   const redProps=red?.component?.properties;
   const routeHandoff=manifest.routes.find(r=>r.routeId==='studio-v2-surplus-silk-bidirectional-handoff');
+  const horizontalNearRobot=objects.filter(o=>
+    o.kind==='component'&&o.component?.componentType==='roller-conveyor'
+    &&Math.abs(Math.sin(Number(o.transform?.rotation?.[1]||0)))<.01
+    &&Number(o.transform?.position?.[2])>=-7.2&&Number(o.transform?.position?.[2])<=-2.5
+    &&Number(o.transform?.position?.[0])>=-13.8&&Number(o.transform?.position?.[0])<=5.5);
+  if(object(extraBlueId) || horizontalNearRobot.length!==2
+    || !horizontalNearRobot.some(o=>o.objectId===handoffId)
+    || !horizontalNearRobot.some(o=>o.objectId===redId)) {
+    errors.push('Studio V2：机器人下方只能有原108托盘主回路蓝线和下方一条独立红线；禁止重叠生成第三条水平辊道');
+  }
   if(!handoff || handoff.component?.componentType!=='roller-conveyor'
     || handoff.component.generator!=='roller-conveyor-v1'
-    || handoffProps?.loadedLaneRole!=='blue-eastbound-former-lower-lane'
-    || !near(Number(handoffProps?.length),11.4)
+    || handoffProps?.componentOwnedRoute!==true
+    || handoffProps?.cacheBranchOutput!==true
+    || !near(Number(handoffProps?.length),15.7)
     || !near(Number(handoffProps?.width),1.55)
-    || !near(Number(handoffProps?.robotPickupLocalX),3)
-    || !near(Number(handoff?.transform?.position?.[0]),-7)
-    || !near(Number(handoff?.transform?.position?.[2]),-6.25)
+    || !near(Number(handoff?.transform?.position?.[0]),-2.95)
+    || !near(Number(handoff?.transform?.position?.[2]),-5.3)
     || !near(Number(handoff?.transform?.rotation?.[1]),0)) {
-    errors.push('Studio V2：必须删除缓存机器人下错误的双排组件；蓝色载丝线是原下排位置的独立单辊道，方向向右');
+    errors.push('Studio V2：蓝线必须直接复用108托盘原始向右主辊道，不得以新对象复制或修改原有辊道');
   }
   if(!red || red.component?.componentType!=='roller-conveyor'
     || red.component?.generator!=='roller-conveyor-v1'
     || redProps?.emptyPalletOnly!==true
-    || redProps?.emptyLaneRole!=='red-westbound-below-blue'
-    || !near(Number(redProps?.length),11.4)
+    || redProps?.emptyLaneRole!=='red-westbound-below-existing-blue'
+    || !near(Number(redProps?.length),17.6)
     || !near(Number(redProps?.width),1.55)
-    || !near(Number(red?.transform?.position?.[0]),-7)
-    || !near(Number(red?.transform?.position?.[2]),-4.35)
+    || !near(Number(red?.transform?.position?.[0]),-3.9)
+    || !near(Number(red?.transform?.position?.[2]),-3.4)
     || !near(Math.abs(Number(red?.transform?.rotation?.[1])),Math.PI)
     || !handoff || Number(red?.transform?.position?.[2])-Number(handoff?.transform?.position?.[2])<1.88) {
-    errors.push('Studio V2：红色空小托盘回流必须是蓝线更下方的另一条实体单辊道，方向向左；不可仍是双排一体模型');
+    errors.push('Studio V2：红色空小托盘回流必须是原主线蓝辊道更下方唯一新增的水平单辊道，向左');
   }
   const turnId='studio-v2-cache-pallet-empty-u-turn';
   const turn=object(turnId);
-  if(!turn || turn.component?.componentType!=='turn-conveyor-90'
-    || !near(Number(turn.component?.properties?.sweepDegrees),180)
-    || !near(Number(turn.component?.properties?.radius),.95)
-    || !near(Number(turn?.transform?.position?.[0]),-1.3)
-    || !near(Number(turn?.transform?.position?.[2]),-5.3)
+  if(!turn || turn.component?.componentType!=='roller-conveyor'
+    || turn.component?.generator!=='roller-conveyor-v1'
+    || !near(Number(turn.component?.properties?.length),1.9)
+    || !near(Number(turn.component?.properties?.width),1.55)
+    || turn.component?.properties?.cornerGeometry!=='two-square-90-degree-transfers'
+    || turn.component?.properties?.rounded!==false
+    || turn.component?.properties?.squareRightAngleTransfer!==true
+    || !near(Number(turn?.transform?.position?.[0]),4.9)
+    || !near(Number(turn?.transform?.position?.[2]),-4.35)
+    || !near(Number(turn?.transform?.rotation?.[1]),-Math.PI/2)
     || turn.component?.properties?.emptyPalletOnly!==true
     || !(manifest.connections||[]).some(c=>c.from.objectId===handoffId
-      && c.from.portId==='output' && c.to.objectId===turnId && c.to.portId==='input')
+      && c.from.portId==='cache-branch-output' && c.to.objectId===turnId && c.to.portId==='input')
     || !(manifest.connections||[]).some(c=>c.from.objectId===turnId
       && c.from.portId==='output' && c.to.objectId===redId && c.to.portId==='input')) {
-    errors.push('Studio V2：机器人取丝后空托必须从蓝单排经右端实体 180 度 U 转弯，进入更下方独立红单排；禁止无设备跨越');
+    errors.push('Studio V2：右端必须是两次90度直角转接与中间垂直短辊道，禁止半圆弧形 U 转弯');
   }
   const leftDownId='reference-double-small-upper-left';
   const leftDown=object(leftDownId);
@@ -188,7 +204,7 @@ export function inspectStudioV2PhysicalRoutes(manifest: TwinSceneManifest): stri
   const targetTap=Array.isArray(returnTap)
     ?returnTap.find((t:any)=>t.tapId==='cache-empty-lower-return'&&t.lane==='A')
     :undefined;
-  if(!leftDown || !targetTap || !near(Number(targetTap.localX),-.6)
+  if(!leftDown || !targetTap || !near(Number(targetTap.localX),.35)
     || !near(Number(leftDown.transform?.position?.[0]),-13.65)
     || !near(Number(leftDown.transform?.position?.[2]),-3.75)
     || !near(Number(leftDown.transform?.rotation?.[1]),-Math.PI/2)
@@ -209,12 +225,12 @@ export function inspectStudioV2PhysicalRoutes(manifest: TwinSceneManifest): stri
       }
     };
     for(const [id,xyz] of [
-      ['surplus-a-west',[-12.7,0.9,-6.25]],
-      ['surplus-a-robot',[-4,0.9,-6.25]],
-      ['surplus-a-east',[-1.3,0.9,-6.25]],
-      ['surplus-b-east',[-1.3,0.9,-4.35]],
-      ['surplus-b-robot',[-4,0.9,-4.35]],
-      ['surplus-b-west',[-12.7,0.9,-4.35]],
+      ['surplus-a-west',[-10.8,0.9,-5.3]],
+      ['surplus-a-robot',[-4,0.9,-5.3]],
+      ['surplus-a-east',[4.9,0.9,-5.3]],
+      ['surplus-b-east',[4.9,0.9,-3.4]],
+      ['surplus-b-robot',[-4,0.9,-3.4]],
+      ['surplus-b-west',[-12.7,0.9,-3.4]],
       ['surplus-empty-downstream-main',[-12.7,0.9,9]],
     ] as Array<[string,number[]]>) {
       const actual=handoffPoint(id);

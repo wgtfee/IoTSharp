@@ -58,6 +58,30 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 				localDirection: [1, 0, 0],
 			},
 		];
+		// Studio V2: the existing 108-pallet output port is occupied by
+		// the original main route. Only this separate simulation branch port
+		// can be used; true pallet identity transfer still requires occupancy.
+		if (props.cacheBranchOutput === true) {
+			ports.push({
+				portId: 'cache-branch-output', name: '余丝分支出口（需要主回路授权）',
+				type: 'material-output',
+				localPosition: [length / 2, height, 0],
+				localDirection: [1, 0, 0],
+				metadata: { routeTap: true, conveyorSizeClass: 'small', transportUnitType: 'plastic-pallet',
+					requiresMainLoopOccupancyGrant: true, simulationPreviewOnly: true },
+			});
+		}
+		// Square 90-degree transfer in and out of a straight cross conveyor.
+		// With yaw=-PI/2, both local +Z directions face world -X and oppose
+		// the neighboring horizontal conveyor ports. No circular rail exists.
+		if (props.squareRightAngleTransfer === true) {
+			ports[0].localDirection = [0, 0, 1];
+			ports[1].localDirection = [0, 0, 1];
+			ports[0].name = '90度直角入口';
+			ports[1].name = '90度直角出口';
+			root.userData.squareRightAngleTransfer = true;
+			root.userData.rounded = false;
+		}
 		// Optional side input, only when this real roller is configured as a physical merge.
 const sideMergeX = props.sideMergeInlet === true ? -length / 2 + 0.25 : undefined;
 if (sideMergeX !== undefined) {

@@ -986,7 +986,9 @@ export class TwinRuntime {
 		this.rebuildBehaviorRuntime();
 		if (this.manifest.runtime.dataMode === 'simulation') {
 			const rack = this.componentModels.get('studio-v2-surplus-silk-arc-rack')?.root;
-			const handoff = this.componentModels.get('studio-v2-surplus-silk-handoff-roller')?.root;
+			// Reuse the existing 108-pallet main loaded line; r12 accidentally
+			// created a duplicate blue track overlapping this original conveyor.
+			const handoff = this.componentModels.get('reference-conveyor-ref-edge-loaded-upper-right-in')?.root;
 			const emptyReturn = this.componentModels.get('studio-v2-surplus-silk-empty-return-roller')?.root;
 			const robot = this.componentModels.get('reference-center-robot')?.root;
 			if (rack && handoff && emptyReturn && robot) {
