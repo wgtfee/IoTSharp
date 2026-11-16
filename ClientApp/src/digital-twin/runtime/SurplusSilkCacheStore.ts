@@ -1,5 +1,11 @@
 /** Studio V2 余丝缓存领域状态机；实际机器人交接前只保留预约，不提前确认库存。 */
-export interface SurplusSilkBobbin { bobbinId: string; batchNo: string; originalTaskNo: string }
+export interface SurplusSilkBobbin {
+  bobbinId: string;
+  batchNo: string;
+  originalTaskNo: string;
+  /** A known upstream pallet ID, otherwise the preview uses a visually isolated carrier. */
+  carrierPalletId?: string;
+}
 export type SurplusSilkSlotState = 'empty' | 'storing' | 'occupied' | 'retrieving';
 export interface SurplusSilkSlot { slotId: string; state: SurplusSilkSlotState; bobbin?: SurplusSilkBobbin }
 

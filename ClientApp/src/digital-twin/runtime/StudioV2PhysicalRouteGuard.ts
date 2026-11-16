@@ -154,10 +154,23 @@ export function inspectStudioV2PhysicalRoutes(manifest: TwinSceneManifest): stri
     || !near(Number(handoff?.transform?.rotation?.[1]),0)) {
     errors.push('Studio V2 物理输送：缓存机器人下必须有真正的双排小辊道，内排 A 向右、外排 B 向左；单条双向辊道禁止运行');
   }
-  if(!routeHandoff || routeHandoff.points.length!==6 || routeHandoff.edges.length!==4
-    || routeHandoff.edges.some(e=>e.componentObjectId!==handoffId
-      || e.enabled===false || e.bidirectional===true)) {
-    errors.push('Studio V2 物理输送：缓存机器人交接路线必须是 2 排独立单向通路（6 点4边），不允许两排共享同一轨道');
+  const turnId='studio-v2-cache-pallet-empty-u-turn';
+  const turn=object(turnId);
+  if(!turn || turn.component?.componentType!=='turn-conveyor-90'
+    || !near(Number(turn.component?.properties?.sweepDegrees),180)
+    || !near(Number(turn.component?.properties?.radius),.95)
+    || !near(Number(turn?.transform?.position?.[0]),-1.3)
+    || !near(Number(turn?.transform?.position?.[2]),-7.2)
+    || turn.component?.properties?.emptyPalletOnly!==true
+    || !(manifest.connections||[]).some(c=>c.from.objectId===handoffId
+      && c.from.portId==='a-output' && c.to.objectId===turnId && c.to.portId==='input')
+    || !(manifest.connections||[]).some(c=>c.from.objectId===turnId
+      && c.from.portId==='output' && c.to.objectId===handoffId && c.to.portId==='b-input')) {
+    errors.push('Studio V2 物理输送：机器人取丝后空托必须经右端实体 180 度 U 形辊道下到 B 排，禁止从 A 跳到 B');
+  }
+  if(!routeHandoff || routeHandoff.points.length!==6 || routeHandoff.edges.length!==5
+    || routeHandoff.edges.some(e=>e.enabled===false || e.bidirectional===true)) {
+    errors.push('Studio V2 物理输送：缓存交接必须含 A 载丝向右、实体 U 转向下、B 空托向左的连续单向路径（6 点5边）');
   } else {
     const handoffPoint=(id:string)=>routeHandoff.points.find(p=>p.pointId===id)?.position;
     const directedHandoff=(id:string,from:string,to:string)=>{
@@ -183,6 +196,17 @@ export function inspectStudioV2PhysicalRoutes(manifest: TwinSceneManifest): stri
     directedHandoff('surplus-a-robot-to-east','surplus-a-robot','surplus-a-east');
     directedHandoff('surplus-b-east-to-robot','surplus-b-east','surplus-b-robot');
     directedHandoff('surplus-b-robot-to-west','surplus-b-robot','surplus-b-west');
+    directedHandoff('surplus-empty-after-pick-u-turn','surplus-a-east','surplus-b-east');
+    for(const routeEdge of routeHandoff.edges) {
+      const carrierEdge=routeEdge as typeof routeEdge & {loadedPalletOnly?: boolean;emptyPalletOnly?: boolean};
+      const isTurn=routeEdge.edgeId==='surplus-empty-after-pick-u-turn';
+      const isLoaded=routeEdge.edgeId.startsWith('surplus-a-');
+      if(routeEdge.componentObjectId!==(isTurn?turnId:handoffId)
+        || (isLoaded && carrierEdge.loadedPalletOnly!==true)
+        || (!isLoaded && carrierEdge.emptyPalletOnly!==true)) {
+        errors.push(`Studio V2 物理输送：${routeEdge.edgeId} 载丝或空托用途/所属设备错误`);
+      }
+    }
   }
   return errors;
 }

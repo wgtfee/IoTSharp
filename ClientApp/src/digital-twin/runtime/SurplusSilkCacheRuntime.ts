@@ -25,6 +25,15 @@ interface MotionJob {
   carrying: boolean;
 }
 
+interface CacheCarrier {
+  palletId: string;
+  model: THREE.Group;
+  state: 'loaded-arrival' | 'awaiting-pick' | 'empty-return' | 'awaiting-empty-return-acceptance';
+  position: THREE.Vector3;
+  waypoints: THREE.Vector3[];
+  simulationPreviewOnly: boolean;
+}
+
 /**
  * Studio V2 余丝缓存独立 Simulation 运行时。
  * 任务需由调用方明确提交丝锭/批号；不连接现场 PLC/MES，也不制造虚构结批事件。
@@ -50,6 +59,10 @@ export class SurplusSilkCacheRuntime {
   private completedStores = 0;
   private completedReuses = 0;
   private readonly events: string[] = [];
+  private carrier?: CacheCarrier;
+  private readonly handoff: THREE.Group;
+  private readonly laneSpacing: number;
+  private readonly handoffLength: number;
 
   constructor(scene: THREE.Scene, rack: THREE.Group, handoff: THREE.Group, robot: THREE.Group) {
     const slotMetadata = rack.userData.cacheSlots as RackSlotGeometry[] | undefined;
@@ -62,9 +75,12 @@ export class SurplusSilkCacheRuntime {
     this.store = new SurplusSilkCacheStore(slotMetadata.map(slot => slot.slotId));
     handoff.updateWorldMatrix(true, false);
     robot.updateWorldMatrix(true, false);
+    this.handoff = handoff;
     const handoffProperties = handoff.userData.properties as Record<string, unknown> | undefined;
     const laneSpacing = Number(handoffProperties?.laneSpacing);
     const handoffLength = Number(handoffProperties?.length);
+    this.laneSpacing = laneSpacing;
+    this.handoffLength = handoffLength;
     if (handoff.userData.laneCount !== 2 || handoff.userData.parallelLanes !== true
       || !handoff.getObjectByName('DoubleSmall-Lane-A')
       || !handoff.getObjectByName('DoubleSmall-Lane-B')
@@ -73,15 +89,15 @@ export class SurplusSilkCacheRuntime {
       || !Number.isFinite(handoffLength) || handoffLength < 4) {
       throw new Error('机器人交接必须是物理双排辊道：内排 A 向右，外排 B 向左；单条辊道禁止仿真');
     }
-    // The inner lane (-Z) receives surplus from the west. The outer lane (+Z)
-    // returns reused silk west, so the robot uses separate physical handoff spots.
+    // A carries silk on a pallet, the robot removes silk and the same EMPTY
+    // pallet U-turns onto B. B is NOT a reuse-bobbin conveyor.
     const laneA = -laneSpacing / 2;
     const laneB = laneSpacing / 2;
     const leftEnd = -handoffLength / 2;
     this.storePickup = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneA));
-    this.reuseDrop = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneB));
+    this.reuseDrop = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneA));
     this.inbound = handoff.localToWorld(new THREE.Vector3(leftEnd, 1.12, laneA));
-    this.outbound = handoff.localToWorld(new THREE.Vector3(leftEnd, 1.12, laneB));
+    this.outbound = handoff.localToWorld(new THREE.Vector3(handoffLength / 2, 1.12, laneA));
     this.base = robot.localToWorld(new THREE.Vector3(0, 1.2, 0));
     this.standby = robot.localToWorld(new THREE.Vector3(0, 2.8, 0));
     this.root.name = 'Simulation-Surplus-Silk-Cache-100-Slots';
@@ -107,16 +123,19 @@ export class SurplusSilkCacheRuntime {
 
   /** 桁架结批事件应提供不可重复的丝锭 ID 及真实业务批号、任务号。 */
   queueStore(bobbin: SurplusSilkBobbin) {
+    if (this.carrier) throw new Error('空托盘尚未被下游空流道确认接收，禁止下一托盘重叠进入');
     const slotId = this.store.reserveStore(bobbin);
     const slotPosition = this.slots.get(slotId)!;
     const model = this.createBobbin(bobbin, this.inbound);
     try {
+      this.carrier = this.createCarrier(bobbin);
       this.pending.push(this.createStoreJob(slotId, { ...bobbin }, slotPosition, model));
       this.record(`余丝入库预约 ${bobbin.bobbinId} / ${slotId} / ${bobbin.batchNo}`);
       return slotId;
     } catch (error) {
       this.store.cancel(slotId, bobbin.bobbinId);
       this.removeBobbin(bobbin.bobbinId);
+      this.disposeCarrier();
       throw error;
     }
   }
@@ -141,6 +160,7 @@ export class SurplusSilkCacheRuntime {
   /** 固定逻辑步驱动运动；暂停和帧率变化不改变预约与交接顺序。 */
   tick(deltaSeconds: number) {
     if (!this.running || !Number.isFinite(deltaSeconds) || deltaSeconds <= 0) return;
+    this.updateEmptyCarrier(deltaSeconds);
     if (!this.active) this.active = this.pending.shift();
     const job = this.active;
     if (!job) { this.drawArm(this.standby); return; }
@@ -152,8 +172,19 @@ export class SurplusSilkCacheRuntime {
     this.drawArm(gripperPosition);
     if (step.bobbinFrom && step.bobbinTo) job.model.position.copy(step.bobbinFrom).lerp(step.bobbinTo, fraction);
     else if (step.carrying || job.carrying) job.model.position.copy(gripperPosition).add(new THREE.Vector3(0, -0.32, 0));
+    if (job.kind === 'store' && step.phase === 'conveyor-in' && this.carrier?.state === 'loaded-arrival') {
+      this.carrier.model.position.set(job.model.position.x, this.carrier.position.y, job.model.position.z);
+    }
     if (job.elapsed < step.duration - 0.000001) return;
-    if (step.completion === 'grab') job.carrying = true;
+    if (step.completion === 'grab') {
+      job.carrying = true;
+      if (job.kind === 'store' && this.carrier?.state === 'awaiting-pick') {
+        this.carrier.state = 'empty-return';
+        this.carrier.model.userData.isLoaded = false;
+        this.carrier.model.userData.materialState = 'empty';
+        this.record('机器人完成抓丝：原托盘变空，右行折返后进入 B 排空托回流');
+      }
+    }
     if (step.completion === 'release') {
       job.carrying = false;
       job.model.position.copy(job.kind === 'store' ? this.slots.get(job.slotId)! : this.reuseDrop);
@@ -171,6 +202,10 @@ export class SurplusSilkCacheRuntime {
     }
     job.stepIndex++;
     job.elapsed = 0;
+    if (job.kind === 'store' && step.phase === 'conveyor-in' && this.carrier?.state === 'loaded-arrival') {
+      this.carrier.state = 'awaiting-pick';
+      this.carrier.model.position.copy(this.carrier.position);
+    }
     if (job.stepIndex >= job.steps.length) this.active = undefined;
   }
 
@@ -185,9 +220,16 @@ export class SurplusSilkCacheRuntime {
       } : null,
       completedStores: this.completedStores,
       completedReuses: this.completedReuses,
+      carrier: this.carrier ? {
+        palletId: this.carrier.palletId, state: this.carrier.state,
+        materialState: this.carrier.model.userData.materialState,
+        position: this.carrier.model.position.toArray(),
+        previewOnly: this.carrier.simulationPreviewOnly,
+        requiresDownstreamAcceptance: this.carrier.state === 'awaiting-empty-return-acceptance',
+      } : null,
       handoffLanes: {
         laneA: { direction: 'east', inbound: this.inbound.toArray(), robot: this.storePickup.toArray() },
-        laneB: { direction: 'west', robot: this.reuseDrop.toArray(), outbound: this.outbound.toArray() },
+        laneB: { direction: 'west', purpose: 'empty-pallet-only' },
       },
       events: [...this.events],
     };
@@ -199,6 +241,7 @@ export class SurplusSilkCacheRuntime {
     }
     this.pending.length = 0;
     this.active = undefined;
+    this.disposeCarrier();
     this.root.parent?.remove(this.root);
     this.root.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
@@ -244,6 +287,86 @@ export class SurplusSilkCacheRuntime {
       {phase:'conveyor-out',duration:1.3,gripperFrom:this.standby,gripperTo:this.standby,bobbinFrom:this.reuseDrop,bobbinTo:this.outbound,completion:'out'},
     ];
     return {kind:'reuse',slotId,bobbin,targetTaskNo,model,steps,stepIndex:0,elapsed:0,carrying:false};
+  }
+
+  /** A connected downstream empty-return flow must explicitly acknowledge the carrier. */
+  acknowledgeEmptyPalletHandoff(palletId: string) {
+    if (!this.carrier || this.carrier.palletId !== palletId
+      || this.carrier.state !== 'awaiting-empty-return-acceptance') {
+      throw new Error('下游空流道尚未接收该空托盘，不能提前释放或重复回流');
+    }
+    this.record(`空托回流接收确认 ${palletId}`);
+    this.disposeCarrier();
+  }
+
+  private createCarrier(bobbin: SurplusSilkBobbin): CacheCarrier {
+    const palletId = bobbin.carrierPalletId?.trim() || `PREVIEW-CACHE-${bobbin.bobbinId}`;
+    // Even a caller-supplied ID is not proof the 108-pallet main loop handed
+    // over its actual RouteSlot entity. Until the branch is physically linked
+    // and the same entity is transferred, this carrier is always preview-only.
+    const previewOnly = true;
+    const model = new THREE.Group();
+    model.name = `SurplusCarrier-${palletId}`;
+    model.userData = {palletId,isLoaded:true,materialState:'loaded',previewOnly,simulationOnly:true};
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(.92,.12,.92),
+      new THREE.MeshStandardMaterial({color:0xb68b57,roughness:.83}));
+    deck.name = 'CacheCarrier-PhysicalPalletDeck';
+    model.add(deck);
+    model.position.copy(this.inbound).setY(.96);
+    this.root.add(model);
+    const half = this.handoffLength / 2;
+    const radius = this.laneSpacing / 2;
+    const laneA = -radius, laneB = radius;
+    const waypoints = [this.storePickup.clone().setY(.96)];
+    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(half,.96,laneA)));
+    // A physical 180-degree turn-conveyor exists in the r10 manifest. Sample
+    // that same semicircle so the carrier never teleports between adjacent lanes.
+    for(let index=1;index<=24;index++){
+      const angle=-Math.PI/2+Math.PI*index/24;
+      waypoints.push(this.handoff.localToWorld(new THREE.Vector3(
+        half+radius*Math.cos(angle),.96,radius*Math.sin(angle))));
+    }
+    waypoints.push(this.handoff.localToWorld(new THREE.Vector3(-half,.96,laneB)));
+    return {palletId,model,state:'loaded-arrival',
+      position:this.storePickup.clone().setY(.96),waypoints,simulationPreviewOnly:previewOnly};
+  }
+
+  private updateEmptyCarrier(deltaSeconds: number) {
+    const carrier = this.carrier;
+    if (!carrier || carrier.state !== 'empty-return') return;
+    let remaining = deltaSeconds * .7;
+    while (remaining > 0 && carrier.waypoints.length >= 2) {
+      const first = carrier.waypoints[0], second = carrier.waypoints[1];
+      const distance = first.distanceTo(second);
+      if (distance <= remaining + 1e-8) {
+        carrier.model.position.copy(second);
+        carrier.waypoints.shift();
+        remaining -= distance;
+      } else {
+        const next = first.clone().lerp(second, remaining/distance);
+        carrier.model.position.copy(next);
+        carrier.waypoints[0] = next;
+        remaining = 0;
+      }
+    }
+    if (carrier.waypoints.length === 1) {
+      carrier.state = 'awaiting-empty-return-acceptance';
+      carrier.model.userData.waitingDownstream = true;
+      this.record(`空托盘 ${carrier.palletId} 到达 B 排左出口，等待外部空流道真实接收确认`);
+    }
+  }
+
+  private disposeCarrier() {
+    const model = this.carrier?.model;
+    if (!model) return;
+    model.parent?.remove(model);
+    model.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.geometry.dispose();
+      const mats = Array.isArray(object.material) ? object.material : [object.material];
+      mats.forEach(material => material.dispose());
+    });
+    this.carrier = undefined;
   }
 
   private createBobbin(bobbin: SurplusSilkBobbin, position: THREE.Vector3) {

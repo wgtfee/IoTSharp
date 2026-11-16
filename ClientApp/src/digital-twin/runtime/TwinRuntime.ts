@@ -586,6 +586,16 @@ export class TwinRuntime {
 		return this.surplusCache.queueReuse(batchNo, targetTaskNo);
 	}
 
+	/** Simulation branch only: empty pallet remains at the west outlet until
+	 * a downstream receiver explicitly acknowledges it. Not an automatic
+	 * injection into the 108-pallet main return without a real connector. */
+	acknowledgeSurplusEmptyPallet(palletId: string) {
+		if (this.manifest.runtime.dataMode !== 'simulation' || !this.surplusCache) {
+			throw new Error('当前场景不允许模拟空托回流确认');
+		}
+		this.surplusCache.acknowledgeEmptyPalletHandoff(palletId);
+	}
+
 	getActuatorSnapshot() {
 		return this.actuatorRuntime.getSnapshot();
 	}
