@@ -247,10 +247,21 @@ export class RouteSlotArrayRuntime {
 					const routeSnapshot = engine.getSnapshot();
 					const isSimulationEntryRoute = Boolean(laneStart);
 					const isQueuedNonLoopSimulationRoute = curveInfo.loop === false && slot.slotCount > 1;
+					// 大规模循环库存不能把 108 托全部钉在 2×6 的机器人上料位。
+					// 保留第 12 托以内的 2×6 物理位置，其余按 A/B 两条真实 Route 路径
+					// 沿闭环放置，使用相同的安全中心距校验和稳定托盘 ID。
+					const distributedLoop = initializer?.simulationInitialPlacement === 'distributed-loop'
+						&& curveInfo.loop && isSimulationEntryRoute && routeSnapshot.lengthMeters > 0;
+					const firstBatchColumns = Math.max(1, Math.floor(Number(laneStart?.process?.batchLayout?.columns) || 6));
+					const extraOrdinal = physicalLaneOrdinal - firstBatchColumns;
+					const extraPerLane = Math.max(1, Math.ceil((slot.slotCount - 2 * firstBatchColumns) / 2));
+					const distributedDistance = distributedLoop && extraOrdinal >= 0
+						? routeSnapshot.lengthMeters * (extraOrdinal + 1) / (extraPerLane + 1)
+						: undefined;
 					// Simulation 的默认小托盘逻辑上必须全部从机器人批次工位开始；
 					// 视觉排队由 applyStationQueueVisual 单独拉开，绝不能靠“靠近路线尾端”伪造，
 					// 否则尾端若存在桁架工位会先被桁架截停，形成 1+5 永久死锁。
-					const initialDistance = (isSimulationEntryRoute || isQueuedNonLoopSimulationRoute) && routeSnapshot.lengthMeters > 0
+					const initialDistance = distributedDistance !== undefined ? distributedDistance : (isSimulationEntryRoute || isQueuedNonLoopSimulationRoute) && routeSnapshot.lengthMeters > 0
 						? 0
 						: progress * routeSnapshot.lengthMeters;
 					const initialProgress = routeSnapshot.lengthMeters > 0 ? initialDistance / routeSnapshot.lengthMeters : 0;
@@ -266,6 +277,7 @@ export class RouteSlotArrayRuntime {
 						entityId: slot.palletId,
 					});
 					process.setRunning(this.running);
+					if (distributedDistance !== undefined) process.seedEmptyCirculatingPallet();
 					entity.simulationEngine = engine;
 					entity.simulationProcess = process;
 					entity.routingContext = routingContext;
@@ -284,7 +296,8 @@ export class RouteSlotArrayRuntime {
 					entity.root.userData.simulationQueueIndex = slot.slotIndex;
 					engine.render(1);
 					this.applyTransportUnitYawOffset(entity);
-					this.applyInitialPhysicalStationLayout(entity);
+					if (!distributedLoop || extraOrdinal < 0) this.applyInitialPhysicalStationLayout(entity);
+					if (distributedDistance !== undefined) this.placeSimulationEntitySafely(entity);
 					if (initializer?.simulationPlacement === 'non-overlapping' && !laneStart) this.placeSimulationEntitySafely(entity);
 				}
 			} else {
@@ -307,12 +320,21 @@ export class RouteSlotArrayRuntime {
 	}
 
 	/** 多支路初始投放使用同一空间排他检查；找不到空位就明确报错，不创建重叠托盘。 */
-	private placeSimulationEntitySafely(entity: RouteSlotEntity) {
+	private placeSimulationEntitySafely(entity: RouteSlotEntity, boundedRange?: { min: number; max: number }) {
 		const engine = entity.simulationEngine!;
 		const snapshot = engine.getSnapshot();
 		const spacing = this.palletDiameter(entity) + 0.08;
-		const tries = Math.max(1, Math.ceil(snapshot.lengthMeters / spacing));
+		const startDistance = boundedRange?.min ?? 0;
+		const endDistance = boundedRange?.max ?? snapshot.lengthMeters;
+		const searchLength = endDistance - startDistance;
+		const tries = Math.max(1, Math.ceil(searchLength / spacing));
+		const offset = ((snapshot.distanceMeters - startDistance) % searchLength + searchLength) % searchLength;
 		for (let attempt = 0; attempt <= tries; attempt++) {
+			if (boundedRange) {
+				engine.correctDistance(startDistance + ((offset + attempt * spacing) % searchLength));
+				engine.render(1);
+				this.applyTransportUnitYawOffset(entity);
+			}
 			if (this.isPlasticPalletPositionClear(entity, entity.root.position) && (this.junctionTraffic.get(entity.routeId)?.canSeed(entity.root.position) ?? true) && (this.alignedBatches?.canSeed(entity) ?? true)) {
 				const progress = engine.getSnapshot().progress;
 				entity.initialProgress = progress;
@@ -321,9 +343,11 @@ export class RouteSlotArrayRuntime {
 				entity.root.userData.initialRouteProgress = progress;
 				return;
 			}
-			engine.correctDistance((snapshot.distanceMeters + (attempt + 1) * spacing) % Math.max(0.001, snapshot.lengthMeters));
-			engine.render(1);
-			this.applyTransportUnitYawOffset(entity);
+			if (!boundedRange) {
+				engine.correctDistance((snapshot.distanceMeters + (attempt + 1) * spacing) % Math.max(0.001, snapshot.lengthMeters));
+				engine.render(1);
+				this.applyTransportUnitYawOffset(entity);
+			}
 		}
 		throw new Error(`路线 ${entity.routeId} 没有足够空间安全投放 ${entity.palletId}，请降低初始数量或增加缓存。`);
 	}
@@ -388,6 +412,14 @@ export class RouteSlotArrayRuntime {
 				}
 				this.smoothWoodenPalletOrientation(entity, beforeOrientation, deltaSeconds);
 				const snapshot = entity.simulationEngine.getSnapshot();
+				// 闭环实际越过终点返回起点，才能计为托盘复用的一圈。
+				// 合流仲裁的小幅后退、单纯渲染帧变化均不计圈数。
+				if (this.curves.get(entity.routeId)?.loop
+					&& beforeSnapshot.progress > 0.75 && snapshot.progress < 0.25
+					&& snapshot.lengthMeters > 0 && !entity.root.userData.routeCompleted) {
+					entity.root.userData.simulationCompletedLoops = Math.max(0,
+						Number(entity.root.userData.simulationCompletedLoops || 0)) + 1;
+				}
 				entity.currentProgress = snapshot.progress;
 				entity.targetProgress = snapshot.progress;
 				entity.root.userData.routeProgress = snapshot.progress;
@@ -651,11 +683,11 @@ export class RouteSlotArrayRuntime {
 		entity.root.userData.initialPhysicalLaneLayout = true;
 	}
 
-	private applyPhysicalBatchSlot(entity: RouteSlotEntity, point: TwinRouteDefinition['points'][number]) {
+	private applyPhysicalBatchSlot(entity: RouteSlotEntity, point: TwinRouteDefinition['points'][number], laneOrdinal = entity.physicalLaneOrdinal || 0) {
 		const layout = point.process?.batchLayout;
 		if (!layout) return;
 		const columns = Math.max(1, Math.floor(Number(layout.columns) || 6));
-		const ordinal = Math.max(0, Math.min(columns - 1, Number(entity.physicalLaneOrdinal || 0)));
+		const ordinal = Math.max(0, Math.min(columns - 1, Number(laneOrdinal) || 0));
 		// 创建顺序 A0/B0/A1/B1...；0 号托盘放在前端，释放顺序天然是前车先走。
 		const column = columns - 1 - ordinal;
 		const center = new THREE.Vector3(...point.position).add(new THREE.Vector3(...(layout.centerOffset || [0, 0, 0])));
@@ -731,7 +763,21 @@ export class RouteSlotArrayRuntime {
 				const batchIndex = batchIds.indexOf(entity.palletId);
 				this.applyStationBatchSlot(entity, point, batchIndex >= 0 ? batchIndex : 0);
 			} else {
-				this.applyPhysicalBatchSlot(entity, point);
+				// 物理离站必须沿用本批次预约时的 A/B 排内顺序，不能再次使用
+				// palletId 生成时的终身序号。108 个循环托盘的预约顺序
+				// 与初始 ordinal 不同：如果释放时复位成旧槽位，会直接压到
+				// 同批其他托盘（实测 B 排 SIM-4 与 SIM-10 中心完全重叠）。
+				const batchLaneIds = batchIds.filter((palletId) => [...this.entities.values()].some(
+					(other) => other.palletId === palletId && other.physicalLane === entity.physicalLane));
+				const batchLaneOrdinal = batchLaneIds.indexOf(entity.palletId);
+				if (batchLaneOrdinal >= 0 && point.process?.batchLayout) {
+					const columns = Math.max(1, Math.floor(Number(point.process.batchLayout.columns) || 6));
+					if (batchLaneOrdinal >= columns) {
+						this.reportError?.(`托盘 ${entity.palletId} 释放排内序号超出 ${columns} 列容量，已阻止回退到旧槽位`);
+						return;
+					}
+					this.applyPhysicalBatchSlot(entity, point, batchLaneOrdinal);
+				} else this.applyPhysicalBatchSlot(entity, point);
 			}
 			const outgoingCandidates = entity.simulationRoute.edges
 				.filter((edge) => edge.enabled !== false && edge.fromPointId === point.pointId)
@@ -1346,7 +1392,21 @@ export class RouteSlotArrayRuntime {
 			if (released) return;
 			if ((activeIndex >= 0 || waitingIndex >= 0) && point.process?.batchLayout && entity.physicalLane) {
 				if (point.process.type === 'gantry-stacking') this.applyStationBatchSlot(entity, point, activeIndex >= 0 ? activeIndex : waitingIndex);
-				else this.applyPhysicalBatchSlot(entity, point);
+				else {
+					// 托盘编号属于终身库存号，不等于当前工序的批次序号。
+					// 108 个循环托盘第二批起必然有 ordinal>=6；沿用库存序号
+					// 会把所有后来的托盘钉到同一上料槽，造成重叠和假死锁。
+					const memberIds = activeIndex >= 0 ? activeIds : waitingIds;
+					const laneMembers = memberIds.filter((id) => [...this.entities.values()].some(
+						(other) => other.palletId === id && other.physicalLane === entity.physicalLane));
+					const batchOrdinal = laneMembers.indexOf(entity.palletId);
+					const columns = Math.max(1, Math.floor(Number(point.process.batchLayout.columns) || 6));
+					if (batchOrdinal >= columns) {
+						this.applyLinearBatchQueueSlot(entity, route, point, batchOrdinal - columns + 1);
+						return;
+					}
+					this.applyPhysicalBatchSlot(entity, point, Math.max(0, batchOrdinal));
+				}
 				entity.root.userData.stationBatchVisual = true;
 				entity.root.userData.stationQueueIndex = activeIndex >= 0 ? activeIndex : waitingIndex;
 				return;
@@ -1480,6 +1540,8 @@ export class RouteSlotArrayRuntime {
 			visiblePlasticPallets: plastic.filter((entity) => entity.root.visible).length,
 			uniquePlasticPositions: uniquePositions(plastic),
 			woodenPallets: wooden.length,
+			completedPlasticLoops: plastic.reduce((sum, entity) => sum + Math.max(0, Number(entity.root.userData.simulationCompletedLoops) || 0), 0),
+			reusedPlasticPallets: plastic.filter((entity) => Number(entity.root.userData.simulationCompletedLoops) > 0).length,
 		};
 	}
 
@@ -1509,6 +1571,7 @@ export class RouteSlotArrayRuntime {
 				currentEdgeId: entity.simulationEngine!.getSnapshot().currentEdgeId,
 				position: entity.root.position.toArray() as [number, number, number],
 				activeProcessComponentObjectId: entity.simulationProcess?.getSnapshot().activeComponentObjectId,
+				completedLoops: Math.max(0, Number(entity.root.userData.simulationCompletedLoops) || 0),
 			}));
 	}
 

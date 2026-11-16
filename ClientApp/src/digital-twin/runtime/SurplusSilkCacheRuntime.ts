@@ -39,7 +39,8 @@ export class SurplusSilkCacheRuntime {
   private active?: MotionJob;
   private readonly base: THREE.Vector3;
   private readonly standby: THREE.Vector3;
-  private readonly pickup: THREE.Vector3;
+  private readonly storePickup: THREE.Vector3;
+  private readonly reuseDrop: THREE.Vector3;
   private readonly inbound: THREE.Vector3;
   private readonly outbound: THREE.Vector3;
   private readonly armUpper: THREE.Mesh;
@@ -61,9 +62,26 @@ export class SurplusSilkCacheRuntime {
     this.store = new SurplusSilkCacheStore(slotMetadata.map(slot => slot.slotId));
     handoff.updateWorldMatrix(true, false);
     robot.updateWorldMatrix(true, false);
-    this.pickup = handoff.localToWorld(new THREE.Vector3(0, 1.12, 0));
-    this.inbound = handoff.localToWorld(new THREE.Vector3(-2.15, 1.12, 0));
-    this.outbound = handoff.localToWorld(new THREE.Vector3(-2.15, 1.12, 0));
+    const handoffProperties = handoff.userData.properties as Record<string, unknown> | undefined;
+    const laneSpacing = Number(handoffProperties?.laneSpacing);
+    const handoffLength = Number(handoffProperties?.length);
+    if (handoff.userData.laneCount !== 2 || handoff.userData.parallelLanes !== true
+      || !handoff.getObjectByName('DoubleSmall-Lane-A')
+      || !handoff.getObjectByName('DoubleSmall-Lane-B')
+      || handoffProperties?.laneAReverse !== false || handoffProperties?.laneBReverse !== true
+      || !Number.isFinite(laneSpacing) || laneSpacing < 1.63
+      || !Number.isFinite(handoffLength) || handoffLength < 4) {
+      throw new Error('机器人交接必须是物理双排辊道：内排 A 向右，外排 B 向左；单条辊道禁止仿真');
+    }
+    // The inner lane (-Z) receives surplus from the west. The outer lane (+Z)
+    // returns reused silk west, so the robot uses separate physical handoff spots.
+    const laneA = -laneSpacing / 2;
+    const laneB = laneSpacing / 2;
+    const leftEnd = -handoffLength / 2;
+    this.storePickup = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneA));
+    this.reuseDrop = handoff.localToWorld(new THREE.Vector3(0, 1.12, laneB));
+    this.inbound = handoff.localToWorld(new THREE.Vector3(leftEnd, 1.12, laneA));
+    this.outbound = handoff.localToWorld(new THREE.Vector3(leftEnd, 1.12, laneB));
     this.base = robot.localToWorld(new THREE.Vector3(0, 1.2, 0));
     this.standby = robot.localToWorld(new THREE.Vector3(0, 2.8, 0));
     this.root.name = 'Simulation-Surplus-Silk-Cache-100-Slots';
@@ -138,7 +156,7 @@ export class SurplusSilkCacheRuntime {
     if (step.completion === 'grab') job.carrying = true;
     if (step.completion === 'release') {
       job.carrying = false;
-      job.model.position.copy(job.kind === 'store' ? this.slots.get(job.slotId)! : this.pickup);
+      job.model.position.copy(job.kind === 'store' ? this.slots.get(job.slotId)! : this.reuseDrop);
       if (job.kind === 'store') {
         this.store.commitStored(job.slotId, job.bobbin.bobbinId);
         this.completedStores++;
@@ -167,6 +185,10 @@ export class SurplusSilkCacheRuntime {
       } : null,
       completedStores: this.completedStores,
       completedReuses: this.completedReuses,
+      handoffLanes: {
+        laneA: { direction: 'east', inbound: this.inbound.toArray(), robot: this.storePickup.toArray() },
+        laneB: { direction: 'west', robot: this.reuseDrop.toArray(), outbound: this.outbound.toArray() },
+      },
       events: [...this.events],
     };
   }
@@ -188,12 +210,12 @@ export class SurplusSilkCacheRuntime {
   }
 
   private createStoreJob(slotId: string, bobbin: SurplusSilkBobbin, slot: THREE.Vector3, model: THREE.Group): MotionJob {
-    const pickGrip = this.pickup.clone().add(new THREE.Vector3(0, 0.32, 0));
-    const pickAbove = this.pickup.clone().setY(Math.max(3.8, slot.y + 1.6));
+    const pickGrip = this.storePickup.clone().add(new THREE.Vector3(0, 0.32, 0));
+    const pickAbove = this.storePickup.clone().setY(Math.max(3.8, slot.y + 1.6));
     const slotGrip = slot.clone().add(new THREE.Vector3(0, 0.32, 0));
     const slotAbove = slotGrip.clone().setY(pickAbove.y);
     const steps: MotionStep[] = [
-      { phase:'conveyor-in', duration:1.3, gripperFrom:this.standby, gripperTo:this.standby, bobbinFrom:this.inbound, bobbinTo:this.pickup },
+      { phase:'conveyor-in', duration:1.3, gripperFrom:this.standby, gripperTo:this.standby, bobbinFrom:this.inbound, bobbinTo:this.storePickup },
       { phase:'approach', duration:0.8, gripperFrom:this.standby, gripperTo:pickGrip },
       { phase:'grab', duration:0.2, gripperFrom:pickGrip, gripperTo:pickGrip, completion:'grab' },
       { phase:'lift', duration:0.8, gripperFrom:pickGrip, gripperTo:pickAbove, carrying:true },
@@ -206,8 +228,8 @@ export class SurplusSilkCacheRuntime {
   }
 
   private createReuseJob(slotId: string, bobbin: SurplusSilkBobbin, targetTaskNo: string, slot: THREE.Vector3, model: THREE.Group): MotionJob {
-    const pickGrip = this.pickup.clone().add(new THREE.Vector3(0, 0.32, 0));
-    const pickAbove = this.pickup.clone().setY(Math.max(3.8, slot.y + 1.6));
+    const pickGrip = this.reuseDrop.clone().add(new THREE.Vector3(0, 0.32, 0));
+    const pickAbove = this.reuseDrop.clone().setY(Math.max(3.8, slot.y + 1.6));
     const slotGrip = slot.clone().add(new THREE.Vector3(0, 0.32, 0));
     const slotAbove = slotGrip.clone().setY(pickAbove.y);
     const steps: MotionStep[] = [
@@ -219,7 +241,7 @@ export class SurplusSilkCacheRuntime {
       {phase:'lower',duration:0.8,gripperFrom:pickAbove,gripperTo:pickGrip,carrying:true},
       {phase:'release',duration:0.2,gripperFrom:pickGrip,gripperTo:pickGrip,carrying:true,completion:'release'},
       {phase:'retract',duration:0.6,gripperFrom:pickGrip,gripperTo:this.standby},
-      {phase:'conveyor-out',duration:1.3,gripperFrom:this.standby,gripperTo:this.standby,bobbinFrom:this.pickup,bobbinTo:this.outbound,completion:'out'},
+      {phase:'conveyor-out',duration:1.3,gripperFrom:this.standby,gripperTo:this.standby,bobbinFrom:this.reuseDrop,bobbinTo:this.outbound,completion:'out'},
     ];
     return {kind:'reuse',slotId,bobbin,targetTaskNo,model,steps,stepIndex:0,elapsed:0,carrying:false};
   }

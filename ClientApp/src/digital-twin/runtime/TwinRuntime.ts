@@ -13,6 +13,9 @@ import { upgradeSilkPackagingLayout } from '/@/digital-twin/runtime/SilkPackagin
 import { upgradeReferencePackagingLineLayout } from '/@/digital-twin/presets/ReferencePackagingLineManifest';
 import { TwinMaterialFlowRuntime } from '/@/digital-twin/runtime/TwinMaterialFlowRuntime';
 import { RouteSlotArrayRuntime } from '/@/digital-twin/runtime/RouteSlotArrayRuntime';
+import { SurplusSilkCacheRuntime } from '/@/digital-twin/runtime/SurplusSilkCacheRuntime';
+import type { SurplusSilkBobbin } from '/@/digital-twin/runtime/SurplusSilkCacheStore';
+import { inspectStudioV2PhysicalRoutes } from '/@/digital-twin/runtime/StudioV2PhysicalRouteGuard';
 import { ComponentProcessRuntime } from '/@/digital-twin/runtime/ComponentProcessRuntime';
 import { BehaviorRuntime } from '/@/digital-twin/runtime/BehaviorRuntime';
 import { SceneActionFlowRuntime } from '/@/digital-twin/action-flow/runtime/SceneActionFlowRuntime';
@@ -97,6 +100,8 @@ export interface TwinRuntimeMetrics extends TwinRouteEngineSnapshot {
 		visiblePlasticPallets: number;
 		uniquePlasticPositions: number;
 		woodenPallets: number;
+		completedPlasticLoops?: number;
+		reusedPlasticPallets?: number;
 	};
 	silkLine?: {
 		onlinePallets: number;
@@ -186,6 +191,7 @@ export class TwinRuntime {
 	private routeEngine: RouteEngine;
 	private readonly materialFlowRuntime: TwinMaterialFlowRuntime;
 	private readonly routeSlotArrayRuntime: RouteSlotArrayRuntime;
+	private surplusCache?: SurplusSilkCacheRuntime;
 	private packagingLine?: ProceduralPackagingLine;
 	private componentProcessRuntime?: ComponentProcessRuntime;
 	private behaviorRuntime?: BehaviorRuntime | SceneActionFlowRuntime;
@@ -327,10 +333,21 @@ export class TwinRuntime {
 
 	setRunning(running: boolean) {
 		if (running && this.actionFlowCompileError) { this.events.onError?.(this.actionFlowCompileError); return; }
+		if (running && this.manifest.runtime.dataMode === 'simulation') {
+			const missingPhysicalRoutes = inspectStudioV2PhysicalRoutes(this.manifest);
+			if (missingPhysicalRoutes.length) {
+				// Already-running paths must also be stopped: a failed restart or live
+				// scene revision cannot leave the old RouteSlot engine moving.
+				this.setRunning(false);
+				this.events.onError?.(`物理辊道安全互锁：${missingPhysicalRoutes[0]}；共 ${missingPhysicalRoutes.length} 项，修复前禁止启动仿真。`);
+				return;
+			}
+		}
 		if (running && this.behaviorRuntime instanceof SceneActionFlowRuntime && this.behaviorRuntime.getFault()) {
 			this.events.onError?.('动作流故障保持中，请排除原因后整线复位，不能只启动输送路线。'); return;
 		}
 		this.runtimeRunning = running;
+		this.surplusCache?.setRunning(running && !this.componentTestObjectId);
 		if (this.componentTestObjectId) {
 			this.routeSlotArrayRuntime.setRunning(false);
 			this.componentProcessRuntime?.setRunning(false);
@@ -349,6 +366,8 @@ export class TwinRuntime {
 		this.packagingLine?.setRunning(running);
 		this.behaviorRuntime?.setRunning(running);
 	}
+
+	isRunning() { return this.runtimeRunning; }
 
 	setComponentTestObject(objectId?: string) {
 		this.componentTestObjectId = objectId?.trim() || undefined;
@@ -551,7 +570,20 @@ export class TwinRuntime {
 			componentProcesses: this.componentProcessRuntime?.getSnapshot(),
 			behaviors: this.behaviorRuntime?.getSnapshot(),
 			actuators: this.actuatorRuntime.getSnapshot(),
+			surplusSilkCache: this.surplusCache?.snapshot(),
 		};
+	}
+
+	/** 仅用于本地 Simulation：明确提交桁架结批真实余丝属性，不发送 PLC/MES 指令。 */
+	queueSurplusBobbin(bobbin: SurplusSilkBobbin) {
+		if (this.manifest.runtime.dataMode !== 'simulation' || !this.surplusCache) throw new Error('当前场景不支持隔离余丝缓存仿真');
+		return this.surplusCache.queueStore(bobbin);
+	}
+
+	/** 仅在已有同批号占用杆位时预约取回；不凭空产生新丝锭。 */
+	queueSurplusReuse(batchNo: string, targetTaskNo: string) {
+		if (this.manifest.runtime.dataMode !== 'simulation' || !this.surplusCache) throw new Error('当前场景不支持隔离余丝复用仿真');
+		return this.surplusCache.queueReuse(batchNo, targetTaskNo);
 	}
 
 	getActuatorSnapshot() {
@@ -682,6 +714,8 @@ export class TwinRuntime {
 		this.bindingEngine.dispose();
 		this.actuatorRuntime.dispose();
 		this.routeSlotArrayRuntime.dispose();
+		this.surplusCache?.dispose();
+		this.surplusCache = undefined;
 		this.behaviorRuntime?.dispose();
 		this.behaviorRuntime = undefined;
 		this.componentProcessRuntime?.dispose();
@@ -714,6 +748,7 @@ export class TwinRuntime {
 				this.actuatorRuntime.tick(this.fixedStep, this.runtimeRunning);
 			}
 			this.routeSlotArrayRuntime.tick(this.fixedStep);
+			if (!this.componentTestObjectId) this.surplusCache?.tick(this.fixedStep);
 			const allowRouteStep = this.componentProcessRuntime?.updateFixed(this.fixedStep) ?? true;
 			if (allowRouteStep) this.routeEngine.updateFixed(this.fixedStep);
 			this.packagingLine?.updateFixed(this.fixedStep);
@@ -897,6 +932,8 @@ export class TwinRuntime {
 	}
 
 	private rebuildComponents() {
+		this.surplusCache?.dispose();
+		this.surplusCache = undefined;
 		this.behaviorRuntime?.dispose();
 		this.behaviorRuntime = undefined;
 		this.componentProcessRuntime?.dispose();
@@ -937,6 +974,19 @@ export class TwinRuntime {
 		}
 		this.rebuildComponentProcessRuntime();
 		this.rebuildBehaviorRuntime();
+		if (this.manifest.runtime.dataMode === 'simulation') {
+			const rack = this.componentModels.get('studio-v2-surplus-silk-arc-rack')?.root;
+			const handoff = this.componentModels.get('studio-v2-surplus-silk-handoff-roller')?.root;
+			const robot = this.componentModels.get('reference-center-robot')?.root;
+			if (rack && handoff && robot) {
+				try {
+					this.surplusCache = new SurplusSilkCacheRuntime(this.scene, rack, handoff, robot);
+					this.surplusCache.setRunning(this.runtimeRunning && !this.componentTestObjectId);
+				} catch (error) {
+					this.events.onError?.('余丝缓存运行时初始化失败：' + (error instanceof Error ? error.message : String(error)));
+				}
+			}
+		}
 	}
 
 	private rebuildBehaviorRuntime() {

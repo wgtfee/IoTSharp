@@ -58,14 +58,28 @@ export class RollerConveyorComponent implements TwinComponentGenerator {
 				localDirection: [1, 0, 0],
 			},
 		];
-		const transportUnitType = props.transportUnitType === 'carton' ? 'carton' : props.transportUnitType === 'wooden-pallet' ? 'wooden-pallet' : 'plastic-pallet';
+		// Optional side input, only when this real roller is configured as a physical merge.
+const sideMergeX = props.sideMergeInlet === true ? -length / 2 + 0.25 : undefined;
+if (sideMergeX !== undefined) {
+    ports.push({
+        portId: 'side-input', name: '侧向汇流入口', type: 'material-bidirectional',
+        localPosition: [sideMergeX, height, 0], localDirection: [0, 0, -1],
+        metadata: { routeTap: true, conveyorSizeClass: sizeClass, transportUnitType: 'plastic-pallet' },
+    });
+    root.userData.sideMergeInlet = true;
+}
+const transportUnitType = props.transportUnitType === 'carton' ? 'carton' : props.transportUnitType === 'wooden-pallet' ? 'wooden-pallet' : 'plastic-pallet';
 		const internalFlows: TwinComponentInternalFlowDefinition[] = [{
 			flowId: 'main', name: '内置直线输送路线', conveyorSizeClass: sizeClass, transportUnitType,
 			points: [
 				{ pointId: 'input', name: '入口', localPosition: [-length / 2, height, 0], kind: 'buffer', portId: 'input' },
 				{ pointId: 'output', name: '出口', localPosition: [length / 2, height, 0], kind: 'buffer', portId: 'output' },
+                ...(sideMergeX === undefined ? [] : [{ pointId: 'side-input', name: '侧向汇流入口', localPosition: [sideMergeX, height, 0] as [number, number, number], kind: 'merger' as const, portId: 'side-input' }]),
 			],
-			edges: [{ edgeId: 'through', fromPointId: 'input', toPointId: 'output', name: '辊道内部输送', capacity: Number(props.capacity || 4), speedLimit: Number(props.speedLimit || 1.2) }],
+			edges: [
+                { edgeId: 'through', fromPointId: 'input', toPointId: 'output', name: '辊道内部输送', capacity: Number(props.capacity || 4), speedLimit: Number(props.speedLimit || 1.2) },
+                ...(sideMergeX === undefined ? [] : [{ edgeId: 'side-merge-through', fromPointId: 'side-input', toPointId: 'output', name: '侧向汇流接入', capacity: Number(props.capacity || 4), speedLimit: Number(props.speedLimit || 1.2) }]),
+            ],
 		}];
 		applyComponentIdentity(root, definition.objectId, this.componentType, definition.sectionId);
 		root.userData.generator = this.generator;

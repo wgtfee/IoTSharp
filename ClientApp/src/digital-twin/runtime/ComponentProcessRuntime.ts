@@ -60,6 +60,9 @@ export class ComponentProcessRuntime {
 	private stationManager = new ProcessStationManager([]);
 	private active?: ActiveProcess;
 	private readonly processed = new Set<string>();
+	/** 闭环 Simulation 中的已有空托盘从沿线缓存区开始，
+	 * 第一圈只能回流到机器人，不能被当作已装料托盘执行下游工序。 */
+	private seedEmptyUntilFirstLoop = false;
 	private requestedRunning = false;
 	private previousDistance = 0;
 	private readonly entityId: string;
@@ -76,6 +79,7 @@ export class ComponentProcessRuntime {
 		this.route = structuredClone(route);
 		this.active = undefined;
 		this.processed.clear();
+		this.seedEmptyUntilFirstLoop = false;
 		this.previousDistance = 0;
 		this.rebuild();
 	}
@@ -85,10 +89,18 @@ export class ComponentProcessRuntime {
 		if (!this.active) this.options.routeEngine.setRunning(running);
 	}
 
+	seedEmptyCirculatingPallet() {
+		if (this.route.loop && this.options.dataMode === 'simulation') {
+			this.seedEmptyUntilFirstLoop = true;
+			this.previousDistance = this.options.routeEngine.getSnapshot().distanceMeters;
+		}
+	}
+
 	reset() {
 		this.requestedRunning = false;
 		this.active = undefined;
 		this.processed.clear();
+		this.seedEmptyUntilFirstLoop = false;
 		this.previousDistance = 0;
 		this.stationManager.reset();
 		this.resetProcessMetadata();
@@ -108,8 +120,17 @@ export class ComponentProcessRuntime {
 		const completedLoop = this.route.loop && routeSnapshot.lengthMeters > 0
 			&& this.previousDistance > routeSnapshot.lengthMeters * 0.75
 			&& routeSnapshot.distanceMeters < routeSnapshot.lengthMeters * 0.25;
-		if (completedLoop) this.processed.clear();
+		if (completedLoop) {
+			this.processed.clear();
+			if (this.seedEmptyUntilFirstLoop) {
+				this.seedEmptyUntilFirstLoop = false;
+				// 路线过圈后的微小位移修正，不绕过工位和碰撞检查。
+				if (routeSnapshot.distanceMeters <= routeSnapshot.speed * Math.max(deltaSeconds, 0) + 0.001)
+					this.options.routeEngine.correctDistance(0);
+			}
+		}
 		this.previousDistance = routeSnapshot.distanceMeters;
+		if (this.seedEmptyUntilFirstLoop) return true;
 
 		if (this.active) {
 			this.updateActive(deltaSeconds);
