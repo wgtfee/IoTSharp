@@ -1,0 +1,71 @@
+{
+  "host": "http://127.0.0.1:5173",
+  "source": "SQL Server V2 Draft r8 readback (real database)",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-r8-sql-readback-edge\\studio-v2-r8-bagging-merge-up-physical-rollers.png"
+  ],
+  "errors": [],
+  "legacyPhysicalViolationCount": 10,
+  "candidatePhysicalViolationCount": 0,
+  "legacySimulationBlocked": true,
+  "correctedSimulationRunning": true,
+  "rollers": [
+    {
+      "id": "studio-v2-bag-a-infeed-roller",
+      "exists": true,
+      "position": [
+        19.1,
+        0,
+        -12.9
+      ],
+      "length": 1.8000000000000007
+    },
+    {
+      "id": "studio-v2-bag-a-outfeed-roller",
+      "exists": true,
+      "position": [
+        9.3,
+        0,
+        -12.9
+      ],
+      "length": 5.000000000000001
+    },
+    {
+      "id": "studio-v2-bag-b-infeed-roller",
+      "exists": true,
+      "position": [
+        18.85,
+        0,
+        -5.5
+      ],
+      "length": 2.3000000000000007
+    },
+    {
+      "id": "studio-v2-bag-b-outfeed-roller",
+      "exists": true,
+      "position": [
+        9.05,
+        0,
+        -5.5
+      ],
+      "length": 4.500000000000001
+    },
+    {
+      "id": "studio-v2-post-bag-top-west-roller",
+      "exists": true,
+      "position": [
+        5.85,
+        0,
+        -17.7
+      ],
+      "length": 1.9
+    }
+  ],
+  "structureErrors": [],
+  "warningCount": 72,
+  "sampleCount": 23,
+  "minimumCenterDistanceMeters": 1.499999999999961,
+  "maxOverlapPairs": 0,
+  "palletIdentityStable": true,
+  "passed": true
+}
