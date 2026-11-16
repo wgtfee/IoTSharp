@@ -987,10 +987,11 @@ export class TwinRuntime {
 		if (this.manifest.runtime.dataMode === 'simulation') {
 			const rack = this.componentModels.get('studio-v2-surplus-silk-arc-rack')?.root;
 			const handoff = this.componentModels.get('studio-v2-surplus-silk-handoff-roller')?.root;
+			const emptyReturn = this.componentModels.get('studio-v2-surplus-silk-empty-return-roller')?.root;
 			const robot = this.componentModels.get('reference-center-robot')?.root;
-			if (rack && handoff && robot) {
+			if (rack && handoff && emptyReturn && robot) {
 				try {
-					this.surplusCache = new SurplusSilkCacheRuntime(this.scene, rack, handoff, robot);
+					this.surplusCache = new SurplusSilkCacheRuntime(this.scene, rack, handoff, emptyReturn, robot);
 					this.surplusCache.setRunning(this.runtimeRunning && !this.componentTestObjectId);
 				} catch (error) {
 					this.events.onError?.('余丝缓存运行时初始化失败：' + (error instanceof Error ? error.message : String(error)));
