@@ -1,0 +1,1536 @@
+{
+  "host": "http://127.0.0.1:5173",
+  "source": "SQL Server Studio V2 Draft r11 exact readback",
+  "shots": [
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-small-pallet-r11-sql-edge\\01-green-small-pallet-route-blue-above-red-below.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-small-pallet-r11-sql-edge\\02-real-green-small-pallet-loaded-blue-upper.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-small-pallet-r11-sql-edge\\03-robot-grabs-silk-green-small-pallet-becomes-empty.png",
+    "H:\\code\\Industrial.Platform\\IoTSharp-master\\ClientApp\\.tmp-studio-v2-cache-small-pallet-r11-sql-edge\\04-green-small-pallet-red-lower-return-waits-at-left-downward-line.png"
+  ],
+  "events": [
+    {
+      "state": "picked",
+      "carrier": {
+        "palletId": "R11-ISOLATED-TEST-CARRIER",
+        "state": "empty-return",
+        "materialState": "empty",
+        "position": [
+          -3.9766666666666666,
+          0.9,
+          -8.15
+        ],
+        "previewOnly": true,
+        "requiresDownstreamAcceptance": false
+      }
+    }
+  ],
+  "errors": [],
+  "init": {
+    "oldBlocked": true,
+    "oldViolations": [
+      "Studio V2 物理输送：缓存机器人下必须有真正的双排小辊道，内排 A 向右、外排 B 向左；单条双向辊道禁止运行",
+      "Studio V2 物理输送：蓝箭头下方红色空托回流必须向左接入内侧竖向回流道，再向下；不得在机器人旁边断头",
+      "Studio V2 物理输送：缓存交接必须含 A 载丝向右、实体 U 折返、蓝箭头下方 B 空托向左、左侧下行的连续单向路径（7 点6边）"
+    ],
+    "violations": [],
+    "errors": [],
+    "turnPresent": true,
+    "physicalTurnRollers": true,
+    "structureErrors": [],
+    "warnings": 77,
+    "running": true,
+    "mainCount": 108
+  },
+  "geometry": {
+    "leftTapPortConfigured": true,
+    "doubleCenter": [
+      -7,
+      0,
+      -7.2
+    ],
+    "doubleLength": 11.4,
+    "blueZ": -8.15,
+    "redZ": -6.25,
+    "physicalConnections": 1
+  },
+  "palletGeometry": {
+    "exists": true,
+    "variant": "small-pallet",
+    "resourceKey": "builtin-small-pallet",
+    "type": "plastic-pallet",
+    "greenRoundBase": true,
+    "supportSeat": true,
+    "locatingPost": true,
+    "brownSquareDeck": false,
+    "carrierPosition": [
+      -12.693313885585942,
+      0.9,
+      -8.15
+    ]
+  },
+  "trace": [
+    {
+      "step": 0,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.5333333333333314,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 12,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.2533333333333303,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 24,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.973333333333329,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 36,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.693333333333328,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 48,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.413333333333327,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 60,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.1333333333333258,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 72,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.8533333333333246,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 84,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.5733333333333235,
+        0.9,
+        -8.15
+      ]
+    },
+    {
+      "step": 96,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.2933476071783985,
+        0.9,
+        -8.149563979138465
+      ]
+    },
+    {
+      "step": 108,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.0180109391628789,
+        0.9,
+        -8.105371513098822
+      ]
+    },
+    {
+      "step": 120,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.7671273165950196,
+        0.9,
+        -7.984054842824943
+      ]
+    },
+    {
+      "step": 132,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.5616078213181003,
+        0.9,
+        -7.795762245875291
+      ]
+    },
+    {
+      "step": 144,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.41965512500607755,
+        0.9,
+        -7.555715159277304
+      ]
+    },
+    {
+      "step": 156,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.35552817855482566,
+        0.9,
+        -7.284343705952941
+      ]
+    },
+    {
+      "step": 168,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.3720196415321863,
+        0.9,
+        -7.006159010875987
+      ]
+    },
+    {
+      "step": 180,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.4677275338540654,
+        0.9,
+        -6.74436210303634
+      ]
+    },
+    {
+      "step": 192,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.6356764697680511,
+        0.9,
+        -6.521734453971444
+      ]
+    },
+    {
+      "step": 204,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -0.8620836752093073,
+        0.9,
+        -6.358988221594883
+      ]
+    },
+    {
+      "step": 216,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.1255386355740766,
+        0.9,
+        -6.26816479450456
+      ]
+    },
+    {
+      "step": 228,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.4042839737721533,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 240,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.6842839737721544,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 252,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -1.9642839737721556,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 264,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.2442839737721565,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 276,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.5242839737721576,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 288,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -2.8042839737721588,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 300,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.08428397377216,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 312,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.364283973772161,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 324,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.644283973772162,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 336,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -3.9242839737721633,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 348,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.2042839737721645,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 360,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.484283973772166,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 372,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -4.764283973772167,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 384,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.044283973772168,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 396,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.324283973772169,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 408,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.60428397377217,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 420,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -5.884283973772171,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 432,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.164283973772172,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 444,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.4442839737721735,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 456,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -6.724283973772175,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 468,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -7.004283973772176,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 480,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -7.284283973772177,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 492,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -7.564283973772178,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 504,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -7.844283973772179,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 516,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -8.12428397377218,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 528,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -8.40428397377218,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 540,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -8.684283973772182,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 552,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -8.964283973772183,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 564,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -9.244283973772184,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 576,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -9.524283973772185,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 588,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -9.804283973772186,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 600,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -10.084283973772187,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 612,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -10.364283973772189,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 624,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -10.64428397377219,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 636,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -10.92428397377219,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 648,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -11.204283973772192,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 660,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -11.484283973772193,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 672,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -11.764283973772194,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 684,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -12.044283973772195,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 696,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -12.324283973772197,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 708,
+      "state": "empty-return",
+      "material": "empty",
+      "position": [
+        -12.604283973772198,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 720,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 732,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 744,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 756,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 768,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 780,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 792,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 804,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 816,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 828,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 840,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 852,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 864,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 876,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 888,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 900,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 912,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 924,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 936,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 948,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 960,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 972,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 984,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 996,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1008,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1020,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1032,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1044,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1056,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1068,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1080,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1092,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1104,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1116,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1128,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1140,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1152,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1164,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1176,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    },
+    {
+      "step": 1188,
+      "state": "awaiting-empty-return-acceptance",
+      "material": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ]
+    }
+  ],
+  "end": {
+    "capacity": 100,
+    "occupied": 1,
+    "reservedIn": 0,
+    "reservedOut": 0,
+    "free": 99,
+    "slots": [
+      {
+        "slotId": "L01-C01",
+        "state": "occupied",
+        "bobbin": {
+          "bobbinId": "R11-EXAMPLE-BOBBIN",
+          "batchNo": "R11-BATCH",
+          "originalTaskNo": "R11-GANTRY-BATCH"
+        }
+      },
+      {
+        "slotId": "L01-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L01-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L02-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L03-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L04-C20",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C01",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C02",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C03",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C04",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C05",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C06",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C07",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C08",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C09",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C10",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C11",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C12",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C13",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C14",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C15",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C16",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C17",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C18",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C19",
+        "state": "empty"
+      },
+      {
+        "slotId": "L05-C20",
+        "state": "empty"
+      }
+    ],
+    "running": true,
+    "queued": 0,
+    "active": null,
+    "completedStores": 1,
+    "completedReuses": 0,
+    "carrier": {
+      "palletId": "R11-ISOLATED-TEST-CARRIER",
+      "state": "awaiting-empty-return-acceptance",
+      "materialState": "empty",
+      "position": [
+        -12.7,
+        0.9,
+        -6.25
+      ],
+      "previewOnly": true,
+      "requiresDownstreamAcceptance": true
+    },
+    "handoffLanes": {
+      "laneA": {
+        "direction": "east",
+        "inbound": [
+          -12.7,
+          1.7999999999999998,
+          -8.15
+        ],
+        "robot": [
+          -4,
+          1.7999999999999998,
+          -8.15
+        ]
+      },
+      "laneB": {
+        "direction": "west",
+        "purpose": "empty-pallet-only"
+      }
+    },
+    "events": [
+      "余丝入库预约 R11-EXAMPLE-BOBBIN / L01-C01 / R11-BATCH",
+      "机器人完成抓丝：原托盘变空，右行折返后进入 B 排空托回流",
+      "入库完成 R11-EXAMPLE-BOBBIN → L01-C01",
+      "空托盘 R11-ISOLATED-TEST-CARRIER 到达 B 排左出口，等待外部空流道真实接收确认"
+    ]
+  },
+  "seenPhysicalUTurn": true,
+  "seenEmptyBWestbound": true,
+  "main108Unchanged": true,
+  "nextPalletRejectedUntilAck": true,
+  "wrongPalletAckRejected": true,
+  "acknowledgedRemovalByExplicitSimulationCommand": true,
+  "passed": true
+}
