@@ -9,7 +9,7 @@
 		>
 			<template #actions>
 				<el-button type="primary" @click="refreshDevices">刷新列表</el-button>
-				<el-button @click="openCustomForm">批量委托规则</el-button>
+				<el-button v-if="canManageDevices" @click="openCustomForm">批量委托规则</el-button>
 			</template>
 
 			<div class="device-list-page__card">
@@ -54,6 +54,7 @@ import DeviceDetail from './DeviceDetail.vue';
 import addRules from './addRules.vue';
 import { createDeviceCrudOptions } from '/@/views/iot/devices/deviceCrudOptions';
 import { useUserInfo } from '/@/stores/userInfo';
+import { useMenuApi } from '/@/api/menu';
 
 const selectedItems = ref<any[]>([]);
 const stores = useUserInfo();
@@ -72,6 +73,7 @@ const deviceDetailRef = ref();
 const crudRef = ref();
 const crudBinding = ref();
 const addRulesRef = ref();
+const canManageDevices = ref(false);
 const customerId = route.query.id || userInfos.value.customer.id;
 
 const { crudExpose } = useExpose({ crudRef, crudBinding });
@@ -81,7 +83,8 @@ const { crudOptions } = createDeviceCrudOptions(
 	deviceDetailRef,
 	addRulesRef,
 	selectedItems,
-	deviceOverview
+	deviceOverview,
+	false
 );
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
@@ -138,8 +141,20 @@ const refreshDevices = () => {
 	crudExpose.doRefresh();
 };
 
-onMounted(() => {
-	refreshDevices();
+onMounted(async () => {
+    try {
+        const response = await useMenuApi().getMenuAdmin();
+        canManageDevices.value = response.code === 10000 &&
+            Array.isArray(response.data?.effectivePermissions) &&
+            response.data.effectivePermissions.includes('iot.device.manage');
+    } catch {
+        canManageDevices.value = false;
+    }
+    resetCrudOptions(createDeviceCrudOptions(
+        { expose: crudExpose }, customerId, deviceDetailRef, addRulesRef,
+        selectedItems, deviceOverview, canManageDevices.value
+    ).crudOptions);
+    refreshDevices();
 });
 </script>
 

@@ -528,7 +528,8 @@ namespace IoTSharp.Controllers
         {
             // 先验证目标客户范围，禁止先创建账号再检查归属。
             var customerId = model.CustomerId == Guid.Empty ? User.GetCustomerId() : model.CustomerId;
-            var customer = await _context.Customer.Include(c => c.Tenant).SingleOrDefaultAsync(c => c.Id == customerId);
+            var customer = await _context.Customer.Include(c => c.Tenant)
+                .SingleOrDefaultAsync(c => c.Id == customerId && !c.Deleted);
             if (customer?.Tenant == null)
                 return new ApiResult<LoginResult>(ApiCode.NotFoundCustomer, "请选择有效客户", null);
             var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
@@ -536,6 +537,10 @@ namespace IoTSharp.Controllers
             if (!IoTSharp.Services.Accounts.AccountCreationScope.IsAllowed(systemAdmin, tenantAdmin,
                 User.IsInRole(nameof(UserRole.CustomerAdmin)), User.GetTenantId(), User.GetCustomerId(), customer.Tenant.Id, customer.Id))
                 return new ApiResult<LoginResult>(ApiCode.DoNotAllow, "不允许为其他客户或租户创建用户", null);
+            var requested = await ResolveAccountRolesAsync(
+                model.RoleNames ?? new List<string> { nameof(UserRole.NormalUser) });
+            if (requested.Names is null)
+                return new ApiResult<LoginResult>(requested.Code, requested.Error, null);
 
             await using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -550,21 +555,31 @@ namespace IoTSharp.Controllers
                 if (!result.Succeeded)
                     return new ApiResult<LoginResult>(ApiCode.InValidData, string.Join("; ", result.Errors.Select(e => e.Description)), null);
 
-                var claimsResult = await _userManager.AddClaimsAsync(user, new[]
+                var newClaims = new List<Claim>
                 {
                     new Claim(ClaimTypes.Email, model.Email),
                     new Claim(IoTSharpClaimTypes.Customer, customer.Id.ToString()),
                     new Claim(IoTSharpClaimTypes.Tenant, customer.Tenant.Id.ToString())
-                });
+                };
+                if (!string.IsNullOrWhiteSpace(model.DisplayName))
+                    newClaims.Add(new Claim(ClaimTypes.GivenName, model.DisplayName.Trim()));
+                var claimsResult = await _userManager.AddClaimsAsync(user, newClaims);
                 if (!claimsResult.Succeeded)
                     throw new InvalidOperationException("写入用户归属失败");
-                // 管理员创建普通用户，不切换当前登录账号，也不授予任何管理员角色。
-                var roleResult = await _userManager.AddToRoleAsync(user, nameof(UserRole.NormalUser));
+                // Validate against Identity's catalog and save roles with the
+                // user and customer binding in one database transaction.
+                var roleResult = await _userManager.AddToRolesAsync(user, requested.Names);
                 if (!roleResult.Succeeded)
-                    throw new InvalidOperationException("写入普通用户角色失败");
+                    throw new InvalidOperationException("写入用户角色失败");
                 _context.Add(new Relationship { IdentityUser = user, Customer = customer, Tenant = customer.Tenant });
+                AddUserManagementAudit(user, "USER_CREATED", customer.Tenant.Id,
+                    customer.Id, new { userId = user.Id, customerId = customer.Id,
+                        tenantId = customer.Tenant.Id, afterRoles = requested.Names });
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
+                _logger.LogInformation("User created: actor={Actor}, user={Target}, roles={Roles}",
+                    User.FindFirst(ClaimTypes.NameIdentifier)?.Value, user.Id,
+                    string.Join(",", requested.Names));
                 return new ApiResult<LoginResult>(ApiCode.Success, "Ok", new LoginResult
                 {
                     Code = ApiCode.Success, Succeeded = true, UserName = user.UserName
@@ -577,108 +592,338 @@ namespace IoTSharp.Controllers
             }
         }
 
+        private void AddUserManagementAudit(IdentityUser subject, string action,
+            Guid? tenantId, Guid? customerId, object data)
+        {
+            _context.AuditLog.Add(new AuditLog
+            {
+                TenantId = tenantId, CustomerId = customerId,
+                UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "",
+                UserName = User.Identity?.Name ?? "SystemAdmin",
+                ObjectID = Guid.TryParse(subject.Id, out var id) ? id : Guid.Empty,
+                ObjectName = subject.UserName ?? subject.Id,
+                ObjectType = ObjectType.Unknow,
+                ActionName = action,
+                ActionData = System.Text.Json.JsonSerializer.Serialize(data),
+                ActionResult = "Success",
+                ActiveDateTime = DateTime.UtcNow
+            });
+        }
+        public sealed record AssignableRoleOption(string Name, string DisplayName);
+
+        /// <summary>Assignable roles from real Identity; elevated roles require SystemAdmin.</summary>
+        [HttpGet]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
+        public async Task<IActionResult> AssignableRoles()
+        {
+            var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var catalog = await _context.Roles.AsNoTracking()
+                .Where(r => r.Name != null &&
+                    (systemAdmin || r.Name == nameof(UserRole.NormalUser)))
+                .OrderBy(r => r.Name).Select(r => new { r.Id, r.Name })
+                .ToListAsync();
+            var ids = catalog.Select(r => r.Id).ToArray();
+            var labels = await _context.RoleClaims.AsNoTracking()
+                .Where(c => ids.Contains(c.RoleId) && c.ClaimType == "iotsharp.role.label")
+                .Select(c => new { c.RoleId, c.ClaimValue }).ToListAsync();
+            var options = catalog.Select(r =>
+            {
+                var label = labels.FirstOrDefault(c => c.RoleId == r.Id)?.ClaimValue;
+                if (string.IsNullOrWhiteSpace(label))
+                    label = r.Name switch
+                    {
+                        "SystemAdmin" => "系统管理员",
+                        "TenantAdmin" => "租户管理员",
+                        "CustomerAdmin" => "客户管理员",
+                        "NormalUser" => "普通用户",
+                        "Anonymous" => "匿名访问",
+                        _ => r.Name
+                    };
+                return new AssignableRoleOption(r.Name!, label!);
+            }).ToArray();
+            return Ok(new ApiResult<AssignableRoleOption[]>(ApiCode.Success, "OK", options));
+        }
+
+        /// <summary>Validate a requested complete role set before any Identity mutations.</summary>
+        private async Task<(List<string>? Names, ApiCode Code, string Error)>
+            ResolveAccountRolesAsync(List<string> supplied)
+        {
+            if (supplied is null || supplied.Count is < 1 or > 16 ||
+                supplied.Any(string.IsNullOrWhiteSpace))
+                return (null, ApiCode.InValidData, "请至少选择一个有效角色");
+            var normalized = supplied.Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var catalog = await _context.Roles.AsNoTracking()
+                .Select(r => r.Name).Where(x => x != null).ToListAsync();
+            var available = catalog.ToDictionary(x => x!, StringComparer.OrdinalIgnoreCase);
+            if (normalized.Any(x => !available.ContainsKey(x)))
+                return (null, ApiCode.InValidData, "包含不存在的角色，请刷新角色列表");
+            var selected = normalized.Select(x => available[x]!).ToList();
+            if (!selected.Contains(nameof(UserRole.NormalUser), StringComparer.OrdinalIgnoreCase))
+                return (null, ApiCode.InValidData, "用户需保留普通用户角色才能登录管理平台");
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin)) &&
+                selected.Any(x => !string.Equals(x, nameof(UserRole.NormalUser),
+                    StringComparison.OrdinalIgnoreCase)))
+                return (null, ApiCode.DoNotAllow, "仅系统管理员可分配管理或自定义角色");
+            return (selected, ApiCode.Success, "");
+        }
+
+        public sealed record AssignableCustomerOption(Guid Id, string Name,
+            Guid TenantId, string TenantName);
+
+        /// <summary>返回当前管理员允许绑定的真实客户列表。</summary>
+        [HttpGet]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
+        public async Task<IActionResult> AssignableCustomers()
+        {
+            var admin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var tenantAdmin = User.IsInRole(nameof(UserRole.TenantAdmin));
+            var callerTenant = User.GetTenantId();
+            var callerCustomer = User.GetCustomerId();
+            var query = _context.Customer.AsNoTracking().Include(c => c.Tenant)
+                .Where(c => !c.Deleted && c.Tenant != null);
+            if (!admin)
+            {
+                if (callerTenant == Guid.Empty) return Forbid();
+                query = query.Where(c => c.Tenant.Id == callerTenant);
+                if (!tenantAdmin)
+                {
+                    if (callerCustomer == Guid.Empty) return Forbid();
+                    query = query.Where(c => c.Id == callerCustomer);
+                }
+            }
+            var options = await query.OrderBy(c => c.Name)
+                .Select(c => new AssignableCustomerOption(c.Id, c.Name,
+                    c.Tenant.Id, c.Tenant.Name)).ToArrayAsync();
+            return Ok(new ApiResult<AssignableCustomerOption[]>(ApiCode.Success, "OK", options));
+        }
+
         /// <summary>
         /// 列出指定租户的所有用户。
         /// </summary>
         /// <param name="m"></param>
         /// <returns></returns>
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
         public async Task<ApiResult<PagedData<UserItemDto>>> List([FromQuery] UserQueryDto m)
         {
-            // Relationship remains the source of local business users. IAM-bound users also
-            // carry Customer/Tenant claims and must remain visible even when no legacy
-            // Relationship row exists (the normal pre-provisioned Shadow User shape).
-            var relationshipQuery = m.CustomerId == Guid.Empty
-                ? _context.Relationship.Include(p => p.Tenant).ThenInclude(p => p.Customers).AsEnumerable()
-                : _context.Relationship.Include(p => p.Tenant).ThenInclude(p => p.Customers)
-                    .Where(x => x.Customer.Id == m.CustomerId).AsEnumerable();
-            var localUsers = _context.Users.Join<IdentityUser, Relationship, string, UserItemDto>(relationshipQuery,
-                 t => t.Id, s => s.IdentityUser.Id, (t, s) => new UserItemDto
-                 {
-                     Id = t.Id,
-                     UserName = t.UserName,
-                     Email = t.Email,
-                     PhoneNumber = t.PhoneNumber,
-                     AccessFailedCount = t.AccessFailedCount
-                 ,
-                     LockoutEnabled = t.LockoutEnabled,
-                     LockoutEnd = t.LockoutEnd,
-                     CustomerName = s.Customer.Name,
-                     TenantName = s.Tenant.Name,
-                     UserSource = "Local"
-                 }).ToList();
-
-            var globalBindings = await _context.UserClaims.AsNoTracking()
-                .Where(c => c.ClaimType == IndustrialClaimTypes.GlobalUserId)
-                .ToListAsync();
-            var bindingsByUserId = globalBindings
-                .GroupBy(c => c.UserId)
-                .ToDictionary(g => g.Key, g => g.Select(c => c.ClaimValue).FirstOrDefault());
-
-            foreach (var item in localUsers.Where(x => bindingsByUserId.ContainsKey(x.Id)))
+            var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var tenantAdmin = User.IsInRole(nameof(UserRole.TenantAdmin));
+            var callerTenant = User.GetTenantId();
+            var callerCustomer = User.GetCustomerId();
+            var requestedCustomer = m.CustomerId;
+            if (!systemAdmin)
             {
-                item.UserSource = "IAM";
-                item.IamUserId = bindingsByUserId[item.Id];
-            }
-
-            var scopedCustomer = m.CustomerId == Guid.Empty
-                ? null
-                : await _context.Customer.AsNoTracking().Include(c => c.Tenant)
-                    .SingleOrDefaultAsync(c => c.Id == m.CustomerId);
-            var existingIds = localUsers.Select(x => x.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var binding in globalBindings.Where(x => !existingIds.Contains(x.UserId)))
-            {
-                var user = await _userManager.FindByIdAsync(binding.UserId);
-                if (user is null) continue;
-
-                var claims = await _userManager.GetClaimsAsync(user);
-                var customerValue = claims.FirstOrDefault(c => c.Type == IoTSharpClaimTypes.Customer)?.Value;
-                if (m.CustomerId != Guid.Empty
-                    && !string.Equals(customerValue, m.CustomerId.ToString("D"), StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                localUsers.Add(new UserItemDto
+                if (callerTenant == Guid.Empty)
+                    return new ApiResult<PagedData<UserItemDto>>(ApiCode.DoNotAllow,
+                        "当前账号没有有效租户范围", new PagedData<UserItemDto>());
+                if (requestedCustomer == Guid.Empty && !tenantAdmin)
+                    requestedCustomer = callerCustomer;
+                if (requestedCustomer == Guid.Empty && !tenantAdmin)
+                    return new ApiResult<PagedData<UserItemDto>>(ApiCode.DoNotAllow,
+                        "当前账号没有有效客户范围", new PagedData<UserItemDto>());
+                if (requestedCustomer != Guid.Empty)
                 {
-                    Id = user.Id,
-                    UserName = user.UserName,
-                    Email = user.Email,
-                    PhoneNumber = user.PhoneNumber,
-                    AccessFailedCount = user.AccessFailedCount,
-                    LockoutEnabled = user.LockoutEnabled,
-                    LockoutEnd = user.LockoutEnd,
-                    CustomerName = scopedCustomer?.Name,
-                    TenantName = scopedCustomer?.Tenant?.Name,
-                    UserSource = "IAM",
-                    IamUserId = binding.ClaimValue
+                    var scope = await _context.Customer.AsNoTracking()
+                        .Include(c => c.Tenant)
+                        .SingleOrDefaultAsync(c => c.Id == requestedCustomer && !c.Deleted);
+                    if (scope?.Tenant == null ||
+                        !IoTSharp.Services.Accounts.AccountCreationScope.IsAllowed(
+                            false, tenantAdmin,
+                            User.IsInRole(nameof(UserRole.CustomerAdmin)),
+                            callerTenant, callerCustomer, scope.Tenant.Id, scope.Id))
+                        return new ApiResult<PagedData<UserItemDto>>(ApiCode.DoNotAllow,
+                            "不能查看其他租户或客户用户", new PagedData<UserItemDto>());
+                }
+            }
+            // Every scope and search condition is translated to SQL before paging.
+            // Include local Relationship users and IAM shadow users without
+            // loading all rows or performing a query per IAM account.
+            var query = _context.Users.AsNoTracking().Where(u =>
+                _context.Relationship.Any(r => r.IdentityUser.Id == u.Id) ||
+                _context.UserClaims.Any(c => c.UserId == u.Id &&
+                    c.ClaimType == IndustrialClaimTypes.GlobalUserId));
+            if (requestedCustomer != Guid.Empty)
+            {
+                var requestedCustomerText = requestedCustomer.ToString("D");
+                if (systemAdmin)
+                {
+                    query = query.Where(u =>
+                        _context.Relationship.Any(r =>
+                            r.IdentityUser.Id == u.Id && r.Customer.Id == requestedCustomer) ||
+                        _context.UserClaims.Any(c =>
+                            c.UserId == u.Id &&
+                            c.ClaimType == IoTSharpClaimTypes.Customer &&
+                            c.ClaimValue == requestedCustomerText));
+                }
+                else
+                {
+                    var tenantText = callerTenant.ToString("D");
+                    query = query.Where(u =>
+                        _context.Relationship.Any(r => r.IdentityUser.Id == u.Id &&
+                            r.Customer.Id == requestedCustomer &&
+                            r.Tenant.Id == callerTenant) ||
+                        (_context.UserClaims.Any(c => c.UserId == u.Id &&
+                            c.ClaimType == IoTSharpClaimTypes.Customer &&
+                            c.ClaimValue == requestedCustomerText) &&
+                         _context.UserClaims.Any(c => c.UserId == u.Id &&
+                            c.ClaimType == IoTSharpClaimTypes.Tenant &&
+                            c.ClaimValue == tenantText)));
+                }
+            }
+            else if (!systemAdmin)
+            {
+                var tenantText = callerTenant.ToString("D");
+                query = query.Where(u =>
+                    _context.Relationship.Any(r => r.IdentityUser.Id == u.Id &&
+                        r.Tenant.Id == callerTenant) ||
+                    _context.UserClaims.Any(c => c.UserId == u.Id &&
+                        c.ClaimType == IoTSharpClaimTypes.Tenant &&
+                        c.ClaimValue == tenantText));
+            }
+            if (!string.IsNullOrWhiteSpace(m.Name))
+            {
+                var keyword = m.Name.Trim();
+                if (keyword.Length > 128)
+                    return new ApiResult<PagedData<UserItemDto>>(ApiCode.InValidData,
+                        "查询关键字不能超过128个字符", new PagedData<UserItemDto>());
+                query = query.Where(u =>
+                    (u.UserName != null && u.UserName.Contains(keyword)) ||
+                    (u.Email != null && u.Email.Contains(keyword)) ||
+                    _context.UserClaims.Any(c => c.UserId == u.Id &&
+                        (c.ClaimType == ClaimTypes.GivenName ||
+                         c.ClaimType == "display_name") &&
+                        c.ClaimValue != null && c.ClaimValue.Contains(keyword)));
+            }
+            var total = await query.CountAsync();
+            var limit = Math.Clamp(m.Limit, 1, 500);
+            var offset = Math.Clamp(m.Offset, 0, 100000);
+            var users = await query.OrderBy(u => u.UserName).ThenBy(u => u.Id)
+                .Skip(offset * limit).Take(limit).ToListAsync();
+            if (users.Count == 0)
+                return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK",
+                    new PagedData<UserItemDto> { total = total, rows = new List<UserItemDto>() });
+
+            var ids = users.Select(u => u.Id).ToArray();
+            var relations = await _context.Relationship.AsNoTracking()
+                .Where(r => ids.Contains(r.IdentityUser.Id))
+                .Select(r => new {
+                    UserId = r.IdentityUser.Id, CustomerId = r.Customer.Id,
+                    CustomerName = r.Customer.Name,
+                    TenantId = r.Tenant.Id, TenantName = r.Tenant.Name
+                }).ToListAsync();
+            var relationsById = relations.GroupBy(x => x.UserId)
+                .ToDictionary(g => g.Key, g => g.First());
+            var claimTypes = new[]
+            {
+                IoTSharpClaimTypes.Customer, IoTSharpClaimTypes.Tenant,
+                IndustrialClaimTypes.GlobalUserId, ClaimTypes.GivenName,
+                "display_name"
+            };
+            var claims = await _context.UserClaims.AsNoTracking()
+                .Where(c => ids.Contains(c.UserId) && claimTypes.Contains(c.ClaimType))
+                .Select(c => new { c.UserId, c.ClaimType, c.ClaimValue })
+                .ToListAsync();
+            var claimsById = claims.GroupBy(c => c.UserId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            var roleRows = await _context.UserRoles.AsNoTracking()
+                .Where(x => ids.Contains(x.UserId))
+                .Join(_context.Roles.AsNoTracking(), x => x.RoleId,
+                    role => role.Id, (x, role) => new { x.UserId, role.Name })
+                .ToListAsync();
+            var rolesById = roleRows.GroupBy(x => x.UserId).ToDictionary(g => g.Key,
+                g => g.Select(x => x.Name!)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name).ToList());
+            var customerIds = claims
+                .Where(c => c.ClaimType == IoTSharpClaimTypes.Customer)
+                .Select(c => Guid.TryParse(c.ClaimValue, out var id) ? id : Guid.Empty)
+                .Where(id => id != Guid.Empty).Distinct().ToArray();
+            var customerRows = await _context.Customer.AsNoTracking()
+                .Where(c => customerIds.Contains(c.Id))
+                .Select(c => new { c.Id, c.Name, TenantId = c.Tenant.Id,
+                    TenantName = c.Tenant.Name }).ToListAsync();
+            var customersById = customerRows.ToDictionary(c => c.Id);
+            var resultRows = new List<UserItemDto>(users.Count);
+            foreach (var current in users)
+            {
+                relationsById.TryGetValue(current.Id, out var relation);
+                claimsById.TryGetValue(current.Id, out var userClaims);
+                string? ClaimValue(string claimType) => userClaims?
+                    .FirstOrDefault(c => c.ClaimType == claimType)?.ClaimValue;
+                var boundCustomerId = Guid.TryParse(
+                    ClaimValue(IoTSharpClaimTypes.Customer), out var cid)
+                    ? cid : relation?.CustomerId ?? Guid.Empty;
+                var claimedTenant = Guid.TryParse(
+                    ClaimValue(IoTSharpClaimTypes.Tenant), out var tid)
+                    ? tid : relation?.TenantId ?? Guid.Empty;
+                customersById.TryGetValue(boundCustomerId, out var customer);
+                var boundRoles = rolesById.GetValueOrDefault(current.Id) ?? new List<string>();
+                resultRows.Add(new UserItemDto
+                {
+                    Id = current.Id, UserName = current.UserName,
+                    Email = current.Email, PhoneNumber = current.PhoneNumber,
+                    AccessFailedCount = current.AccessFailedCount,
+                    LockoutEnabled = current.LockoutEnabled,
+                    LockoutEnd = current.LockoutEnd,
+                    DisplayName = ClaimValue(ClaimTypes.GivenName)
+                        ?? ClaimValue("display_name"),
+                    CustomerId = boundCustomerId,
+                    CustomerName = customer?.Name ?? relation?.CustomerName,
+                    TenantId = customer?.TenantId ?? claimedTenant,
+                    TenantName = customer?.TenantName ?? relation?.TenantName,
+                    UserSource = ClaimValue(IndustrialClaimTypes.GlobalUserId) is null
+                        ? "Local" : "IAM",
+                    IamUserId = ClaimValue(IndustrialClaimTypes.GlobalUserId),
+                    Roles = boundRoles, RoleNames = new List<string>(boundRoles)
                 });
             }
-
-            IEnumerable<UserItemDto> filtered = localUsers;
-            if (!string.IsNullOrWhiteSpace(m.Name))
-                filtered = filtered.Where(x => x.UserName?.Contains(m.Name, StringComparison.OrdinalIgnoreCase) == true);
-
-            var ordered = filtered.OrderBy(x => x.UserName, StringComparer.OrdinalIgnoreCase).ToList();
-            var limit = Math.Max(1, m.Limit);
-            var rows = ordered.Skip(Math.Max(0, m.Offset) * limit).Take(limit).ToList();
-            return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK", new PagedData<UserItemDto>
-            {
-                total = ordered.Count,
-                rows = rows
-            });
+            return new ApiResult<PagedData<UserItemDto>>(ApiCode.Success, "OK",
+                new PagedData<UserItemDto> { total = total, rows = resultRows });
         }
-
         /// <summary>
         /// 返回用户信息
         /// </summary>
         /// <param name="Id"></param>
         /// <returns></returns>
         [HttpGet]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
         public async Task<ApiResult<UserItemDto>> Get(String Id)
         {
             var user = await _userManager.FindByIdAsync(Id);
             if (user != null)
             {
-                return new ApiResult<UserItemDto>(ApiCode.Success, "", new UserItemDto { PhoneNumber = user.PhoneNumber, Id = Id, Email = user.Email });
+                var claims = await _userManager.GetClaimsAsync(user);
+                if (!User.IsInRole(nameof(UserRole.SystemAdmin)))
+                {
+                    var sameTenant = claims.Any(c => c.Type == IoTSharpClaimTypes.Tenant &&
+                        Guid.TryParse(c.Value, out var tenant) && tenant == User.GetTenantId());
+                    var sameCustomer = claims.Any(c => c.Type == IoTSharpClaimTypes.Customer &&
+                        Guid.TryParse(c.Value, out var customer) && customer == User.GetCustomerId());
+                    if (!sameTenant ||
+                        (!User.IsInRole(nameof(UserRole.TenantAdmin)) && !sameCustomer))
+                        return new ApiResult<UserItemDto>(ApiCode.DoNotAllow,
+                            "不能读取其他租户或客户账号", null);
+                }
+                var displayName = claims.FirstOrDefault(c => c.Type == ClaimTypes.GivenName)?.Value
+                    ?? claims.FirstOrDefault(c => c.Type == "display_name")?.Value;
+                var assignedRoles = (await _userManager.GetRolesAsync(user)).ToList();
+                var customerId = claims.Where(c => c.Type == IoTSharpClaimTypes.Customer)
+                    .Select(c => Guid.TryParse(c.Value, out var val) ? val : Guid.Empty)
+                    .FirstOrDefault();
+                var customer = await _context.Customer.AsNoTracking()
+                    .Include(c => c.Tenant).SingleOrDefaultAsync(c => c.Id == customerId);
+                return new ApiResult<UserItemDto>(ApiCode.Success, "", new UserItemDto
+                {
+                    PhoneNumber = user.PhoneNumber, Id = Id, UserName = user.UserName,
+                    Email = user.Email, DisplayName = displayName, CustomerId = customerId,
+                    CustomerName = customer?.Name, TenantId = customer?.Tenant?.Id ?? Guid.Empty,
+                    TenantName = customer?.Tenant?.Name,
+                    Roles = assignedRoles, RoleNames = new List<string>(assignedRoles)
+                });
             }
 
             return new ApiResult<UserItemDto>(ApiCode.CantFindObject, "can't find that user", null);
@@ -795,6 +1040,8 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPut]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
         public async Task<ApiResult<bool>> Modify(UserItemDto user)
         {
             if (user is null || string.IsNullOrWhiteSpace(user.Id))
@@ -808,9 +1055,311 @@ namespace IoTSharp.Controllers
                 return new ApiResult<bool>(ApiCode.NotFoundUser, "can't find that user", false);
             }
 
+            var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var tenantAdmin = User.IsInRole(nameof(UserRole.TenantAdmin));
+            var customerAdmin = User.IsInRole(nameof(UserRole.CustomerAdmin));
+            var targetClaims = await _userManager.GetClaimsAsync(idu);
+            if (!systemAdmin)
+            {
+                var sameTenant = targetClaims.Any(c => c.Type == IoTSharpClaimTypes.Tenant &&
+                    Guid.TryParse(c.Value, out var t) && t == User.GetTenantId());
+                var sameCustomer = targetClaims.Any(c => c.Type == IoTSharpClaimTypes.Customer &&
+                    Guid.TryParse(c.Value, out var cId) && cId == User.GetCustomerId());
+                if (!sameTenant || (!tenantAdmin && (!customerAdmin || !sameCustomer)))
+                    return new ApiResult<bool>(ApiCode.DoNotAllow, "不能修改其他租户或客户账号", false);
+            }
+            var iamBound = targetClaims.Any(c => c.Type == IndustrialClaimTypes.GlobalUserId);
+            // A requested customer change is a real local binding operation,
+            // never merely a display change in the edit form.
+            IoTSharp.Data.Customer? targetCustomer = null;
+            var currentCustomerId = targetClaims
+                .Where(c => c.Type == IoTSharpClaimTypes.Customer)
+                .Select(c => Guid.TryParse(c.Value, out var id) ? id : Guid.Empty)
+                .FirstOrDefault();
+            var currentTenantId = targetClaims
+                .Where(c => c.Type == IoTSharpClaimTypes.Tenant)
+                .Select(c => Guid.TryParse(c.Value, out var id) ? id : Guid.Empty)
+                .FirstOrDefault();
+            if (user.CustomerId != Guid.Empty)
+            {
+                targetCustomer = await _context.Customer.Include(c => c.Tenant)
+                    .SingleOrDefaultAsync(c => c.Id == user.CustomerId && !c.Deleted);
+                if (targetCustomer?.Tenant == null)
+                    return new ApiResult<bool>(ApiCode.NotFoundCustomer, "所选客户不存在或已删除", false);
+                if (!IoTSharp.Services.Accounts.AccountCreationScope.IsAllowed(
+                    systemAdmin, tenantAdmin, customerAdmin, User.GetTenantId(),
+                    User.GetCustomerId(), targetCustomer.Tenant.Id, targetCustomer.Id))
+                    return new ApiResult<bool>(ApiCode.DoNotAllow, "无权将账号绑定至该客户", false);
+                if (iamBound && !systemAdmin &&
+                    (targetCustomer.Id != currentCustomerId ||
+                     targetCustomer.Tenant.Id != currentTenantId))
+                    return new ApiResult<bool>(ApiCode.DoNotAllow,
+                        "IAM 账号的本地客户归属仅可由系统管理员修改", false);
+                if (!systemAdmin && (await _userManager.IsInRoleAsync(idu,
+                        nameof(UserRole.SystemAdmin)) ||
+                    await _userManager.IsInRoleAsync(idu, nameof(UserRole.TenantAdmin))) &&
+                    (targetCustomer.Id != currentCustomerId ||
+                     targetCustomer.Tenant.Id != currentTenantId))
+                    return new ApiResult<bool>(ApiCode.DoNotAllow,
+                        "不能修改上级管理员账号的客户归属", false);
+            }
+            List<string>? desiredRoles = null;
+            if (user.RoleNames is not null)
+            {
+                var requested = await ResolveAccountRolesAsync(user.RoleNames);
+                if (requested.Names is null)
+                    return new ApiResult<bool>(requested.Code, requested.Error, false);
+                desiredRoles = requested.Names;
+                if (!systemAdmin)
+                {
+                    var existing = await _userManager.GetRolesAsync(idu);
+                    if (existing.Any(x => !string.Equals(x,
+                        nameof(UserRole.NormalUser), StringComparison.OrdinalIgnoreCase)))
+                        return new ApiResult<bool>(ApiCode.DoNotAllow,
+                            "仅系统管理员可修改拥有管理或自定义角色的用户", false);
+                }
+            }
+            var username = user.UserName?.Trim();
+            var email = user.Email?.Trim();
+            if (user.DisplayName?.Trim().Length > 80 ||
+                username is { Length: > 256 } ||
+                email is { Length: > 256 })
+                return new ApiResult<bool>(ApiCode.InValidData, "用户资料超出最大长度", false);
+            if (iamBound &&
+                ((username is not null && username != idu.UserName) ||
+                 (email is not null && email != idu.Email)))
+                return new ApiResult<bool>(ApiCode.DoNotAllow,
+                    "IAM 登录账号和邮箱由上游维护；可编辑本地姓名、电话", false);
+            if (!iamBound && (username is { Length: 0 } || email is { Length: 0 }))
+                return new ApiResult<bool>(ApiCode.InValidData, "登录账号与邮箱不能为空", false);
+
+            // Update Identity and its name/email claims in one transaction.
+            // External IAM credentials are never overwritten by a local edit.
+            await using var transaction = desiredRoles is null
+                ? await _context.Database.BeginTransactionAsync()
+                : await _context.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable);
+            var originalEmail = idu.Email;
+            var originalRoleNames = desiredRoles is null ? null
+                : (await _userManager.GetRolesAsync(idu)).ToArray();
+            if (!iamBound)
+            {
+                if (username is not null) idu.UserName = username;
+                if (email is not null) idu.Email = email;
+            }
             idu.PhoneNumber = user.PhoneNumber;
             var result = await _userManager.UpdateAsync(idu);
-            return new ApiResult<bool>(ApiCode.Success, "Ok", result.Succeeded);
+            if (!result.Succeeded)
+                return new ApiResult<bool>(ApiCode.InValidData,
+                    string.Join("; ", result.Errors.Select(x => x.Description)), false);
+
+            if (!iamBound && !string.Equals(originalEmail, idu.Email, StringComparison.OrdinalIgnoreCase))
+            {
+                var oldEmailClaims = targetClaims.Where(c => c.Type == ClaimTypes.Email).ToArray();
+                if (oldEmailClaims.Length > 0 &&
+                    !(await _userManager.RemoveClaimsAsync(idu, oldEmailClaims)).Succeeded)
+                    return new ApiResult<bool>(ApiCode.InValidData, "更新邮箱声明失败", false);
+                if (!string.IsNullOrEmpty(idu.Email) &&
+                    !(await _userManager.AddClaimAsync(idu,
+                        new Claim(ClaimTypes.Email, idu.Email))).Succeeded)
+                    return new ApiResult<bool>(ApiCode.InValidData, "保存邮箱声明失败", false);
+            }
+            if (user.DisplayName is not null)
+            {
+                var previousNames = targetClaims.Where(c =>
+                    c.Type == ClaimTypes.GivenName || c.Type == "display_name").ToArray();
+                if (previousNames.Length > 0 &&
+                    !(await _userManager.RemoveClaimsAsync(idu, previousNames)).Succeeded)
+                    return new ApiResult<bool>(ApiCode.InValidData, "更新姓名失败", false);
+                if (!string.IsNullOrWhiteSpace(user.DisplayName) &&
+                    !(await _userManager.AddClaimAsync(idu,
+                        new Claim(ClaimTypes.GivenName, user.DisplayName.Trim()))).Succeeded)
+                {
+                    return new ApiResult<bool>(ApiCode.InValidData, "保存姓名失败", false);
+                }
+            }
+            if (targetCustomer != null)
+            {
+                if (currentCustomerId != targetCustomer.Id ||
+                    currentTenantId != targetCustomer.Tenant.Id)
+                {
+                    var oldScopes = targetClaims.Where(c =>
+                        c.Type == IoTSharpClaimTypes.Customer ||
+                        c.Type == IoTSharpClaimTypes.Tenant).ToArray();
+                    if (oldScopes.Length > 0 &&
+                        !(await _userManager.RemoveClaimsAsync(idu, oldScopes)).Succeeded)
+                        return new ApiResult<bool>(ApiCode.InValidData, "移除原客户归属失败", false);
+                    var newScopes = new[]
+                    {
+                        new Claim(IoTSharpClaimTypes.Customer, targetCustomer.Id.ToString("D")),
+                        new Claim(IoTSharpClaimTypes.Tenant, targetCustomer.Tenant.Id.ToString("D"))
+                    };
+                    if (!(await _userManager.AddClaimsAsync(idu, newScopes)).Succeeded)
+                        return new ApiResult<bool>(ApiCode.InValidData, "写入客户归属失败", false);
+                }
+                // Correct legacy Relationship drift even if the Identity
+                // claims already point at the selected customer.
+                var links = await _context.Relationship
+                    .Include(r => r.Customer).Include(r => r.Tenant)
+                    .Where(r => r.IdentityUser.Id == idu.Id).ToListAsync();
+                if (links.Count == 0)
+                {
+                    _context.Relationship.Add(new Relationship
+                    {
+                        IdentityUser = idu, Customer = targetCustomer,
+                        Tenant = targetCustomer.Tenant
+                    });
+                }
+                else
+                {
+                    foreach (var link in links)
+                    {
+                        link.Customer = targetCustomer;
+                        link.Tenant = targetCustomer.Tenant;
+                    }
+                }
+                await _context.SaveChangesAsync();
+                _logger.LogInformation(
+                    "User customer binding updated actor={Actor} target={Target} from={From} to={To}",
+                    User.FindFirst(ClaimTypes.NameIdentifier)?.Value, idu.Id,
+                    currentCustomerId, targetCustomer.Id);
+            }
+            if (desiredRoles is not null)
+            {
+                var existing = await _userManager.GetRolesAsync(idu);
+                var removed = existing.Except(desiredRoles,
+                    StringComparer.OrdinalIgnoreCase).ToArray();
+                var added = desiredRoles.Except(existing,
+                    StringComparer.OrdinalIgnoreCase).ToArray();
+                if (removed.Contains(nameof(UserRole.SystemAdmin),
+                        StringComparer.OrdinalIgnoreCase))
+                {
+                    if (idu.Id == User.FindFirst(ClaimTypes.NameIdentifier)?.Value)
+                        return new ApiResult<bool>(ApiCode.DoNotAllow,
+                            "不能撤销当前登录的系统管理员身份", false);
+                    var sysAdminRole = await _context.Roles.AsNoTracking()
+                        .SingleOrDefaultAsync(r => r.NormalizedName ==
+                            nameof(UserRole.SystemAdmin).ToUpperInvariant());
+                    if (sysAdminRole is not null &&
+                        await _context.UserRoles.CountAsync(x =>
+                            x.RoleId == sysAdminRole.Id) <= 1)
+                        return new ApiResult<bool>(ApiCode.DoNotAllow,
+                            "不能移除最后一个系统管理员", false);
+                }
+                if (removed.Length > 0)
+                {
+                    var removeResult = await _userManager.RemoveFromRolesAsync(idu, removed);
+                    if (!removeResult.Succeeded)
+                        return new ApiResult<bool>(ApiCode.InValidData,
+                            "移除旧角色失败：" + string.Join("; ",
+                                removeResult.Errors.Select(x => x.Description)), false);
+                }
+                if (added.Length > 0)
+                {
+                    var addResult = await _userManager.AddToRolesAsync(idu, added);
+                    if (!addResult.Succeeded)
+                        return new ApiResult<bool>(ApiCode.InValidData,
+                            "添加新角色失败：" + string.Join("; ",
+                                addResult.Errors.Select(x => x.Description)), false);
+                }
+            }
+            AddUserManagementAudit(idu, "USER_UPDATED",
+                targetCustomer?.Tenant?.Id ?? currentTenantId,
+                targetCustomer?.Id ?? currentCustomerId,
+                new { userId = idu.Id,
+                    customerBefore = currentCustomerId,
+                    customerAfter = targetCustomer?.Id ?? currentCustomerId,
+                    tenantBefore = currentTenantId,
+                    tenantAfter = targetCustomer?.Tenant?.Id ?? currentTenantId,
+                    beforeRoles = originalRoleNames,
+                    afterRoles = desiredRoles,
+                    profileChanged = user.DisplayName is not null ||
+                        user.UserName is not null || user.Email is not null ||
+                        user.PhoneNumber is not null });
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            if (desiredRoles is not null)
+                _logger.LogInformation("User roles modified: actor={Actor} target={Target} roles={Roles}",
+                    User.FindFirst(ClaimTypes.NameIdentifier)?.Value, idu.Id,
+                    string.Join(",", desiredRoles));
+            _logger.LogInformation("User profile modified: actor={ActorId} target={TargetId} iam={IamBound}",
+                User.FindFirst(ClaimTypes.NameIdentifier)?.Value, idu.Id, iamBound);
+            return new ApiResult<bool>(ApiCode.Success, "用户资料已保存", true);
+        }
+
+        /// <summary>
+        /// 删除 IoTSharp 本地用户/Identity 镜像，不会删除上游 IAM 人员。
+        /// 角色与客户范围在服务器校验；不得删除当前登录用户或最后一个系统管理员。
+        /// </summary>
+        [HttpDelete("{id}")]
+        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," +
+            nameof(UserRole.TenantAdmin) + "," + nameof(UserRole.SystemAdmin))]
+        public async Task<ApiResult<bool>> Delete(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                return new ApiResult<bool>(ApiCode.InValidData, "用户 ID 不能为空", false);
+            var target = await _userManager.FindByIdAsync(id);
+            if (target is null)
+                return new ApiResult<bool>(ApiCode.NotFoundUser, "用户不存在", false);
+            var actorId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.Equals(target.Id, actorId, StringComparison.OrdinalIgnoreCase))
+                return new ApiResult<bool>(ApiCode.DoNotAllow, "不能删除当前登录账号", false);
+            var systemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            var tenantAdmin = User.IsInRole(nameof(UserRole.TenantAdmin));
+            var targetClaims = await _userManager.GetClaimsAsync(target);
+            var iamBound = targetClaims.Any(c => c.Type == IndustrialClaimTypes.GlobalUserId);
+            if (iamBound && !systemAdmin)
+                return new ApiResult<bool>(ApiCode.DoNotAllow, "仅系统超级管理员可删除 IAM 本地镜像", false);
+            if (!systemAdmin)
+            {
+                var sameTenant = targetClaims.Any(c => c.Type == IoTSharpClaimTypes.Tenant &&
+                    Guid.TryParse(c.Value, out var t) && t == User.GetTenantId());
+                var sameCustomer = targetClaims.Any(c => c.Type == IoTSharpClaimTypes.Customer &&
+                    Guid.TryParse(c.Value, out var cId) && cId == User.GetCustomerId());
+                if (!sameTenant || (!tenantAdmin && !sameCustomer))
+                    return new ApiResult<bool>(ApiCode.DoNotAllow, "不能删除其他租户或客户用户", false);
+            }
+            var targetIsSystemAdmin = await _userManager.IsInRoleAsync(target,
+                nameof(UserRole.SystemAdmin));
+            if (targetIsSystemAdmin)
+            {
+                if (!systemAdmin)
+                    return new ApiResult<bool>(ApiCode.DoNotAllow, "仅系统管理员可删除系统管理员账号", false);
+                var role = await _context.Roles.AsNoTracking().SingleOrDefaultAsync(
+                    x => x.NormalizedName == nameof(UserRole.SystemAdmin).ToUpperInvariant());
+                if (role is not null &&
+                    await _context.UserRoles.CountAsync(x => x.RoleId == role.Id) <= 1)
+                    return new ApiResult<bool>(ApiCode.DoNotAllow, "不能删除最后一个系统管理员", false);
+            }
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Explicitly remove related rows that may not cascade for legacy schemas.
+                var relationships = await _context.Relationship
+                    .Where(x => x.IdentityUser.Id == target.Id).ToListAsync();
+                _context.Relationship.RemoveRange(relationships);
+                var tokens = await _context.RefreshTokens
+                    .Where(x => x.UserId == target.Id).ToListAsync();
+                _context.RefreshTokens.RemoveRange(tokens);
+                await _context.SaveChangesAsync();
+                var deleted = await _userManager.DeleteAsync(target);
+                if (!deleted.Succeeded)
+                    return new ApiResult<bool>(ApiCode.InValidData,
+                        string.Join("; ", deleted.Errors.Select(x => x.Description)), false);
+                await transaction.CommitAsync();
+                _logger.LogInformation(
+                    "Local account deleted: actor={ActorId} target={TargetId} iamShadow={IamShadow}",
+                    actorId, target.Id, iamBound);
+                return new ApiResult<bool>(ApiCode.Success,
+                    iamBound ? "已删除本地 IAM 镜像；上游身份未删除，重新同步可能重建"
+                             : "用户账号已删除", true);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "User deletion blocked by related data, target={TargetId}", id);
+                return new ApiResult<bool>(ApiCode.InValidData,
+                    "用户存在受保护关联数据，删除失败且未更改账号", false);
+            }
         }
 
         /// <summary>

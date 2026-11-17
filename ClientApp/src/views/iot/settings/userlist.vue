@@ -11,13 +11,21 @@
 			:metrics="metrics"
 		>
 			<template #actions>
-				<el-button type="primary" @click="refreshList">刷新列表</el-button>
+				<el-select v-model="customerFilter" filterable placeholder="筛选客户"
+                    style="width: 220px" @change="refreshList">
+                    <el-option v-if="isSystemAdmin" label="全部客户" value="" />
+                    <el-option v-for="customer in customerOptions" :key="customer.id"
+                        :label="customer.name + '（' + customer.tenantName + '）'"
+                        :value="customer.id" />
+                </el-select>
+                <el-button type="primary" @click="refreshList">刷新列表</el-button>
+                <el-button @click="goRoles">角色管理</el-button>
 			</template>
 
 			<template #aside>
 				<div class="user-page__scope">
-					<span>当前客户</span>
-					<strong>{{ shortCustomerId }}</strong>
+					<span>筛选范围</span>
+					<strong>{{ selectedCustomerLabel }}</strong>
 					<small>登录、锁定与联系方式都可在此统一查看</small>
 				</div>
 			</template>
@@ -40,13 +48,17 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useCrud, useExpose } from '@fast-crud/fast-crud';
 import { storeToRefs } from 'pinia';
-import { useRoute } from 'vue-router';
+import { ElMessage } from 'element-plus';
+import { useRoute, useRouter } from 'vue-router';
 import ConsoleCrudWorkspace from '/@/components/console/ConsoleCrudWorkspace.vue';
 import { useUserInfo } from '/@/stores/userInfo';
+import { accountApi } from '/@/api/user';
+import type { AccountCustomerOption } from '/@/api/user';
 import { createUserListCrudOptions } from './crudOptions/userListCrudOptions';
 
 const stores = useUserInfo();
 const route = useRoute();
+const router = useRouter();
 const { userInfos } = storeToRefs(stores);
 
 const crudRef = ref();
@@ -60,14 +72,17 @@ const overview = reactive({
 	lastRefresh: '',
 });
 
-const customerId = route.query.id || userInfos.value.customer.id;
-const shortCustomerId = computed(() => {
-	const value = String(customerId || '--');
-	return value.length > 12 ? `${value.slice(0, 8)}...` : value;
-});
-
+const customerId = String(route.query.id || userInfos.value.customer?.id || '');
+const isSystemAdmin = computed(() =>
+    String(userInfos.value.roles ?? '').toLowerCase().includes('systemadmin'));
+const customerFilter = ref(customerId);
+const customerOptions = ref<AccountCustomerOption[]>([]);
+const selectedCustomerLabel = computed(() =>
+    !customerFilter.value ? '全部客户' :
+    customerOptions.value.find(c => c.id === customerFilter.value)?.name || '当前客户');
+const shortCustomerId = computed(() => selectedCustomerLabel.value);
 const { crudExpose } = useExpose({ crudRef, crudBinding });
-const { crudOptions } = createUserListCrudOptions({ expose: crudExpose }, customerId, overview);
+const { crudOptions } = createUserListCrudOptions({ expose: crudExpose }, () => customerFilter.value, overview);
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars,no-unused-vars
 useCrud<Record<string, unknown>>({ crudExpose, crudOptions });
@@ -105,12 +120,20 @@ const metrics = computed(() => [
 	},
 ]);
 
+const goRoles = () => router.push('/iot/settings/rolelist');
 const refreshList = () => {
 	crudExpose.doRefresh();
 };
 
-onMounted(() => {
-	refreshList();
+onMounted(async () => {
+    try {
+        const result = await accountApi().assignableCustomers();
+        if (result.code !== 10000) throw new Error(result.info || '无权获取客户列表');
+        customerOptions.value = result.data ?? [];
+    } catch {
+        ElMessage.error('所属客户列表加载失败，请检查系统管理员权限或后台服务');
+    }
+    refreshList();
 });
 </script>
 

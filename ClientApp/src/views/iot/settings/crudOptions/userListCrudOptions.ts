@@ -6,8 +6,33 @@ import * as _ from 'lodash-es';
 import { TableDataRow } from '../model/userListModel';
 import { ElMessage } from 'element-plus';
 import { compute, dict } from '@fast-crud/fast-crud';
-export const createUserListCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string, overviewState?: { total: number; pageCount: number; lockedCount: number; failedCount: number; contactCount: number; lastRefresh: string }): { crudOptions: DynamicallyCrudOptions; deviceId?: string } {
+export const createUserListCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string | (() => string), overviewState?: { total: number; pageCount: number; lockedCount: number; failedCount: number; contactCount: number; lastRefresh: string }): { crudOptions: DynamicallyCrudOptions; deviceId?: string } {
     let records: any[] = [];
+    const selectedCustomerId = () => typeof customerId === 'function' ? customerId() : customerId;
+    const customerDict = dict({
+        cache: false,
+        immediate: true,
+        getData: async () => {
+            const response = await accountApi().assignableCustomers();
+            if (response.code !== 10000) throw new Error(response.info || '无权读取可绑定客户');
+            return response.data.map(c => ({
+                value: c.id,
+                label: c.name + '（' + c.tenantName + '）',
+            }));
+        },
+    });
+    const roleDict = dict({
+        cache: false,
+        immediate: true,
+        getData: async () => {
+            const response = await accountApi().assignableRoles();
+            if (response.code !== 10000) throw new Error(response.info || '无权读取可分配角色');
+            return response.data.map(role => ({
+                value: role.name,
+                label: role.displayName + '（' + role.name + '）',
+            }));
+        },
+    });
     const FsButton = {
         link: true,
     };
@@ -26,7 +51,7 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
             page: { currentPage: currentPage, pageSize: limit },
         } = query;
         let offset = currentPage === 1 ? 0 : currentPage - 1;
-        const res = await accountApi().accountList({ name, limit, offset, customerId });
+        const res = await accountApi().accountList({ name, limit, offset, customerId: selectedCustomerId() });
         records = res.data.rows;
         if (overviewState) {
             overviewState.total = res.data.total ?? 0;
@@ -46,7 +71,11 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
     const editRequest: EditRequest = async ({ form, row }) => {
         form.id = row.id;
         try {
-            await accountApi().putAccount(form);
+            if (!form.customerId) throw new Error('请选择所属客户');
+            if (!Array.isArray(form.roleNames) || !form.roleNames.includes('NormalUser'))
+                throw new Error('请选择角色并保留普通用户角色');
+            const result = await accountApi().putAccount(form);
+            if (result.code !== 10000) throw new Error(result.info || '保存用户失败');
             return form;
         } catch (e) {
             ElMessage.error(errorMessage(e));
@@ -66,6 +95,9 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
     };
     const addRequest: AddRequest = async ({ form }) => {
         try {
+            if (!form.customerId) throw new Error('请选择所属客户');
+            if (!Array.isArray(form.roleNames) || !form.roleNames.includes('NormalUser'))
+                throw new Error('请选择角色并保留普通用户角色');
             //验证
             var userName = form.userName;
             var email = form.email;
@@ -73,10 +105,11 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                 if (email) {
                     const regEmail = /^([a-zA-Z0-9_-])+@([a-zA-Z0-9_-])+(\.[a-zA-Z0-9_-])+/;
                     if (regEmail.test(email)) {
-                        await accountApi().postAccount({
+                        const result = await accountApi().postAccount({
                             ...form,
-                            customerId,
+                            customerId: form.customerId,
                         });
+                        if (result.code !== 10000) throw new Error(result.info || '新增用户失败');
                         records.push(form);
                         return form;
                     } else {
@@ -145,7 +178,10 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                 show: true,
             },
             rowHandle: {
-                width: 180,
+                // Always expose actions; backend enforces permissions.
+                show: true,
+                fixed: 'right',
+                width: 210,
                 buttons: {
                     view: {
                         icon: 'View',
@@ -153,16 +189,18 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                         show: false,
                     },
                     edit: {
+                        text: '编辑',
                         icon: 'EditPen',
                         ...FsButton,
                         order: 1,
-                        show: compute((context) => context.row.userSource !== 'IAM'),
+                        show: true,
                     },
                     remove: {
+                        text: '删除',
                         icon: 'Delete',
                         ...FsButton,
                         order: 2,
-                        show: compute((context) => context.row.userSource !== 'IAM'),
+                        show: true,
                     }, //删除按钮
                 },
             },
@@ -192,6 +230,47 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                     },
                     editForm: {
                         show: false,
+                    },
+                },
+                customerId: {
+                    title: '所属客户',
+                    type: 'dict-select',
+                    dict: customerDict,
+                    column: { show: false },
+                    addForm: {
+                        show: true,
+                        component: { clearable: false, filterable: true, placeholder: '请选择所属客户' },
+                        rules: [{ required: true, message: '请选择所属客户' }],
+                    },
+                    editForm: {
+                        show: true,
+                        component: { clearable: false, filterable: true, placeholder: '请选择所属客户' },
+                        rules: [{ required: true, message: '请选择所属客户' }],
+                    },
+                },
+                roleNames: {
+                    title: '绑定角色',
+                    type: 'dict-select',
+                    dict: roleDict,
+                    column: { width: 230, showOverflowTooltip: true },
+                    addForm: {
+                        show: true,
+                        value: ['NormalUser'],
+                        component: {
+                            multiple: true, filterable: true, collapseTags: true,
+                            collapseTagsTooltip: true, placeholder: '选择一个或多个角色',
+                        },
+                        helper: '默认普通用户；系统管理员可追加管理或自定义角色',
+                        rules: [{ required: true, message: '请选择用户角色' }],
+                    },
+                    editForm: {
+                        show: true,
+                        component: {
+                            multiple: true, filterable: true, collapseTags: true,
+                            collapseTagsTooltip: true, placeholder: '选择一个或多个角色',
+                        },
+                        helper: '改动角色后，相关用户重新登录才会获得新的权限',
+                        rules: [{ required: true, message: '请选择用户角色' }],
                     },
                 },
                 userSource: {
@@ -226,7 +305,7 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                 //	},
                 //},
                 userName: {
-                    title: '名称',
+                    title: '登录账号',
                     type: 'text',
                     column: { width: 200 },
                     search: { show: true }, //显示查询
@@ -238,6 +317,13 @@ export const createUserListCrudOptions = function ({ expose }: { expose: CrudExp
                         show: true,
                         component: requiredCustomSwitchComponent,
                     },
+                },
+                displayName: {
+                    title: '姓名',
+                    type: 'text',
+                    column: { width: 150, showOverflowTooltip: true },
+                    addForm: { show: true },
+                    editForm: { show: true },
                 },
                 email: {
                     title: '邮件',

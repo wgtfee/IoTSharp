@@ -18,6 +18,7 @@ using IoTSharp.Models;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using IoTSharp.Contracts;
 using IoTSharp.Extensions;
+using IoTSharp.IndustrialSecurity;
 using System.Linq.Expressions;
 
 namespace IoTSharp.Controllers
@@ -67,14 +68,19 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
         [HttpGet("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
         public async Task<ApiResult<Tenant>> GetTenant(Guid id)
         {
-            var tenant = await _context.Tenant.FindAsync(id);
+            var profile = this.GetUserProfile();
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin)) &&
+                (profile.Tenant == Guid.Empty || profile.Tenant != id))
+                return new ApiResult<Tenant>(ApiCode.DoNotAllow,
+                    "不能读取其他租户信息", null);
+            var tenant = await _context.Tenant.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == id && !t.Deleted);
             if (tenant == null)
             {
                 return new ApiResult<Tenant>(ApiCode.CantFindObject, "can't find this object", null);
@@ -89,7 +95,7 @@ namespace IoTSharp.Controllers
         /// <param name="id"></param>
         /// <param name="tenant"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.TenantAdmin))]
+        [IotRequirePermission("iot.tenant.admin")]
         [HttpPut("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -98,12 +104,28 @@ namespace IoTSharp.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ApiResult<Tenant>> PutTenant(Guid id, Tenant tenant)
         {
-            if (id != tenant.Id)
+            if (tenant is null || id == Guid.Empty || id != tenant.Id)
             {
-                return new ApiResult<Tenant>(ApiCode.InValidData, "InValidData", tenant);
+                return new ApiResult<Tenant>(ApiCode.InValidData, "InValidData", null);
             }
-
-            _context.Entry(tenant).State = EntityState.Modified;
+            var profile = this.GetUserProfile();
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin)) &&
+                (profile.Tenant == Guid.Empty || profile.Tenant != id))
+                return new ApiResult<Tenant>(ApiCode.DoNotAllow,
+                    "不能修改其他租户信息", null);
+            var current = await _context.Tenant.FirstOrDefaultAsync(t =>
+                t.Id == id && !t.Deleted);
+            if (current is null)
+                return new ApiResult<Tenant>(ApiCode.CantFindObject, "租户不存在", null);
+            current.Name = tenant.Name;
+            current.Email = tenant.Email;
+            current.Phone = tenant.Phone;
+            current.Country = tenant.Country;
+            current.Province = tenant.Province;
+            current.City = tenant.City;
+            current.Street = tenant.Street;
+            current.Address = tenant.Address;
+            current.ZipCode = tenant.ZipCode;
 
             try
             {
@@ -126,7 +148,7 @@ namespace IoTSharp.Controllers
                 return new ApiResult<Tenant>(ApiCode.Exception, ex.Message, tenant);
             }
 
-            return new ApiResult<Tenant>(ApiCode.Success, "Ok", tenant);
+            return new ApiResult<Tenant>(ApiCode.Success, "Ok", current);
         }
         /// <summary>
         /// 新增租户， 仅限系统管理员
@@ -192,7 +214,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpPost("{id}/ai")]
-        [Authorize(Roles = nameof(UserRole.TenantAdmin))]
+        [IotRequirePermission("iot.tenant.admin")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
@@ -201,7 +223,9 @@ namespace IoTSharp.Controllers
             var profile = this.GetUserProfile();
             if (id != Guid.Empty)
             {
-                var querym = _context.Tenant.Include(s => s.AISettings).Where(c => !c.Deleted && c.Id == profile.Tenant && c.Id == id);
+                var querym = _context.Tenant.Include(s => s.AISettings)
+                    .Where(c => !c.Deleted && c.Id == id &&
+                        (User.IsInRole(nameof(UserRole.SystemAdmin)) || c.Id == profile.Tenant));
                 if (querym.Any())
                 {
                     var d = await querym.FirstOrDefaultAsync();
@@ -243,7 +267,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("{id}/ai")]
-        [Authorize(Roles = nameof(UserRole.TenantAdmin))]
+        [IotRequirePermission("iot.tenant.admin")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
@@ -252,7 +276,9 @@ namespace IoTSharp.Controllers
             var profile = this.GetUserProfile();
             if (id != Guid.Empty)
             {
-                var querym = _context.Tenant.Include(s => s.AISettings).Where(c => !c.Deleted && c.Id == profile.Tenant && c.Id == id);
+                var querym = _context.Tenant.Include(s => s.AISettings)
+                    .Where(c => !c.Deleted && c.Id == id &&
+                        (User.IsInRole(nameof(UserRole.SystemAdmin)) || c.Id == profile.Tenant));
                 if (querym.Any())
                 {
                     var d = await querym.FirstOrDefaultAsync();

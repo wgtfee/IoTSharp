@@ -8,7 +8,7 @@
 			:metrics="telemetryMetrics"
 		>
 			<template #actions>
-				<el-button type="success" @click="openTelemetryDialog">新增遥测</el-button>
+				<el-button v-if="canCommandDevice" type="success" @click="openTelemetryDialog">新增遥测</el-button>
 				<el-tooltip :disabled="Boolean(selectedDeviceId)" content="请先新增并选择一台设备" placement="bottom">
 					<span class="telemetry-action-wrapper">
 						<el-button type="primary" :loading="summaryLoading" :disabled="!selectedDeviceId" @click="refreshTelemetry">刷新当前遥测</el-button>
@@ -199,6 +199,7 @@ import { useRoute, useRouter } from 'vue-router';
 import ConsolePageShell from '/@/components/console/ConsolePageShell.vue';
 import { deviceApi } from '/@/api/devices';
 import { useUserInfo } from '/@/stores/userInfo';
+import { useMenuApi } from '/@/api/menu';
 import DeviceDetailTelemetry from '/@/views/iot/devices/detail/DeviceDetailTelemetry.vue';
 import DeviceDetailTelemetryHistory from '/@/views/iot/devices/detail/DeviceDetailTelemetryHistory.vue';
 
@@ -245,6 +246,7 @@ const telemetryRefreshKey = ref(0);
 const latestValues = ref<LatestTelemetryValue[]>([]);
 const telemetryDialogVisible = ref(false);
 const telemetrySubmitting = ref(false);
+const canCommandDevice = ref(false);
 let telemetryRowId = 0;
 const telemetryDraft = reactive<{ timestamp: Date; values: TelemetryDraftRow[] }>({
 	timestamp: new Date(),
@@ -309,6 +311,10 @@ const telemetryValuePlaceholder = (dataType: TelemetryInputType) => {
 };
 
 const openTelemetryDialog = () => {
+	if (!canCommandDevice.value) {
+		ElMessage.warning('当前账号无权手工上报设备遥测');
+		return;
+	}
 	if (!selectedDeviceId.value) {
 		ElMessage.warning(totalDevices.value === 0 ? '当前客户还没有设备，请先新增设备' : '请先从左侧选择设备');
 		if (totalDevices.value === 0) router.push('/iot/devices/devicelist');
@@ -356,6 +362,7 @@ const waitForTelemetry = async (keys: string[], submittedAt: number) => {
 };
 
 const submitTelemetry = async () => {
+	if (!canCommandDevice.value) return;
 	if (!selectedDeviceId.value || telemetryDraft.values.length === 0) return;
 	const keys = new Set<string>();
 	let payloadValues: Array<{ keyName: string; dataType: TelemetryInputType; value: unknown }>;
@@ -444,6 +451,14 @@ watch(selectedDeviceId, async (value) => {
 });
 
 onMounted(async () => {
+	try {
+		const response = await useMenuApi().getMenuAdmin();
+		canCommandDevice.value = response.code === 10000 &&
+			Array.isArray(response.data?.effectivePermissions) &&
+			response.data.effectivePermissions.includes('iot.device.command');
+	} catch {
+		canCommandDevice.value = false;
+	}
 	await loadDevices(1);
 	if (selectedDeviceId.value) await loadLatestSummary();
 });

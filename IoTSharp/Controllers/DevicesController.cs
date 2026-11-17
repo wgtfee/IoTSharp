@@ -37,6 +37,7 @@ using DicKV = System.Collections.Generic.KeyValuePair<string, string>;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using IoTSharp.Extensions.X509;
 using Industrial.Security.Abstractions;
+using IoTSharp.IndustrialSecurity;
 using AutoMapper;
 using MQTTnet;
 
@@ -91,13 +92,24 @@ namespace IoTSharp.Controllers
         /// <returns></returns>
         // GET: api/Customers/All
         [HttpGet("Devices/Customers/All")]
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<Guid>), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
         public async Task<ApiResult<List<Device>>> GetAllDevices([FromQuery] Guid customerId)
         {
-            var f = from c in _context.Device where c.Customer.Id == customerId select c;
+            var profile = this.GetUserProfile();
+            if (customerId == Guid.Empty ||
+                (!User.IsInRole(nameof(UserRole.SystemAdmin)) &&
+                 (profile.Tenant == Guid.Empty ||
+                  (!User.IsInRole(nameof(UserRole.TenantAdmin)) &&
+                   customerId != profile.Customer))))
+                return new ApiResult<List<Device>>(ApiCode.DoNotAllow,
+                    "无权查询其他客户设备", null);
+            var f = _context.Device.AsNoTracking()
+                .Where(c => c.CustomerId == customerId && !c.Deleted);
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin)))
+                f = f.Where(c => c.TenantId == profile.Tenant);
             if (!f.Any())
             {
                 return new ApiResult<List<Device>>(ApiCode.CustomerDoesNotHaveDevice, $"The customer {customerId} does not have any device", null);
@@ -114,21 +126,27 @@ namespace IoTSharp.Controllers
         /// <returns></returns>
         // GET: api/Devices/Customers
         [HttpGet("Customers")]
-        [Permission("IoT.Device.View")]
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<Guid>), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
         public async Task<ApiResult<PagedData<DeviceDetailDto>>> GetDevices([FromQuery] DeviceParam m)
         {
             var profile = this.GetUserProfile();
+            var isSystemAdmin = User.IsInRole(nameof(UserRole.SystemAdmin));
+            if (m.customerId == Guid.Empty ||
+                (!isSystemAdmin && (profile.Tenant == Guid.Empty ||
+                    (!User.IsInRole(nameof(UserRole.TenantAdmin)) &&
+                     m.customerId != profile.Customer))))
+                return new ApiResult<PagedData<DeviceDetailDto>>(
+                    ApiCode.DoNotAllow, "无权查询其他客户设备", new PagedData<DeviceDetailDto>());
             m.Limit = m.Limit < 5 ? 5 : m.Limit;
             try
             {
 
                 var query = from c in _context.Device
                              where c.CustomerId == m.customerId
-                                 && c.TenantId == profile.Tenant
+                                 && (isSystemAdmin || c.TenantId == profile.Tenant)
                                  && !c.Deleted
                              select c;
                 if (m.OnlyActive)
@@ -349,7 +367,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="deviceId"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpGet("{deviceId}/Identity")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -387,7 +405,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="deviceId"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpGet("{deviceId}/CreateX509Identity")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -401,8 +419,7 @@ namespace IoTSharp.Controllers
             }
             else
             {
-                var cust = from c in _context.Device.Include(d => d.Customer).Include(d => d.Tenant) where c.Id == deviceId select c;
-                var dev = cust.FirstOrDefault();
+                var dev = await FoundAsync(deviceId);
                 if (dev != null)
                 {
                     await EnsureDeviceIdentityAsync(dev);
@@ -453,12 +470,16 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="deviceId"></param>
         /// <returns>一个压缩包，包含ca.crt client.crt client.key</returns>
+        [IotRequirePermission("iot.device.manage")]
         [HttpGet("{deviceId}/DownloadCertificates")]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status200OK)]
-        public ActionResult DownloadCertificates(Guid deviceId)
+        public async Task<ActionResult> DownloadCertificates(Guid deviceId)
         {
+            if (!await CanAccessDeviceAsync(deviceId))
+                return NotFound(new ApiResult(ApiCode.NotFoundDevice,
+                    "设备不在当前客户或租户范围"));
             try
             {
                 var dt = _context.DeviceIdentities.Include(d => d.Device).FirstOrDefault(c => c.Device.Id == deviceId);
@@ -524,7 +545,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="deviceId"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [HttpGet("{deviceId}/AttributeLatest")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -558,14 +579,29 @@ namespace IoTSharp.Controllers
         ///获取指定Key和设备Id列表的最新属性
         /// </summary>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [HttpPost("AttributeLatestByKeyNameAndDeviceId")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
         public async Task<ApiResult<List<AttributeDataDto>>> GetAttributeLatestByKeyNameAndDeviceId(AttributeLatestByKeyNameAndDeviceIdDto dto)
         {
-            return new ApiResult<List<AttributeDataDto>>(ApiCode.Success, "Ok", await _context.AttributeLatest.Where(p => dto.deviceIds.Any(c => c == p.DeviceId) && dto.keyNames.Contains(p.KeyName)).Select(t =>
+            if (dto?.deviceIds == null || dto.keyNames == null ||
+                dto.deviceIds.Count() == 0 || dto.deviceIds.Count() > 100 ||
+                dto.keyNames.Count() == 0 || dto.keyNames.Count() > 100)
+                return new ApiResult<List<AttributeDataDto>>(ApiCode.InValidData,
+                    "设备及属性键数量必须在 1 到 100 之间", null);
+            var profile = this.GetUserProfile();
+            var allowedDevices = _context.Device.AsNoTracking()
+                .Where(d => !d.Deleted && dto.deviceIds.Contains(d.Id));
+            if (!User.IsInRole(nameof(UserRole.SystemAdmin)))
+            {
+                allowedDevices = allowedDevices.Where(d => d.TenantId == profile.Tenant);
+                if (!User.IsInRole(nameof(UserRole.TenantAdmin)))
+                    allowedDevices = allowedDevices.Where(d => d.CustomerId == profile.Customer);
+            }
+            var permittedIds = allowedDevices.Select(d => d.Id);
+            return new ApiResult<List<AttributeDataDto>>(ApiCode.Success, "Ok", await _context.AttributeLatest.Where(p => permittedIds.Contains(p.DeviceId) && dto.keyNames.Contains(p.KeyName)).Select(t =>
                 new AttributeDataDto()
                 {
                     DeviceId = t.DeviceId,
@@ -585,7 +621,7 @@ namespace IoTSharp.Controllers
         /// <param name="deviceId">Which device do you read?</param>
         /// <param name="keys">Specify key name list , use , or space or  ; to split </param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [HttpGet("{deviceId}/AttributeLatest/{keys}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -609,55 +645,51 @@ namespace IoTSharp.Controllers
 
         private async Task<bool> CanAccessDeviceAsync(Guid deviceId)
         {
+            if (User.IsInRole(nameof(UserRole.SystemAdmin)))
+                return await _context.Device.AsNoTracking()
+                    .AnyAsync(d => d.Id == deviceId && !d.Deleted);
+
+            if (!Guid.TryParse(User.FindFirst(IoTSharpClaimTypes.Tenant)?.Value,
+                    out var tenantId) || tenantId == Guid.Empty)
+                return false;
             if (User.IsInRole(nameof(UserRole.TenantAdmin)))
             {
-                var tid = Guid.Parse(User.Claims.First(c => c.Type == IoTSharpClaimTypes.Tenant).Value);
                 return await _context.Device
                     .AsNoTracking()
                     .AnyAsync(d => d.Id == deviceId
-                        && d.TenantId == tid
+                        && d.TenantId == tenantId
                         && !d.Deleted);
             }
 
-            if (User.IsInRole(nameof(UserRole.NormalUser)))
-            {
-                var cid = Guid.Parse(User.Claims.First(c => c.Type == IoTSharpClaimTypes.Customer).Value);
-                return await _context.Device
-                    .AsNoTracking()
-                    .AnyAsync(d => d.Id == deviceId
-                        && d.CustomerId == cid
-                        && !d.Deleted);
-            }
-
-            return false;
+            if (!Guid.TryParse(User.FindFirst(IoTSharpClaimTypes.Customer)?.Value,
+                    out var customerId) || customerId == Guid.Empty)
+                return false;
+            return await _context.Device.AsNoTracking()
+                .AnyAsync(d => d.Id == deviceId && d.TenantId == tenantId
+                    && d.CustomerId == customerId && !d.Deleted);
         }
 
         private async Task<Device> FoundAsync(Guid deviceId)
         {
-            Device dev = null;
+            var query = _context.Device
+                .Include(d => d.Tenant)
+                .Include(d => d.Customer)
+                .Include(d => d.DeviceIdentity)
+                .Include(d => d.Owner)
+                .Include(d => d.Product)
+                .Where(d => d.Id == deviceId && !d.Deleted);
+            if (User.IsInRole(nameof(UserRole.SystemAdmin)))
+                return await query.FirstOrDefaultAsync();
+            if (!Guid.TryParse(User.FindFirst(IoTSharpClaimTypes.Tenant)?.Value,
+                    out var tenantId) || tenantId == Guid.Empty)
+                return null;
+            query = query.Where(d => d.TenantId == tenantId);
             if (User.IsInRole(nameof(UserRole.TenantAdmin)))
-            {
-                var tid = Guid.Parse(User.Claims.First(c => c.Type == IoTSharpClaimTypes.Tenant).Value);
-                dev = await _context.Device
-                    .Include(d => d.Tenant)
-                    .Include(d => d.Customer)
-                    .Include(d => d.DeviceIdentity)
-                    .Include(d => d.Owner)
-                    .Include(d => d.Product)
-                    .FirstOrDefaultAsync(d => d.Id == deviceId && d.TenantId == tid && !d.Deleted);
-            }
-            else if (User.IsInRole(nameof(UserRole.NormalUser)))
-            {
-                var cid = Guid.Parse(User.Claims.First(c => c.Type == IoTSharpClaimTypes.Customer).Value);
-                dev = await _context.Device
-                    .Include(d => d.Tenant)
-                    .Include(d => d.Customer)
-                    .Include(d => d.DeviceIdentity)
-                    .Include(d => d.Owner)
-                    .Include(d => d.Product)
-                    .FirstOrDefaultAsync(d => d.Id == deviceId && d.CustomerId == cid && !d.Deleted);
-            }
-            return dev;
+                return await query.FirstOrDefaultAsync();
+            if (!Guid.TryParse(User.FindFirst(IoTSharpClaimTypes.Customer)?.Value,
+                    out var customerId) || customerId == Guid.Empty)
+                return null;
+            return await query.FirstOrDefaultAsync(d => d.CustomerId == customerId);
         }
 
 
@@ -669,7 +701,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="deviceId"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.telemetry.view")]
         [HttpGet("{deviceId}/TelemetryLatest")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -700,7 +732,7 @@ namespace IoTSharp.Controllers
         /// <param name="deviceId">Which device do you read?</param>
         /// <param name="keys">指定键值列表， 使用分号或者逗号分割 。 </param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.telemetry.view")]
         [HttpGet("{deviceId}/TelemetryLatest/{keys}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -724,7 +756,7 @@ namespace IoTSharp.Controllers
         /// <param name="keys">Specify key name list , use , or space or  ; to split </param>
         /// <param name="begin">开始以时间， 比如 2019-06-06 12:24</param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.telemetry.view")]
         [HttpGet("{deviceId}/TelemetryLatest/{keys}/{begin}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -751,7 +783,7 @@ namespace IoTSharp.Controllers
         /// <param name="begin">For example: 2019-06-06 12:24</param>
         /// <param name="end">For example: 2019-06-06 12:24</param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.telemetry.view")]
         [HttpGet("{deviceId}/TelemetryData/{keys}/{begin}/{end}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -783,7 +815,7 @@ namespace IoTSharp.Controllers
         /// }
         /// </param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.telemetry.view")]
         [HttpPost("{deviceId}/TelemetryData")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -805,8 +837,7 @@ namespace IoTSharp.Controllers
         /// <summary>
         /// 管理端手工上报设备遥测数据。数据仍通过事件总线写入时序存储并触发规则链。
         /// </summary>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
-        [Permission("IoT.Device.Command")]
+        [IotRequirePermission("iot.device.command")]
         [HttpPost("{deviceId:guid}/Telemetry/Manual")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -916,7 +947,7 @@ namespace IoTSharp.Controllers
         /// <param name="id"></param>
         /// <returns></returns>
         // GET: api/Devices/5
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.view")]
         [HttpGet("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<Guid>), StatusCodes.Status404NotFound)]
@@ -948,7 +979,7 @@ namespace IoTSharp.Controllers
         /// <param name="device"></param>
         /// <returns></returns>
         // PUT: api/Devices/5
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin) + "," + nameof(UserRole.SystemAdmin))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpPut("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -1021,7 +1052,7 @@ namespace IoTSharp.Controllers
 
 
 
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpPost("product/{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<DevicePostDto>), StatusCodes.Status404NotFound)]
@@ -1050,7 +1081,7 @@ namespace IoTSharp.Controllers
         /// <param name="device"></param>
         /// <returns></returns>
         // POST: api/Devices
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<DevicePostDto>), StatusCodes.Status404NotFound)]
@@ -1115,7 +1146,7 @@ namespace IoTSharp.Controllers
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.CustomerAdmin))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpDelete("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult<Guid>), StatusCodes.Status404NotFound)]
@@ -1520,7 +1551,7 @@ namespace IoTSharp.Controllers
         /// 服务侧新增属性
         /// </summary>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpPost("{access_token}/AddAttribute")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
@@ -1532,7 +1563,7 @@ namespace IoTSharp.Controllers
                 return new ApiResult<bool>(ApiCode.InValidData, "attribute payload is invalid", false);
             }
 
-            if (!_context.Device.Any(c => c.Id == attribute.DeviceId))
+            if (!await CanAccessDeviceAsync(attribute.DeviceId))
             {
                 return new ApiResult<bool>(ApiCode.NotFoundDevice, "device not found", false);
             }
@@ -1561,14 +1592,14 @@ namespace IoTSharp.Controllers
         /// <param name="devid"></param>
         /// <param name="attributes"></param>
         /// <returns></returns>
-        [Authorize(Roles = nameof(UserRole.NormalUser))]
+        [IotRequirePermission("iot.device.manage")]
         [HttpPost("{devid}/EditAttribute")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ApiResult), StatusCodes.Status404NotFound)]
         [ProducesDefaultResponseType]
         public async Task<ApiResult<Dic>> EditAttribute(Guid devid, DeviceAttrEditDto attributes)
         {
-            if (devid == Guid.Empty || !_context.Device.Any(c => c.Id == devid))
+            if (devid == Guid.Empty || !await CanAccessDeviceAsync(devid))
             {
                 return new ApiResult<Dic>(ApiCode.NotFoundDevice, "device not found", null);
             }
@@ -1609,9 +1640,13 @@ namespace IoTSharp.Controllers
         /// 属性删除
         /// </summary>
         /// <param name="input">要删除的属性。</param>
+        [IotRequirePermission("iot.device.manage")]
         [HttpDelete("[action]")]
         public async Task<ApiResult<bool>> RemoveAttribute(RemoveDeviceAttributeInput input)
         {
+            if (input == null || !await CanAccessDeviceAsync(input.DeviceId))
+                return new ApiResult<bool>(ApiCode.DoNotAllow,
+                    "不能删除其他客户或租户的设备属性", false);
             var attribute = await _context.DataStorage.FirstOrDefaultAsync(c => c.DeviceId == input.DeviceId && c.KeyName == input.KeyName && c.DataSide == input.DataSide);
             if (attribute != null)
             {

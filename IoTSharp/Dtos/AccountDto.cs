@@ -113,6 +113,11 @@ namespace IoTSharp.Dtos
         /// </summary>
         public List<string> Roles { get; set; } = new List<string>();
         /// <summary>
+        /// User-management role binding; null on Modify means do not change
+        /// role membership for legacy clients that omit this field.
+        /// </summary>
+        public List<string>? RoleNames { get; set; }
+        /// <summary>
         /// 电话号码
         /// </summary>
         public string PhoneNumber { get; set; }
@@ -136,8 +141,13 @@ namespace IoTSharp.Dtos
         /// 用户名
         /// </summary>
         public string UserName { get; set; }
+        /// <summary>人员显示姓名，与登录账号独立保存。</summary>
+        public string DisplayName { get; set; }
         public string CustomerName { get; set; }
         public string TenantName { get; set; }
+        /// <summary>客户归属，用于用户管理新增和编辑。</summary>
+        public Guid CustomerId { get; set; }
+        public Guid TenantId { get; set; }
         /// <summary>
         /// 账号来源：Local 或 IAM。
         /// </summary>

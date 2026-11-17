@@ -6,8 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Industrial.Security.Abstractions;
 using IoTSharp.Contracts;
+using IoTSharp.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace IoTSharp.IndustrialSecurity;
@@ -91,7 +93,8 @@ public sealed class IoTSharpIdentityProvider(IoTSharpCurrentUser currentUser) : 
 /// </summary>
 public sealed class IoTSharpLocalPermissionSource(
     IHttpContextAccessor httpContextAccessor,
-    UserManager<IdentityUser> users) : ILocalPermissionSource
+    UserManager<IdentityUser> users,
+    ApplicationDbContext db) : ILocalPermissionSource
 {
     public async Task<bool> HasPermissionAsync(string userId, string permissionCode, CancellationToken cancellationToken = default)
     {
@@ -127,6 +130,23 @@ public sealed class IoTSharpLocalPermissionSource(
             || string.Equals(p, permissionCode, StringComparison.OrdinalIgnoreCase)
             || string.Equals(p, mapped, StringComparison.OrdinalIgnoreCase)))
             return true;
+
+        // Custom role permission claims are stored in Identity. They are
+        // validated against a fixed catalog before granting an application
+        // capability; arbitrary role claim strings never become wildcard
+        // permissions or skip tenant/customer data scope checks.
+        var canonical = IoTSharpPermissionCodeMapper.ToCanonicalCode(mapped);
+        if (IotRolePermissionCatalog.Descriptions.ContainsKey(canonical))
+        {
+            var granted = await db.UserRoles.AsNoTracking()
+                .Where(x => x.UserId == localUserId)
+                .Join(db.RoleClaims.AsNoTracking(), x => x.RoleId,
+                    claim => claim.RoleId, (membership, claim) => claim)
+                .Where(claim => claim.ClaimType == IotRolePermissionCatalog.ClaimType &&
+                    claim.ClaimValue == canonical)
+                .AnyAsync(cancellationToken);
+            if (granted) return true;
+        }
 
         return IoTSharpPermissionCodeMapper.RoleAllows(roles, permissionCode, mapped);
     }
@@ -218,7 +238,8 @@ public sealed class IoTSharpPermissionCodeMapper : IPermissionCodeMapper
     }
 }
 
-public sealed class IoTSharpLocalPermissionProvider(UserManager<IdentityUser> users) : IUserPermissionProvider
+public sealed class IoTSharpLocalPermissionProvider(
+    UserManager<IdentityUser> users, ApplicationDbContext db) : IUserPermissionProvider
 {
     public async Task<UserPermissionSnapshot> GetPermissionsAsync(string userId, CancellationToken cancellationToken = default)
     {
@@ -232,6 +253,17 @@ public sealed class IoTSharpLocalPermissionProvider(UserManager<IdentityUser> us
 
         var roles = await users.GetRolesAsync(user);
         permissions.UnionWith(IoTSharpPermissionCodeMapper.PermissionsForRoles(roles));
+
+        var roleClaims = await db.UserRoles.AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .Join(db.RoleClaims.AsNoTracking(), x => x.RoleId,
+                claim => claim.RoleId, (membership, claim) => claim)
+            .Where(c => c.ClaimType == IotRolePermissionCatalog.ClaimType)
+            .Select(c => c.ClaimValue).ToListAsync(cancellationToken);
+        permissions.UnionWith(roleClaims
+            .Where(value => value != null &&
+                IotRolePermissionCatalog.Descriptions.ContainsKey(value!))
+            .Select(value => IoTSharpPermissionCodeMapper.ToCanonicalCode(value!)));
 
         var claims = await users.GetClaimsAsync(user);
         permissions.UnionWith(claims

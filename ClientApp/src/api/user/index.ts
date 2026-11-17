@@ -18,6 +18,12 @@ export function accountApi() {
 				params,
 			});
 		},
+        assignableRoles: (): Promise<{ code: number; info: string; data: AccountRoleOption[] }> =>
+            request({ url: '/api/Account/AssignableRoles', method: 'get' }) as unknown as
+                Promise<{ code: number; info: string; data: AccountRoleOption[] }>,
+        assignableCustomers: (): Promise<{ code: number; info: string; data: AccountCustomerOption[] }> =>
+            request({ url: '/api/Account/AssignableCustomers', method: 'get' }) as unknown as
+                Promise<{ code: number; info: string; data: AccountCustomerOption[] }>,
 		getAccount: (id: string) => {
 			return request({
 				url: '/api/Account/Get',
@@ -46,7 +52,7 @@ export function accountApi() {
 		},
 		deleteAccount: (id: string) => {
 			return request({
-				url: '/api/Account/' + id,
+				url: '/api/Account/Delete/' + encodeURIComponent(id),
 				method: 'delete',
 				data: {},
 			});
@@ -59,10 +65,22 @@ export interface CustomerQueryParam extends IListQueryParam {
 	customerId?: string;
 }
 
+export interface AccountCustomerOption {
+    id: string;
+    name: string;
+    tenantId: string;
+    tenantName: string;
+}
+export interface AccountRoleOption {
+    name: string;
+    displayName: string;
+}
 export interface CreateAccountInput {
     userName: string;
+    displayName?: string;
     email: string;
     password: string;
     phoneNumber?: string;
     customerId?: string;
+    roleNames?: string[];
 }

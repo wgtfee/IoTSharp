@@ -5,7 +5,8 @@ namespace IoTSharp.Services.PredictiveMaintenance.P2;
 
 /// <summary>
 /// IoTSharp-owned repair order, not an external maintenance system ticket.
-/// Separate, versioned PdM SQL Server database. Never mapped in ApplicationDbContext.
+/// Stored in configured PdM SQL tables (currently the IOTSharp main catalog).
+/// Never mapped into ApplicationDbContext itself.
 /// </summary>
 public sealed class PdmInternalWorkOrder
 {
@@ -23,6 +24,8 @@ public sealed class PdmInternalWorkOrder
     public string Description { get; set; } = "";
     public string State { get; set; } = "Open";
     public Guid? AssignedTo { get; set; }
+    /// <summary>Optional IoTSharp Identity role queue; the first authorized role member claims it on Start.</summary>
+    public string? AssignedRoleId { get; set; }
     public string Resolution { get; set; } = "";
     public int Revision { get; set; } = 1;
     public DateTime FirstObservedUtc { get; set; }
@@ -91,6 +94,7 @@ public sealed class PdmInternalWorkOrderDbContext(DbContextOptions<PdmInternalWo
         order.Property(x => x.Description).HasMaxLength(2048).IsRequired();
         order.Property(x => x.RiskLevel).HasMaxLength(24).IsRequired();
         order.Property(x => x.State).HasMaxLength(24).IsRequired();
+        order.Property(x => x.AssignedRoleId).HasMaxLength(450);
         order.Property(x => x.Resolution).HasMaxLength(2000).IsRequired();
         order.Property(x => x.RiskSourceEventKey).HasMaxLength(128).IsRequired();
         order.Property(x => x.Revision).IsConcurrencyToken();

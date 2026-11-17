@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import Cookies from 'js-cookie';
 import { Session } from '/@/utils/storage';
 import { useLoginApi } from '../api/login';
+import { normalizeIoTUserRoles } from '/@/utils/iotRoles';
 
 const apiBaseURL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -35,6 +36,7 @@ export const useUserInfo = defineStore('userInfo', {
 			if (Session.get('userInfo')) {
 				const cachedUserInfos = Session.get('userInfo');
 				cachedUserInfos.photo = normalizeAvatarUrl(cachedUserInfos.photo);
+			cachedUserInfos.roles = normalizeIoTUserRoles(cachedUserInfos.roles);
 				this.userInfos = cachedUserInfos;
 				Session.set('userInfo', cachedUserInfos);
 			} else {
@@ -53,7 +55,7 @@ export const useUserInfo = defineStore('userInfo', {
 						userName: res.data.name,
 						photo: normalizeAvatarUrl(res.data.avatar),
 						time: new Date().getTime(),
-						roles: [res.data.roles],
+						roles: normalizeIoTUserRoles(res.data.roles),
 						authBtnList: ['btn.add', 'btn.del', 'btn.edit', 'btn.link'],
 						customer: res.data.customer,
 						tenant: res.data.tenant,

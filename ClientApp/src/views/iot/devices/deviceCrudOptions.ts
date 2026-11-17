@@ -8,7 +8,7 @@ import { TableDataRow } from '/@/views/iot/devices/model';
 import dayjs from 'dayjs';
 
 // eslint-disable-next-line no-unused-vars
-export const createDeviceCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string, deviceDetailRef?: Ref<{ openDialog: (row: TableDataRow) => void } | undefined>, addRulesRef?: Ref<unknown>, selectedItems?: Ref<TableDataRow[]>, overviewState?: { pageCount: number; onlineCount: number; offlineCount: number; lastRefresh: string; total: number }): { crudOptions: CrudOptions; deviceId?: string } {
+export const createDeviceCrudOptions = function ({ expose }: { expose: CrudExpose }, customerId: string, deviceDetailRef?: Ref<{ openDialog: (row: TableDataRow) => void } | undefined>, addRulesRef?: Ref<unknown>, selectedItems?: Ref<TableDataRow[]>, overviewState?: { pageCount: number; onlineCount: number; offlineCount: number; lastRefresh: string; total: number }, canManageDevices = false): { crudOptions: CrudOptions; deviceId?: string } {
 
 
 
@@ -90,6 +90,9 @@ export const createDeviceCrudOptions = function ({ expose }: { expose: CrudExpos
 	};
 	return {
 		crudOptions: {
+			actionbar: {
+				buttons: { add: { show: canManageDevices } },
+			},
 			request: {
 				pageRequest,
 				addRequest,
@@ -132,11 +135,13 @@ export const createDeviceCrudOptions = function ({ expose }: { expose: CrudExpos
 						show: false,
 					},
 					edit: {
+						show: canManageDevices,
 						icon: 'editPen',
 						...FsButton,
 						order: 1,
 					}, //编辑按钮
 					remove: {
+						show: canManageDevices,
 						icon: 'Delete',
 						...FsButton,
 						order: 5,

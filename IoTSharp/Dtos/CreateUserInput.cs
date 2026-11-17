@@ -1,6 +1,7 @@
 ﻿using static CLanguage.Report;
 using System.ComponentModel.DataAnnotations;
 using System;
+using System.Collections.Generic;
 
 namespace IoTSharp.Dtos
 {
@@ -18,10 +19,15 @@ namespace IoTSharp.Dtos
 
         /// <summary>登录用户名；未指定时使用邮箱。</summary>
         public string UserName { get; set; }
+        /// <summary>用于指派、审计等页面的真实人员姓名。</summary>
+        [StringLength(80)]
+        public string DisplayName { get; set; }
         /// <summary>
         /// 
         /// </summary>
         public Guid CustomerId { get; set; }
+        /// <summary>Explicit Identity role names; null keeps legacy NormalUser default.</summary>
+        public List<string>? RoleNames { get; set; }
 
         /// <summary>
         /// 用户名密码
